@@ -1,0 +1,9 @@
+specs:
+    - name: project-scaffold
+      status: done
+    - name: agent-runtime
+      status: done
+    - name: agent-dialog-api
+      status: in-queue
+    - name: docs-contract-catalog
+      status: draft
