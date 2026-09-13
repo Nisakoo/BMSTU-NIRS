@@ -225,8 +225,10 @@ sequenceDiagram
 - In-memory реализация использует структуры текущего процесса и отдельную
   синхронизацию по `dialog_id`; внешний брокер задач и база данных не
   добавляются.
-- HTTP-слой размещается в `backend/src/smeshariki_ai/api/`, сервисный интерфейс
-  остаётся внутри backend и не импортирует FastAPI.
+- HTTP-слой размещается в `backend/src/smeshariki_ai/api/`, прикладной
+  `AgentService` — в `backend/src/smeshariki_ai/application/`, а контракт и
+  in-memory реализация истории — в `backend/src/smeshariki_ai/dialogs/`.
+  Application-слой остаётся внутри backend и не импортирует FastAPI.
 - Точка сборки приложения создаёт зависимости один раз на жизненный цикл
   процесса и подключает корректное завершение фоновых задач к lifecycle
   FastAPI.

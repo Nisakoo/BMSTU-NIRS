@@ -4,6 +4,6 @@ specs:
     - name: agent-runtime
       status: done
     - name: agent-dialog-api
-      status: in-queue
+      status: done
     - name: docs-contract-catalog
       status: draft

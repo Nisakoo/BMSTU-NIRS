@@ -37,7 +37,9 @@ class Agent:
         request: UserRequest,
     ) -> AgentResponse:
         logger.info(
-            "agent.run.started",
+            "agent.run.started history_size=%d max_iterations=%d",
+            len(history),
+            self._config.max_iterations,
             extra={
                 "history_size": len(history),
                 "max_iterations": self._config.max_iterations,
@@ -52,7 +54,8 @@ class Agent:
         try:
             for iteration in range(1, self._config.max_iterations + 1):
                 logger.info(
-                    "agent.iteration.started",
+                    "agent.iteration.started iteration=%d",
+                    iteration,
                     extra={"iteration": iteration},
                 )
                 llm_response = await self._llm_provider.generate(
@@ -61,7 +64,9 @@ class Agent:
                 )
                 result_type = self._result_type(llm_response)
                 logger.info(
-                    "agent.llm.completed",
+                    "agent.llm.completed iteration=%d result_type=%s",
+                    iteration,
+                    result_type.value,
                     extra={
                         "iteration": iteration,
                         "result_type": result_type.value,
@@ -76,7 +81,8 @@ class Agent:
                 if result_type is LLMResultType.FINAL:
                     assert llm_response.content is not None
                     logger.info(
-                        "agent.run.completed",
+                        "agent.run.completed iterations=%d",
+                        iteration,
                         extra={"iterations": iteration},
                     )
                     return AgentResponse(content=llm_response.content)
@@ -90,7 +96,10 @@ class Agent:
                     )
                     tool_result = await self._tool_registry.execute(tool_call)
                     logger.info(
-                        "agent.tool.completed",
+                        "agent.tool.completed iteration=%d tool_name=%s tool_status=%s",
+                        iteration,
+                        tool_call.name,
+                        "error" if tool_result.is_error else "success",
                         extra={
                             "iteration": iteration,
                             "tool_name": tool_call.name,
@@ -113,7 +122,8 @@ class Agent:
             )
         except Exception as error:
             logger.error(
-                "agent.run.failed",
+                "agent.run.failed error_type=%s",
+                type(error).__name__,
                 extra={"error_type": type(error).__name__},
             )
             raise

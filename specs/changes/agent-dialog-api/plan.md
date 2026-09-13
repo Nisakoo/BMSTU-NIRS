@@ -52,7 +52,9 @@
 ### HTTP и сборка приложения
 
 HTTP-слой создаётся фабрикой `create_app(agent_service)` и получает готовый
-сервис, не собирая зависимости внутри маршрутов. FastAPI lifespan вызывает
+сервис из пакета `smeshariki_ai.application`, не собирая зависимости внутри
+маршрутов. Контракт и реализация истории остаются в пакете
+`smeshariki_ai.dialogs`. FastAPI lifespan вызывает
 `AgentService.shutdown()` при остановке. Bootstrap отдельно загружает config и
 однократно создаёт `FakeLLMProvider`, пустой `ToolRegistry`, `Agent`,
 `InMemoryHistoryStore`, `AgentService` и приложение. `smeshariki_ai.main:app`
@@ -151,9 +153,9 @@ user/assistant; второй запрос одного диалога видит
 
 **Файлы:**
 
-- `backend/src/smeshariki_ai/dialogs/service.py`;
-- `backend/src/smeshariki_ai/dialogs/__init__.py`;
-- `backend/tests/unit/dialogs/test_service.py`.
+- `backend/src/smeshariki_ai/application/agent_service.py`;
+- `backend/src/smeshariki_ai/application/__init__.py`;
+- `backend/tests/unit/application/test_agent_service.py`.
 
 **Действия (RED → GREEN → REFACTOR):**
 
@@ -170,7 +172,7 @@ user/assistant; второй запрос одного диалога видит
 **Тест:**
 
 ```sh
-uv run --project backend --locked pytest backend/tests/unit/dialogs/test_service.py -k "submit or order or independent"
+uv run --project backend --locked pytest backend/tests/unit/application/test_agent_service.py -k "submit or order or independent"
 ```
 
 ## Задача 4. Добавить ошибки, shutdown и безопасное логирование AgentService
@@ -185,9 +187,9 @@ uv run --project backend --locked pytest backend/tests/unit/dialogs/test_service
 
 **Файлы:**
 
-- `backend/src/smeshariki_ai/dialogs/errors.py`;
-- `backend/src/smeshariki_ai/dialogs/service.py`;
-- `backend/tests/unit/dialogs/test_service.py`.
+- `backend/src/smeshariki_ai/application/errors.py`;
+- `backend/src/smeshariki_ai/application/agent_service.py`;
+- `backend/tests/unit/application/test_agent_service.py`.
 
 **Действия (RED → GREEN → REFACTOR):**
 
@@ -205,7 +207,7 @@ uv run --project backend --locked pytest backend/tests/unit/dialogs/test_service
 **Тест:**
 
 ```sh
-uv run --project backend --locked pytest backend/tests/unit/dialogs/test_service.py
+uv run --project backend --locked pytest backend/tests/unit/application/test_agent_service.py
 ```
 
 ## Задача 5. Реализовать FastAPI-контракты диалогов

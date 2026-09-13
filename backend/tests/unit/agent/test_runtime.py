@@ -259,7 +259,7 @@ async def test_runtime_logs_events_without_context_or_tool_payload(
         UserRequest(content="private request"),
     )
 
-    events = [record.getMessage() for record in caplog.records]
+    events = [record.getMessage().split()[0] for record in caplog.records]
     assert events == [
         "agent.run.started",
         "agent.iteration.started",
@@ -269,6 +269,8 @@ async def test_runtime_logs_events_without_context_or_tool_payload(
         "agent.llm.completed",
         "agent.run.completed",
     ]
+    assert "iteration=1 result_type=tool_call" in caplog.records[2].getMessage()
+    assert "tool_name=echo tool_status=success" in caplog.records[3].getMessage()
     assert all(
         private_value not in caplog.text
         for private_value in (
@@ -290,5 +292,6 @@ async def test_controlled_failure_is_logged_without_request(
     with pytest.raises(InvalidLLMResponseError):
         await make_agent(provider).run((), UserRequest(content="private request"))
 
-    assert caplog.records[-1].getMessage() == "agent.run.failed"
+    assert caplog.records[-1].getMessage().startswith("agent.run.failed ")
+    assert "error_type=InvalidLLMResponseError" in caplog.records[-1].getMessage()
     assert "private request" not in caplog.text

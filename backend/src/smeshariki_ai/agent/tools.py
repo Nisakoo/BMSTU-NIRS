@@ -80,7 +80,9 @@ class ToolRegistry:
             json_output = to_jsonable_python(output)
         except Exception as error:
             logger.error(
-                "agent.tool.execution_failed",
+                "agent.tool.execution_failed tool_name=%s error_type=%s",
+                tool.name,
+                type(error).__name__,
                 extra={
                     "tool_name": tool.name,
                     "error_type": type(error).__name__,

@@ -114,7 +114,10 @@ async def test_tool_exception_returns_safe_error(
     assert result.error.code == "tool_execution_failed"
     assert "sensitive" not in result.error.message
     assert "secret" not in result.error.message
-    assert caplog.records[-1].getMessage() == "agent.tool.execution_failed"
+    assert caplog.records[-1].getMessage().startswith("agent.tool.execution_failed ")
+    assert (
+        "tool_name=failing error_type=RuntimeError" in caplog.records[-1].getMessage()
+    )
     assert caplog.records[-1].error_type == "RuntimeError"
     assert "sensitive implementation detail" not in caplog.text
     assert "secret" not in caplog.text
