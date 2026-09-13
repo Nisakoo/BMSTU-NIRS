@@ -6,4 +6,4 @@ specs:
     - name: agent-dialog-api
       status: done
     - name: docs-contract-catalog
-      status: draft
+      status: done
