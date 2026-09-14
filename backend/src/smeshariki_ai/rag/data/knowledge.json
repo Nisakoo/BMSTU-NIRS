@@ -1,0 +1,88 @@
+{
+  "schema_version": "1",
+  "records": [
+    {
+      "entity_type": "character",
+      "id": "pin",
+      "name": "Пин",
+      "aliases": ["механик"],
+      "canon_variants": ["classic", "shorts"],
+      "source_refs": [
+        {
+          "source_id": "characters",
+          "source_version": "1",
+          "locator": "characters.md:1",
+          "checksum": "sha256:demo-characters"
+        }
+      ],
+      "species": "пингвин",
+      "age_group": "adult",
+      "traits": ["изобретательный", "ответственный"],
+      "speech_style": {
+        "register": "разговорный",
+        "markers": ["немецкий акцент"],
+        "constraints": ["сохранять разборчивость"]
+      }
+    },
+    {
+      "entity_type": "character",
+      "id": "pin_movie",
+      "name": "Пин",
+      "aliases": ["кинопин"],
+      "canon_variants": ["movie"],
+      "source_refs": [
+        {
+          "source_id": "characters-movie",
+          "source_version": "1",
+          "locator": "characters_movie.md:1",
+          "checksum": "sha256:demo-characters-movie"
+        }
+      ],
+      "species": "пингвин",
+      "age_group": "adult",
+      "traits": ["изобретательный", "смелый"],
+      "speech_style": {
+        "register": "разговорный",
+        "markers": ["немецкий акцент"],
+        "constraints": ["сохранять разборчивость"]
+      }
+    },
+    {
+      "entity_type": "location",
+      "id": "pin_house",
+      "name": "Дом Пина",
+      "aliases": ["мастерская пина"],
+      "canon_variants": ["classic"],
+      "source_refs": [
+        {
+          "source_id": "locations",
+          "source_version": "1",
+          "locator": "locations.md:1",
+          "checksum": "sha256:demo-locations"
+        }
+      ],
+      "description": "Дом и мастерская Пина.",
+      "resident_ids": ["pin"]
+    },
+    {
+      "entity_type": "artifact",
+      "id": "pin_plane",
+      "name": "Пинолёт",
+      "aliases": ["летательный аппарат пина"],
+      "canon_variants": ["classic"],
+      "source_refs": [
+        {
+          "source_id": "artifacts",
+          "source_version": "1",
+          "locator": "episode-15:04:32",
+          "checksum": "sha256:demo-artifacts"
+        }
+      ],
+      "artifact_type": "летательный аппарат",
+      "description": "Изобретённый Пином летательный аппарат.",
+      "capabilities": ["летать"],
+      "limitations": ["требует обслуживания"],
+      "creator_ids": ["pin"]
+    }
+  ]
+}

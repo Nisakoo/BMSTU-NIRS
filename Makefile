@@ -1,26 +1,21 @@
 SHELL := /bin/sh
 
-COMPOSE_FILE := docker/compose.yaml
-ENV_FILE := docker/.env
+UV ?= uv
+UV_CACHE_DIR ?= /tmp/smeshariki-ai-uv-cache
+UV_LINK_MODE ?= copy
+
+export UV_CACHE_DIR
+export UV_LINK_MODE
 
 .PHONY: help run test
 
 help:
 	@echo "Available commands:"
-	@echo "  make run   Run the backend and its infrastructure"
-	@echo "  make test  Run all configured project tests"
+	@echo "  make run   Run the base RAG CLI"
+	@echo "  make test  Run all Python product tests"
 
 run:
-	@test -f "$(COMPOSE_FILE)" || { \
-		echo "Error: $(COMPOSE_FILE) is not configured yet." >&2; \
-		exit 1; \
-	}
-	@if [ -f "$(ENV_FILE)" ]; then \
-		docker compose --env-file "$(ENV_FILE)" -f "$(COMPOSE_FILE)" up --build; \
-	else \
-		docker compose -f "$(COMPOSE_FILE)" up --build; \
-	fi
+	@$(UV) run --project backend python -m smeshariki_ai.rag
 
 test:
-	@echo "Error: Python product tests are not configured yet." >&2
-	@exit 1
+	@$(UV) run --project backend pytest -c backend/pyproject.toml backend/tests
