@@ -1,6 +1,6 @@
 ---
 name: sdd
-description: Guides project changes through Specify, Plan, Implement, and Verify. Use when creating a feature, changing behavior, fixing a bug, or making an architectural change.
+description: Guides project changes through Specify, Plan, Implement, and Verify while tracking specification status. Use when creating a feature, changing behavior, fixing a bug, or making an architectural change.
 ---
 
 # SDD
@@ -11,12 +11,21 @@ description: Guides project changes through Specify, Plan, Implement, and Verify
 specify -> plan -> implement -> verify
 ```
 
+Перед выбором активной спецификации прочитай `specs/status.yaml`, если файл уже
+существует. Читать его можно напрямую. Создавать, обновлять и удалять записи
+разрешено только скриптом из [инструкции по статусам](references/status.md): не
+используй для этого `apply_patch`, редактор или shell redirect.
+
 Перед началом определи текущий этап и прочитай только соответствующую инструкцию:
 
 - [specify](references/specify.md) — сформулировать и согласовать требования;
 - [plan](references/plan.md) — подготовить и согласовать план;
 - [implement](references/implement.md) — реализовать план небольшими проверяемыми шагами;
 - [verify](references/verify.md) — доказать соответствие спецификации.
+
+Инструкцию [status](references/status.md) читай перед любой сменой состояния в
+реестре. `specs/status.yaml` хранит только имена спецификаций и их состояния;
+прогресс задач остаётся в самих SDD-артефактах.
 
 Для новой спецификации используй [шаблон](references/spec-template.md).
 

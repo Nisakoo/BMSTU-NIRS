@@ -1,0 +1,12 @@
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    environment:
+      AGENT_SYSTEM_PROMPT: ${AGENT_SYSTEM_PROMPT:-You are a helpful Smeshariki assistant.}
+      AGENT_MAX_ITERATIONS: ${AGENT_MAX_ITERATIONS:-4}
+    init: true
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    stop_grace_period: 10s
