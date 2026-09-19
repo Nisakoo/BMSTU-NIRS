@@ -10,9 +10,16 @@
 make run
 ```
 
-По умолчанию API доступен на `http://localhost:8000`. Для локального изменения
-настроек скопируйте `docker/.env.example` в `docker/.env`; этот файл не
-отслеживается Git.
+По умолчанию API доступен на `http://localhost:8000`. Перед первым запуском
+скопируйте `docker/.env.example` в `docker/.env`, выберите поддерживаемую LiteLLM
+модель в `LLM_MODEL` и при необходимости задайте `LLM_API_KEY` и
+`LLM_BASE_URL`. Локальный `docker/.env` не отслеживается Git; реальные секреты
+не должны попадать в `.env.example`.
+
+Backend использует LiteLLM Python SDK внутри своего процесса. `LLM_MODEL`
+обязателен. Таймаут одного запроса задаётся `LLM_TIMEOUT_SECONDS` (по умолчанию
+60 секунд), а число повторов — `LLM_NUM_RETRIES` (по умолчанию 0). Отдельный
+LiteLLM Proxy не запускается.
 
 Создание диалога:
 
@@ -36,7 +43,7 @@ in-memory истории и серверных логах.
 
 - `compose.yaml` — единственный сервис backend;
 - `Dockerfile` — Python 3.12 образ с зависимостями из `backend/uv.lock`;
-- `.env.example` — несекретные настройки порта и fake-агента.
+- `.env.example` — несекретный шаблон порта, агента и LiteLLM-провайдера.
 
 Frontend в Compose не входит и запускается отдельно.
 

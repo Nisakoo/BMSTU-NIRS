@@ -7,3 +7,7 @@ specs:
       status: done
     - name: docs-contract-catalog
       status: done
+    - name: litellm-provider
+      status: done
+    - name: backend-config
+      status: done

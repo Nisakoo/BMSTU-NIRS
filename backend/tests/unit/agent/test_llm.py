@@ -1,7 +1,6 @@
 import pytest
 from pydantic import ValidationError
 
-from smeshariki_ai.agent.llm import FakeLLMProvider
 from smeshariki_ai.agent.models import (
     AgentConfig,
     LLMResponse,
@@ -10,6 +9,7 @@ from smeshariki_ai.agent.models import (
     ToolDefinition,
     UserRequest,
 )
+from smeshariki_ai.agent.providers import FakeLLMProvider
 
 
 def test_agent_config_uses_four_iterations_by_default() -> None:

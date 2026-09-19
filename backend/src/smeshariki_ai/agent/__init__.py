@@ -4,7 +4,6 @@ from smeshariki_ai.agent.errors import (
     DuplicateToolError,
     InvalidLLMResponseError,
 )
-from smeshariki_ai.agent.llm import FakeLLMProvider, LLMProvider
 from smeshariki_ai.agent.models import (
     AgentConfig,
     AgentResponse,
@@ -18,6 +17,13 @@ from smeshariki_ai.agent.models import (
     ToolResult,
     UserRequest,
 )
+from smeshariki_ai.agent.providers import (
+    FakeLLMProvider,
+    LiteLLMProvider,
+    LiteLLMProviderConfig,
+    LLMProvider,
+    LLMProviderError,
+)
 from smeshariki_ai.agent.runtime import Agent
 from smeshariki_ai.agent.tools import Tool, ToolRegistry
 
@@ -30,7 +36,10 @@ __all__ = [
     "DuplicateToolError",
     "FakeLLMProvider",
     "InvalidLLMResponseError",
+    "LiteLLMProvider",
+    "LiteLLMProviderConfig",
     "LLMProvider",
+    "LLMProviderError",
     "LLMResultType",
     "LLMResponse",
     "Message",
