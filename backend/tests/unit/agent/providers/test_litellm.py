@@ -1,14 +1,16 @@
 import asyncio
 import json
 import logging
+from collections.abc import AsyncIterator, Iterable
 from unittest.mock import AsyncMock
 
 import pytest
-from litellm.types.utils import ModelResponse
+from litellm.types.utils import ModelResponse, ModelResponseStream
 
 import smeshariki_ai.agent.providers.litellm as provider_module
 from smeshariki_ai.agent.models import (
     LLMResponse,
+    LLMTextDelta,
     Message,
     MessageRole,
     ToolCall,
@@ -23,22 +25,39 @@ from smeshariki_ai.agent.providers import (
 )
 
 
-def make_response(
+class AsyncChunkStream:
+    def __init__(self, chunks: Iterable[object]) -> None:
+        self._chunks = tuple(chunks)
+
+    async def __aiter__(self) -> AsyncIterator[object]:
+        for chunk in self._chunks:
+            await asyncio.sleep(0)
+            yield chunk
+
+
+def make_chunk(
     content: str | None = "answer",
     *,
     tool_calls: list[dict[str, object]] | None = None,
-) -> ModelResponse:
-    return ModelResponse(
+) -> ModelResponseStream:
+    return ModelResponseStream(
         choices=[
             {
-                "message": {
-                    "role": "assistant",
+                "delta": {
                     "content": content,
                     "tool_calls": tool_calls,
                 }
             }
         ]
     )
+
+
+def make_response(
+    content: str | None = "answer",
+    *,
+    tool_calls: list[dict[str, object]] | None = None,
+) -> AsyncChunkStream:
+    return AsyncChunkStream([make_chunk(content, tool_calls=tool_calls)])
 
 
 @pytest.mark.asyncio
@@ -65,7 +84,7 @@ async def test_generate_awaits_acompletion_with_provider_config(
     completion.assert_awaited_once_with(
         model="openai/test-model",
         messages=[{"role": "user", "content": "question"}],
-        stream=False,
+        stream=True,
         timeout=12.5,
         num_retries=2,
         api_key="private-api-key",
@@ -190,10 +209,14 @@ async def test_generate_maps_tool_call_and_linked_result(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("content", ["answer", "", None])
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [("answer", "answer"), ("", ""), (None, "")],
+)
 async def test_generate_preserves_response_content(
     monkeypatch: pytest.MonkeyPatch,
     content: str | None,
+    expected: str,
 ) -> None:
     monkeypatch.setattr(
         provider_module.litellm_sdk,
@@ -204,11 +227,11 @@ async def test_generate_preserves_response_content(
 
     response = await provider.generate((), ())
 
-    assert response == LLMResponse(content=content)
+    assert response == LLMResponse(content=expected)
 
 
 @pytest.mark.asyncio
-async def test_generate_maps_all_tool_calls_without_filtering_mixed_content(
+async def test_generate_rejects_mixed_content_and_tool_calls(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     external_tool_calls = [
@@ -232,15 +255,79 @@ async def test_generate_maps_all_tool_calls_without_filtering_mixed_content(
     )
     provider = LiteLLMProvider(LiteLLMProviderConfig(model="test/model"))
 
-    response = await provider.generate((), ())
+    with pytest.raises(LLMProviderError, match="invalid response"):
+        await provider.generate((), ())
 
-    assert response == LLMResponse(
-        content="mixed content",
-        tool_calls=(
-            ToolCall(id="call-1", name="first", arguments={"value": 1}),
-            ToolCall(id="call-2", name="second", arguments={"value": 2}),
-        ),
+
+@pytest.mark.asyncio
+async def test_stream_yields_text_chunks_before_terminal_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stream = AsyncChunkStream([make_chunk("first"), make_chunk(" second")])
+    monkeypatch.setattr(
+        provider_module.litellm_sdk,
+        "acompletion",
+        AsyncMock(return_value=stream),
     )
+    provider = LiteLLMProvider(LiteLLMProviderConfig(model="test/model"))
+
+    events = provider.stream((), ())
+
+    assert await anext(events) == LLMTextDelta(content="first")
+    assert await anext(events) == LLMTextDelta(content=" second")
+    assert await anext(events) == LLMResponse(content="first second")
+    with pytest.raises(StopAsyncIteration):
+        await anext(events)
+
+
+@pytest.mark.asyncio
+async def test_stream_assembles_fragmented_tool_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stream = AsyncChunkStream(
+        [
+            make_chunk(
+                None,
+                tool_calls=[
+                    {
+                        "index": 0,
+                        "id": "call-",
+                        "function": {"name": "search_", "arguments": '{"q"'},
+                    }
+                ],
+            ),
+            make_chunk(
+                None,
+                tool_calls=[
+                    {
+                        "index": 0,
+                        "id": "1",
+                        "function": {"name": "knowledge", "arguments": ':"Крош"}'},
+                    }
+                ],
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        provider_module.litellm_sdk,
+        "acompletion",
+        AsyncMock(return_value=stream),
+    )
+    provider = LiteLLMProvider(LiteLLMProviderConfig(model="test/model"))
+
+    events = [event async for event in provider.stream((), ())]
+
+    assert events == [
+        LLMResponse(
+            tool_calls=(
+                ToolCall(
+                    id="call-1",
+                    name="search_knowledge",
+                    arguments={"q": "Крош"},
+                ),
+            )
+        )
+    ]
 
 
 @pytest.mark.asyncio

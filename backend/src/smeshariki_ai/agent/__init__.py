@@ -7,8 +7,10 @@ from smeshariki_ai.agent.errors import (
 from smeshariki_ai.agent.models import (
     AgentConfig,
     AgentResponse,
+    AgentTextDelta,
     LLMResponse,
     LLMResultType,
+    LLMTextDelta,
     Message,
     MessageRole,
     ToolCall,
@@ -23,8 +25,9 @@ from smeshariki_ai.agent.providers import (
     LiteLLMProviderConfig,
     LLMProvider,
     LLMProviderError,
+    LLMStreamEvent,
 )
-from smeshariki_ai.agent.runtime import Agent
+from smeshariki_ai.agent.runtime import Agent, AgentStreamEvent
 from smeshariki_ai.agent.tools import Tool, ToolRegistry
 
 __all__ = [
@@ -33,6 +36,8 @@ __all__ = [
     "AgentError",
     "AgentIterationLimitError",
     "AgentResponse",
+    "AgentStreamEvent",
+    "AgentTextDelta",
     "DuplicateToolError",
     "FakeLLMProvider",
     "InvalidLLMResponseError",
@@ -42,6 +47,8 @@ __all__ = [
     "LLMProviderError",
     "LLMResultType",
     "LLMResponse",
+    "LLMStreamEvent",
+    "LLMTextDelta",
     "Message",
     "MessageRole",
     "Tool",

@@ -1,8 +1,15 @@
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 
 from smeshariki_ai.agent.errors import AgentError
-from smeshariki_ai.agent.models import LLMResponse, Message, ToolDefinition
+from smeshariki_ai.agent.models import (
+    LLMResponse,
+    LLMTextDelta,
+    Message,
+    ToolDefinition,
+)
+
+LLMStreamEvent = LLMTextDelta | LLMResponse
 
 
 class LLMProviderError(AgentError):
@@ -10,19 +17,40 @@ class LLMProviderError(AgentError):
 
 
 class LLMProvider(ABC):
-    @abstractmethod
     async def generate(
         self,
         messages: Sequence[Message],
         tools: Sequence[ToolDefinition],
     ) -> LLMResponse:
-        """Return the next model response for the current agent context."""
+        """Collect and return the terminal response from a provider stream."""
+        response: LLMResponse | None = None
+        async for event in self.stream(messages, tools):
+            if isinstance(event, LLMResponse):
+                if response is not None:
+                    raise LLMProviderError(
+                        "The LLM provider returned an invalid response."
+                    )
+                response = event
+            elif response is not None:
+                raise LLMProviderError("The LLM provider returned an invalid response.")
+
+        if response is None:
+            raise LLMProviderError("The LLM provider returned an invalid response.")
+        return response
+
+    @abstractmethod
+    def stream(
+        self,
+        messages: Sequence[Message],
+        tools: Sequence[ToolDefinition],
+    ) -> AsyncIterator[LLMStreamEvent]:
+        """Yield text deltas followed by one terminal model response."""
 
 
 class FakeLLMProvider(LLMProvider):
-    async def generate(
+    async def stream(
         self,
         messages: Sequence[Message],
         tools: Sequence[ToolDefinition],
-    ) -> LLMResponse:
-        return LLMResponse(content="")
+    ) -> AsyncIterator[LLMStreamEvent]:
+        yield LLMResponse(content="")

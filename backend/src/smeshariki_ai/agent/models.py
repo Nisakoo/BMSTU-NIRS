@@ -6,6 +6,7 @@ from typing import Annotated, Any
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 NonEmptyString = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+NonEmptyFragment = Annotated[str, StringConstraints(min_length=1)]
 
 
 class AgentModel(BaseModel):
@@ -74,6 +75,14 @@ class Message(AgentModel):
 class LLMResponse(AgentModel):
     content: str | None = None
     tool_calls: tuple[ToolCall, ...] = ()
+
+
+class LLMTextDelta(AgentModel):
+    content: NonEmptyFragment
+
+
+class AgentTextDelta(AgentModel):
+    content: NonEmptyFragment
 
 
 class AgentResponse(AgentModel):

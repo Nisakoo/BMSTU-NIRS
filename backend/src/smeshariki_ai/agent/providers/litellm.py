@@ -1,32 +1,45 @@
 import json
 import logging
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 import litellm as litellm_sdk
 
 from smeshariki_ai.agent.models import (
     LLMResponse,
+    LLMTextDelta,
     Message,
     MessageRole,
     ToolCall,
     ToolDefinition,
 )
-from smeshariki_ai.agent.providers.base import LLMProvider, LLMProviderError
+from smeshariki_ai.agent.providers.base import (
+    LLMProvider,
+    LLMProviderError,
+    LLMStreamEvent,
+)
 from smeshariki_ai.agent.providers.config import LiteLLMProviderConfig
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _ToolCallParts:
+    id: str = ""
+    name: str = ""
+    arguments: str = ""
 
 
 class LiteLLMProvider(LLMProvider):
     def __init__(self, config: LiteLLMProviderConfig) -> None:
         self._config = config
 
-    async def generate(
+    async def stream(
         self,
         messages: Sequence[Message],
         tools: Sequence[ToolDefinition],
-    ) -> LLMResponse:
+    ) -> AsyncIterator[LLMStreamEvent]:
         logger.info(
             "llm.request.started model=%s message_count=%d tool_count=%d",
             self._config.model,
@@ -47,13 +60,79 @@ class LiteLLMProvider(LLMProvider):
             ) from error
 
         try:
-            response = await litellm_sdk.acompletion(**request)
+            response_stream = await litellm_sdk.acompletion(**request)
         except Exception as error:
             self._log_failure(error)
             raise LLMProviderError("The LLM provider request failed.") from error
 
         try:
-            result = self._map_response(response)
+            content_parts: list[str] = []
+            tool_call_parts: dict[int, _ToolCallParts] = {}
+            saw_choice = False
+
+            async for chunk in response_stream:
+                choices = chunk.choices
+                if not choices:
+                    continue
+                if len(choices) != 1:
+                    raise TypeError("A stream chunk must contain one choice.")
+
+                saw_choice = True
+                delta = choices[0].delta
+                content = delta.content
+                external_tool_calls = delta.tool_calls or ()
+
+                if content is not None and not isinstance(content, str):
+                    raise TypeError("Stream content must be text or null.")
+                if content and external_tool_calls:
+                    raise TypeError("A stream chunk cannot mix text and tool calls.")
+                if content and tool_call_parts:
+                    raise TypeError("A response cannot mix text and tool calls.")
+                if external_tool_calls and content_parts:
+                    raise TypeError("A response cannot mix text and tool calls.")
+
+                if content:
+                    content_parts.append(content)
+                    yield LLMTextDelta(content=content)
+
+                for external_call in external_tool_calls:
+                    index = external_call.index
+                    if not isinstance(index, int) or index != 0:
+                        raise TypeError("Only one tool call is supported.")
+                    parts = tool_call_parts.setdefault(index, _ToolCallParts())
+                    if external_call.id is not None:
+                        if not isinstance(external_call.id, str):
+                            raise TypeError("Tool call id must be text.")
+                        parts.id += external_call.id
+
+                    function = external_call.function
+                    if function.name is not None:
+                        if not isinstance(function.name, str):
+                            raise TypeError("Tool call name must be text.")
+                        parts.name += function.name
+                    if not isinstance(function.arguments, str):
+                        raise TypeError("Tool call arguments must be text.")
+                    parts.arguments += function.arguments
+
+            if not saw_choice:
+                raise TypeError("The LLM stream did not contain a choice.")
+
+            if tool_call_parts:
+                parts = tool_call_parts[0]
+                arguments = json.loads(parts.arguments)
+                if not isinstance(arguments, dict):
+                    raise TypeError("Tool call arguments must be a JSON object.")
+                result = LLMResponse(
+                    tool_calls=(
+                        ToolCall(
+                            id=parts.id,
+                            name=parts.name,
+                            arguments=arguments,
+                        ),
+                    )
+                )
+            else:
+                result = LLMResponse(content="".join(content_parts))
         except Exception as error:
             self._log_failure(error)
             raise LLMProviderError(
@@ -71,7 +150,7 @@ class LiteLLMProvider(LLMProvider):
                 "tool_count": len(tools),
             },
         )
-        return result
+        yield result
 
     def _build_request(
         self,
@@ -81,7 +160,7 @@ class LiteLLMProvider(LLMProvider):
         request: dict[str, Any] = {
             "model": self._config.model,
             "messages": [self._map_message(message) for message in messages],
-            "stream": False,
+            "stream": True,
             "timeout": self._config.timeout_seconds,
             "num_retries": self._config.num_retries,
         }
@@ -141,29 +220,6 @@ class LiteLLMProvider(LLMProvider):
                 "parameters": tool.parameters,
             },
         }
-
-    @staticmethod
-    def _map_response(response: Any) -> LLMResponse:
-        message = response.choices[0].message
-        if message.content is not None and not isinstance(message.content, str):
-            raise TypeError("LLM response content must be text or null.")
-
-        tool_calls = []
-        for external_call in message.tool_calls or ():
-            raw_arguments = external_call.function.arguments
-            if not isinstance(raw_arguments, str):
-                raise TypeError("Tool call arguments must be a JSON string.")
-            arguments = json.loads(raw_arguments)
-            if not isinstance(arguments, dict):
-                raise TypeError("Tool call arguments must be a JSON object.")
-            tool_calls.append(
-                ToolCall(
-                    id=external_call.id,
-                    name=external_call.function.name,
-                    arguments=arguments,
-                )
-            )
-        return LLMResponse(content=message.content, tool_calls=tool_calls)
 
     def _log_failure(self, error: Exception) -> None:
         logger.error(

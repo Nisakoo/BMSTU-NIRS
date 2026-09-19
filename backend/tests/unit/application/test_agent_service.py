@@ -1,15 +1,24 @@
 import asyncio
 import logging
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, field
 from uuid import UUID, uuid4
 
 import pytest
 
-from smeshariki_ai.agent import AgentResponse, Message, MessageRole, UserRequest
+from smeshariki_ai.agent import (
+    AgentResponse,
+    AgentStreamEvent,
+    AgentTextDelta,
+    Message,
+    MessageRole,
+    UserRequest,
+)
 from smeshariki_ai.application import (
     AgentService,
     AgentServiceUnavailableError,
+    DialogEvent,
+    DialogEventType,
 )
 from smeshariki_ai.dialogs import (
     DialogNotFoundError,
@@ -31,11 +40,11 @@ class ControlledAgent:
         self._controls = controls
         self.calls: list[tuple[tuple[Message, ...], UserRequest]] = []
 
-    async def run(
+    async def stream(
         self,
         history: Sequence[Message],
         request: UserRequest,
-    ) -> AgentResponse:
+    ) -> AsyncIterator[AgentStreamEvent]:
         self.calls.append((tuple(history), request))
         control = self._controls[request.content]
         control.started.set()
@@ -46,7 +55,19 @@ class ControlledAgent:
             raise
         if control.error is not None:
             raise control.error
-        return AgentResponse(content=control.response)
+        if control.response:
+            yield AgentTextDelta(content=control.response)
+        yield AgentResponse(content=control.response)
+
+
+class PartiallyFailingAgent:
+    async def stream(
+        self,
+        history: Sequence[Message],
+        request: UserRequest,
+    ) -> AsyncIterator[AgentStreamEvent]:
+        yield AgentTextDelta(content="private partial response")
+        raise RuntimeError("private failure detail")
 
 
 async def wait_for_history_size(
@@ -103,6 +124,117 @@ async def test_submit_returns_while_agent_is_still_blocked_and_persists_on_succe
         (MessageRole.ASSISTANT, "private final response"),
     ]
     await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_subscription_receives_ordered_events_after_history_is_persisted() -> (
+    None
+):
+    control = RunControl(response="answer")
+    store = InMemoryHistoryStore()
+    service = AgentService(ControlledAgent({"question": control}), store)
+    dialog_id = await service.start_dialog()
+    subscription = await service.subscribe(dialog_id)
+
+    await service.submit(dialog_id, UserRequest(content="question"))
+    assert await subscription.receive() == DialogEvent(
+        type=DialogEventType.MESSAGE_START
+    )
+    control.release.set()
+    assert await subscription.receive() == DialogEvent(
+        type=DialogEventType.MESSAGE_DELTA,
+        delta="answer",
+    )
+    assert await subscription.receive() == DialogEvent(type=DialogEventType.MESSAGE_END)
+    assert len(await store.get(dialog_id)) == 2
+
+    await service.unsubscribe(subscription)
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_events_are_broadcast_to_all_active_subscribers() -> None:
+    control = RunControl(response="answer")
+    service = AgentService(
+        ControlledAgent({"question": control}), InMemoryHistoryStore()
+    )
+    dialog_id = await service.start_dialog()
+    first = await service.subscribe(dialog_id)
+    second = await service.subscribe(dialog_id)
+
+    await service.submit(dialog_id, UserRequest(content="question"))
+    control.release.set()
+
+    expected = [
+        DialogEvent(type=DialogEventType.MESSAGE_START),
+        DialogEvent(type=DialogEventType.MESSAGE_DELTA, delta="answer"),
+        DialogEvent(type=DialogEventType.MESSAGE_END),
+    ]
+    assert [await first.receive() for _ in expected] == expected
+    assert [await second.receive() for _ in expected] == expected
+
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_slow_subscriber_is_closed_without_blocking_agent() -> None:
+    control = RunControl(response="answer")
+    store = InMemoryHistoryStore()
+    service = AgentService(
+        ControlledAgent({"question": control}),
+        store,
+        subscriber_queue_size=1,
+    )
+    dialog_id = await service.start_dialog()
+    subscription = await service.subscribe(dialog_id)
+
+    await service.submit(dialog_id, UserRequest(content="question"))
+    control.release.set()
+    await wait_for_history_size(store, dialog_id, 2)
+
+    assert subscription.closed
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_failure_after_delta_emits_safe_error_and_keeps_history_empty() -> None:
+    store = InMemoryHistoryStore()
+    service = AgentService(PartiallyFailingAgent(), store)
+    dialog_id = await service.start_dialog()
+    subscription = await service.subscribe(dialog_id)
+
+    await service.submit(dialog_id, UserRequest(content="private request"))
+
+    assert await subscription.receive() == DialogEvent(
+        type=DialogEventType.MESSAGE_START
+    )
+    assert await subscription.receive() == DialogEvent(
+        type=DialogEventType.MESSAGE_DELTA,
+        delta="private partial response",
+    )
+    assert await subscription.receive() == DialogEvent(
+        type=DialogEventType.MESSAGE_ERROR,
+        code="agent_error",
+        message="Agent request failed.",
+    )
+    assert await store.get(dialog_id) == ()
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_late_subscription_does_not_replay_completed_events() -> None:
+    control = RunControl(response="answer")
+    store = InMemoryHistoryStore()
+    service = AgentService(ControlledAgent({"question": control}), store)
+    dialog_id = await service.start_dialog()
+
+    await service.submit(dialog_id, UserRequest(content="question"))
+    control.release.set()
+    await wait_for_history_size(store, dialog_id, 2)
+    subscription = await service.subscribe(dialog_id)
+    await service.shutdown()
+
+    assert await subscription.receive() is None
 
 
 @pytest.mark.asyncio

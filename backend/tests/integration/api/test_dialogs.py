@@ -1,11 +1,17 @@
 import asyncio
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from uuid import UUID, uuid4
 
 import httpx
 import pytest
 
-from smeshariki_ai.agent import AgentResponse, Message, UserRequest
+from smeshariki_ai.agent import (
+    AgentResponse,
+    AgentStreamEvent,
+    AgentTextDelta,
+    Message,
+    UserRequest,
+)
 from smeshariki_ai.api import create_app
 from smeshariki_ai.application import AgentService, AgentServiceUnavailableError
 from smeshariki_ai.dialogs import InMemoryHistoryStore
@@ -18,15 +24,17 @@ class BlockingAgent:
         self.release = asyncio.Event()
         self.calls: list[tuple[tuple[Message, ...], UserRequest]] = []
 
-    async def run(
+    async def stream(
         self,
         history: Sequence[Message],
         request: UserRequest,
-    ) -> AgentResponse:
+    ) -> AsyncIterator[AgentStreamEvent]:
         self.calls.append((tuple(history), request))
         self.started.set()
         await self.release.wait()
-        return AgentResponse(content=self.response)
+        if self.response:
+            yield AgentTextDelta(content=self.response)
+        yield AgentResponse(content=self.response)
 
 
 def make_client(

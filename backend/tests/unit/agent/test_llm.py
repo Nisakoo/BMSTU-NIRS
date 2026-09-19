@@ -4,6 +4,7 @@ from pydantic import ValidationError
 from smeshariki_ai.agent.models import (
     AgentConfig,
     LLMResponse,
+    LLMTextDelta,
     Message,
     MessageRole,
     ToolDefinition,
@@ -52,3 +53,19 @@ async def test_fake_llm_provider_returns_successful_empty_response() -> None:
 
     assert response == LLMResponse(content="", tool_calls=())
     assert messages[0].content == "Кто такой Крош?"
+
+
+@pytest.mark.asyncio
+async def test_fake_llm_provider_stream_ends_with_empty_response() -> None:
+    provider = FakeLLMProvider()
+
+    events = [event async for event in provider.stream((), ())]
+
+    assert events == [LLMResponse(content="")]
+
+
+def test_llm_text_delta_accepts_whitespace_but_rejects_empty_content() -> None:
+    assert LLMTextDelta(content=" \n").content == " \n"
+
+    with pytest.raises(ValidationError):
+        LLMTextDelta(content="")

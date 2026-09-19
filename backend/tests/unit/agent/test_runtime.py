@@ -1,5 +1,5 @@
 import logging
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from typing import ClassVar
 
 import pytest
@@ -12,31 +12,51 @@ from smeshariki_ai.agent.errors import (
 from smeshariki_ai.agent.models import (
     AgentConfig,
     AgentResponse,
+    AgentTextDelta,
     LLMResponse,
     LLMResultType,
+    LLMTextDelta,
     Message,
     MessageRole,
     ToolCall,
     ToolDefinition,
     UserRequest,
 )
-from smeshariki_ai.agent.providers import LLMProvider
+from smeshariki_ai.agent.providers import LLMProvider, LLMStreamEvent
 from smeshariki_ai.agent.runtime import Agent
 from smeshariki_ai.agent.tools import Tool, ToolRegistry
 
 
 class ScriptedLLMProvider(LLMProvider):
-    def __init__(self, responses: Sequence[LLMResponse]) -> None:
-        self._responses = tuple(responses)
+    def __init__(
+        self,
+        responses: Sequence[LLMResponse | Sequence[LLMStreamEvent]],
+    ) -> None:
+        self._responses = tuple(
+            (
+                (
+                    *(
+                        (LLMTextDelta(content=response.content),)
+                        if response.content
+                        else ()
+                    ),
+                    response,
+                )
+                if isinstance(response, LLMResponse)
+                else tuple(response)
+            )
+            for response in responses
+        )
         self.calls: list[tuple[tuple[Message, ...], tuple[ToolDefinition, ...]]] = []
 
-    async def generate(
+    async def stream(
         self,
         messages: Sequence[Message],
         tools: Sequence[ToolDefinition],
-    ) -> LLMResponse:
+    ) -> AsyncIterator[LLMStreamEvent]:
         self.calls.append((tuple(messages), tuple(tools)))
-        return self._responses[len(self.calls) - 1]
+        for event in self._responses[len(self.calls) - 1]:
+            yield event
 
 
 class EchoArguments(BaseModel):
@@ -127,6 +147,75 @@ async def test_direct_empty_response_preserves_history_and_builds_context() -> N
         (MessageRole.USER, "Current question"),
     ]
     assert [definition.name for definition in definitions] == ["echo"]
+
+
+@pytest.mark.asyncio
+async def test_stream_yields_final_text_incrementally_and_run_collects_it() -> None:
+    script = [
+        LLMTextDelta(content="Привет"),
+        LLMTextDelta(content=", Крош!"),
+        LLMResponse(content="Привет, Крош!"),
+    ]
+    streaming_provider = ScriptedLLMProvider([script])
+
+    events = [
+        event
+        async for event in make_agent(streaming_provider).stream(
+            (), UserRequest(content="question")
+        )
+    ]
+
+    assert events == [
+        AgentTextDelta(content="Привет"),
+        AgentTextDelta(content=", Крош!"),
+        AgentResponse(content="Привет, Крош!"),
+    ]
+
+    collecting_provider = ScriptedLLMProvider([script])
+    response = await make_agent(collecting_provider).run(
+        (), UserRequest(content="question")
+    )
+    assert response == AgentResponse(content="Привет, Крош!")
+
+
+@pytest.mark.asyncio
+async def test_stream_hides_tool_iteration_and_yields_only_final_text() -> None:
+    tool_call = ToolCall(id="call-1", name="echo", arguments={"text": "hello"})
+    provider = ScriptedLLMProvider(
+        [
+            [LLMResponse(tool_calls=(tool_call,))],
+            [
+                LLMTextDelta(content="do"),
+                LLMTextDelta(content="ne"),
+                LLMResponse(content="done"),
+            ],
+        ]
+    )
+
+    events = [
+        event
+        async for event in make_agent(provider, [RecordingTool()]).stream(
+            (), UserRequest(content="Use a tool")
+        )
+    ]
+
+    assert events == [
+        AgentTextDelta(content="do"),
+        AgentTextDelta(content="ne"),
+        AgentResponse(content="done"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_stream_rejects_terminal_text_that_differs_from_deltas() -> None:
+    provider = ScriptedLLMProvider(
+        [[LLMTextDelta(content="partial"), LLMResponse(content="different")]]
+    )
+
+    stream = make_agent(provider).stream((), UserRequest(content="question"))
+    assert await anext(stream) == AgentTextDelta(content="partial")
+    with pytest.raises(InvalidLLMResponseError):
+        await anext(stream)
 
 
 @pytest.mark.asyncio

@@ -31,22 +31,31 @@ await Agent.run(
     history: Sequence[Message],
     request: UserRequest,
 ) -> AgentResponse
+
+Agent.stream(
+    history: Sequence[Message],
+    request: UserRequest,
+) -> AsyncIterator[AgentTextDelta | AgentResponse]
 ```
 
 `Agent.run` не изменяет переданную историю. Для запуска он формирует рабочий
 контекст из системного сообщения, снимка истории и нового пользовательского
 запроса. Внутренние сообщения о вызовах инструментов существуют только в этом
-контексте.
+контексте. `Agent.stream` является основным путём выполнения: он передаёт
+фрагменты только финального текста, а затем полный `AgentResponse`. `Agent.run`
+собирает тот же поток и сохраняет совместимый непотоковый интерфейс.
 
 ```python
-await LLMProvider.generate(
+LLMProvider.stream(
     messages: Sequence[Message],
     tools: Sequence[ToolDefinition],
-) -> LLMResponse
+) -> AsyncIterator[LLMTextDelta | LLMResponse]
 ```
 
 Провайдер получает контекст и определения доступных инструментов на каждой
 итерации. Типы SDK конкретного поставщика не входят во внутренний контракт.
+Текстовые delta завершаются ровно одним доменным `LLMResponse`; совместимый
+`generate` собирает терминальный ответ потока.
 Штатная сборка использует `LiteLLMProvider`, а `FakeLLMProvider` сохраняется для
 детерминированных тестов и явной подмены зависимости.
 
@@ -99,12 +108,13 @@ tool call. Неизвестное имя, невалидные аргумент�
 - отсутствие финального ответа в пределах лимита завершает запуск
   контролируемой ошибкой.
 
-`LiteLLMProvider` использует только асинхронный непотоковый
-`litellm.acompletion`. Он переводит доменные сообщения и определения
-инструментов в Chat Completions format, а function calls — обратно в доменные
+`LiteLLMProvider` использует только асинхронный
+`litellm.acompletion(..., stream=True)`. Он переводит доменные сообщения и
+определения инструментов в Chat Completions format, немедленно передаёт
+текстовые fragments и собирает фрагментированный function call в доменный
 `ToolCall`. Инструменты LiteLLM не выполняет: это остаётся ответственностью
-agent loop. Один экземпляр адаптера не хранит состояние отдельного запроса и
-может конкурентно обслуживать независимые диалоги.
+agent loop. Один экземпляр адаптера не хранит состояние между запросами и может
+конкурентно обслуживать независимые диалоги.
 
 Некорректная структура внешнего ответа, невалидные JSON-аргументы tool call и
 ошибки внешнего сервиса преобразуются в безопасную `LLMProviderError`.
@@ -131,4 +141,7 @@ LiteLLM-адаптер отдельно журналирует начало, з�
 - [результат проверки](../specs/changes/agent-runtime/verification.md);
 - [спецификация LiteLLM-провайдера](../specs/changes/litellm-provider/spec.md);
 - [план LiteLLM-провайдера](../specs/changes/litellm-provider/plan.md);
-- [результат проверки LiteLLM-провайдера](../specs/changes/litellm-provider/verification.md).
+- [результат проверки LiteLLM-провайдера](../specs/changes/litellm-provider/verification.md);
+- [спецификация streaming и SSE](../specs/changes/agent-sse-test-ui/spec.md);
+- [план streaming и SSE](../specs/changes/agent-sse-test-ui/plan.md);
+- [результат проверки streaming и SSE](../specs/changes/agent-sse-test-ui/verification.md).

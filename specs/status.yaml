@@ -11,3 +11,5 @@ specs:
       status: done
     - name: backend-config
       status: done
+    - name: agent-sse-test-ui
+      status: done
