@@ -60,8 +60,16 @@ def make_response(
     return AsyncChunkStream([make_chunk(content, tool_calls=tool_calls)])
 
 
+async def collect_events(
+    provider: LiteLLMProvider,
+    messages: tuple[Message, ...] = (),
+    tools: tuple[ToolDefinition, ...] = (),
+) -> list[LLMTextDelta | LLMResponse]:
+    return [event async for event in provider.stream(messages, tools)]
+
+
 @pytest.mark.asyncio
-async def test_generate_awaits_acompletion_with_provider_config(
+async def test_stream_awaits_acompletion_with_provider_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     completion = AsyncMock(return_value=make_response())
@@ -76,7 +84,8 @@ async def test_generate_awaits_acompletion_with_provider_config(
         )
     )
 
-    await provider.generate(
+    await collect_events(
+        provider,
         (Message(role=MessageRole.USER, content="question"),),
         (),
     )
@@ -93,7 +102,7 @@ async def test_generate_awaits_acompletion_with_provider_config(
 
 
 @pytest.mark.asyncio
-async def test_generate_maps_text_messages_and_function_definitions(
+async def test_stream_maps_text_messages_and_function_definitions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     completion = AsyncMock(return_value=make_response())
@@ -116,7 +125,7 @@ async def test_generate_maps_text_messages_and_function_definitions(
         ),
     )
 
-    await provider.generate(messages, tools)
+    await collect_events(provider, messages, tools)
 
     kwargs = completion.await_args.kwargs
     assert kwargs["messages"] == [
@@ -159,7 +168,7 @@ async def test_generate_maps_text_messages_and_function_definitions(
     ],
     ids=["success", "safe-error"],
 )
-async def test_generate_maps_tool_call_and_linked_result(
+async def test_stream_maps_tool_call_and_linked_result(
     monkeypatch: pytest.MonkeyPatch,
     tool_result: ToolResult,
 ) -> None:
@@ -172,7 +181,8 @@ async def test_generate_maps_tool_call_and_linked_result(
         arguments={"query": "Крош"},
     )
 
-    await provider.generate(
+    await collect_events(
+        provider,
         (
             Message(role=MessageRole.ASSISTANT, tool_call=tool_call),
             Message(
@@ -213,7 +223,7 @@ async def test_generate_maps_tool_call_and_linked_result(
     ("content", "expected"),
     [("answer", "answer"), ("", ""), (None, "")],
 )
-async def test_generate_preserves_response_content(
+async def test_stream_preserves_response_content(
     monkeypatch: pytest.MonkeyPatch,
     content: str | None,
     expected: str,
@@ -225,13 +235,16 @@ async def test_generate_preserves_response_content(
     )
     provider = LiteLLMProvider(LiteLLMProviderConfig(model="test/model"))
 
-    response = await provider.generate((), ())
+    events = await collect_events(provider)
 
-    assert response == LLMResponse(content=expected)
+    assert events[-1] == LLMResponse(content=expected)
+    assert [event.content for event in events if isinstance(event, LLMTextDelta)] == (
+        [content] if content else []
+    )
 
 
 @pytest.mark.asyncio
-async def test_generate_rejects_mixed_content_and_tool_calls(
+async def test_stream_rejects_mixed_content_and_tool_calls(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     external_tool_calls = [
@@ -256,7 +269,7 @@ async def test_generate_rejects_mixed_content_and_tool_calls(
     provider = LiteLLMProvider(LiteLLMProviderConfig(model="test/model"))
 
     with pytest.raises(LLMProviderError, match="invalid response"):
-        await provider.generate((), ())
+        await collect_events(provider)
 
 
 @pytest.mark.asyncio
@@ -359,7 +372,7 @@ async def test_stream_assembles_fragmented_tool_call(
     ],
     ids=["missing-choice", "invalid-json", "arguments-not-object", "wrong-type"],
 )
-async def test_generate_wraps_malformed_responses(
+async def test_stream_wraps_malformed_responses(
     monkeypatch: pytest.MonkeyPatch,
     external_response: object,
 ) -> None:
@@ -371,13 +384,13 @@ async def test_generate_wraps_malformed_responses(
     provider = LiteLLMProvider(LiteLLMProviderConfig(model="test/model"))
 
     with pytest.raises(LLMProviderError, match="invalid response") as captured:
-        await provider.generate((), ())
+        await collect_events(provider)
 
     assert "not-json" not in str(captured.value)
 
 
 @pytest.mark.asyncio
-async def test_generate_wraps_unserializable_tool_result_without_calling_litellm(
+async def test_stream_wraps_unserializable_tool_result_without_calling_litellm(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     completion = AsyncMock(return_value=make_response())
@@ -396,14 +409,14 @@ async def test_generate_wraps_unserializable_tool_result_without_calling_litellm
     )
 
     with pytest.raises(LLMProviderError, match="invalid message") as captured:
-        await provider.generate((message,), ())
+        await collect_events(provider, (message,))
 
     completion.assert_not_awaited()
     assert repr(private_output) not in str(captured.value)
 
 
 @pytest.mark.asyncio
-async def test_generate_wraps_provider_error_and_logs_only_safe_metadata(
+async def test_stream_wraps_provider_error_and_logs_only_safe_metadata(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -419,7 +432,8 @@ async def test_generate_wraps_provider_error_and_logs_only_safe_metadata(
     )
 
     with pytest.raises(LLMProviderError, match="request failed") as captured:
-        await provider.generate(
+        await collect_events(
+            provider,
             (Message(role=MessageRole.USER, content="private prompt"),),
             (
                 ToolDefinition(
@@ -451,7 +465,7 @@ async def test_generate_wraps_provider_error_and_logs_only_safe_metadata(
 
 
 @pytest.mark.asyncio
-async def test_generate_propagates_cancellation(
+async def test_stream_propagates_cancellation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
@@ -462,7 +476,7 @@ async def test_generate_propagates_cancellation(
     provider = LiteLLMProvider(LiteLLMProviderConfig(model="test/model"))
 
     with pytest.raises(asyncio.CancelledError):
-        await provider.generate((), ())
+        await collect_events(provider)
 
 
 @pytest.mark.asyncio
@@ -490,18 +504,24 @@ async def test_one_provider_allows_independent_calls_to_progress_concurrently(
     provider = LiteLLMProvider(LiteLLMProviderConfig(model="test/model"))
 
     first_task = asyncio.create_task(
-        provider.generate((Message(role=MessageRole.USER, content="first"),), ())
+        collect_events(
+            provider,
+            (Message(role=MessageRole.USER, content="first"),),
+        )
     )
     await asyncio.wait_for(first_started.wait(), timeout=0.1)
-    second_response = await asyncio.wait_for(
-        provider.generate((Message(role=MessageRole.USER, content="second"),), ()),
+    second_events = await asyncio.wait_for(
+        collect_events(
+            provider,
+            (Message(role=MessageRole.USER, content="second"),),
+        ),
         timeout=0.1,
     )
 
-    assert second_response.content == "answer:second"
+    assert second_events[-1] == LLMResponse(content="answer:second")
     assert not first_task.done()
     assert calls == ["first", "second"]
 
     release_first.set()
-    first_response = await asyncio.wait_for(first_task, timeout=0.1)
-    assert first_response.content == "answer:first"
+    first_events = await asyncio.wait_for(first_task, timeout=0.1)
+    assert first_events[-1] == LLMResponse(content="answer:first")

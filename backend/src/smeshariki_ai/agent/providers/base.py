@@ -17,27 +17,6 @@ class LLMProviderError(AgentError):
 
 
 class LLMProvider(ABC):
-    async def generate(
-        self,
-        messages: Sequence[Message],
-        tools: Sequence[ToolDefinition],
-    ) -> LLMResponse:
-        """Collect and return the terminal response from a provider stream."""
-        response: LLMResponse | None = None
-        async for event in self.stream(messages, tools):
-            if isinstance(event, LLMResponse):
-                if response is not None:
-                    raise LLMProviderError(
-                        "The LLM provider returned an invalid response."
-                    )
-                response = event
-            elif response is not None:
-                raise LLMProviderError("The LLM provider returned an invalid response.")
-
-        if response is None:
-            raise LLMProviderError("The LLM provider returned an invalid response.")
-        return response
-
     @abstractmethod
     def stream(
         self,

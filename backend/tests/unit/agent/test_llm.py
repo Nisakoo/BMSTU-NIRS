@@ -38,7 +38,7 @@ def test_llm_response_distinguishes_empty_text_from_missing_text() -> None:
 
 
 @pytest.mark.asyncio
-async def test_fake_llm_provider_returns_successful_empty_response() -> None:
+async def test_fake_llm_provider_exposes_only_successful_empty_stream() -> None:
     provider = FakeLLMProvider()
     messages = (Message(role=MessageRole.USER, content="Кто такой Крош?"),)
     tools = (
@@ -49,19 +49,11 @@ async def test_fake_llm_provider_returns_successful_empty_response() -> None:
         ),
     )
 
-    response = await provider.generate(messages, tools)
+    events = [event async for event in provider.stream(messages, tools)]
 
-    assert response == LLMResponse(content="", tool_calls=())
+    assert events == [LLMResponse(content="", tool_calls=())]
+    assert not hasattr(provider, "generate")
     assert messages[0].content == "Кто такой Крош?"
-
-
-@pytest.mark.asyncio
-async def test_fake_llm_provider_stream_ends_with_empty_response() -> None:
-    provider = FakeLLMProvider()
-
-    events = [event async for event in provider.stream((), ())]
-
-    assert events == [LLMResponse(content="")]
 
 
 def test_llm_text_delta_accepts_whitespace_but_rejects_empty_content() -> None:
