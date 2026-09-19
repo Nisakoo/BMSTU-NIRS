@@ -83,7 +83,7 @@ sequenceDiagram
     API-->>Client: 202 Accepted, пустое тело
     Task->>History: get(dialog_id)
     Service-->>Client: SSE message_start
-    Task->>Agent: stream(history, request)
+    Task->>Agent: run(history, request)
     loop Финальный текст
         Agent-->>Task: AgentTextDelta
         Service-->>Client: SSE message_delta

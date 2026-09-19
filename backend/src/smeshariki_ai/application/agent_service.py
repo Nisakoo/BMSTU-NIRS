@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 class AgentRunner(Protocol):
-    def stream(
+    def run(
         self,
         history: Sequence[Message],
         request: UserRequest,
@@ -159,7 +159,7 @@ class AgentService:
             )
             history = await self._history_store.get(dialog_id)
             response: AgentResponse | None = None
-            async for event in self._agent.stream(history, request):
+            async for event in self._agent.run(history, request):
                 if isinstance(event, AgentTextDelta):
                     await self._publish(
                         dialog_id,

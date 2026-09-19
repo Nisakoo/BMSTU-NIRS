@@ -39,22 +39,6 @@ class Agent:
         self,
         history: Sequence[Message],
         request: UserRequest,
-    ) -> AgentResponse:
-        response: AgentResponse | None = None
-        async for event in self.stream(history, request):
-            if isinstance(event, AgentResponse):
-                response = event
-
-        if response is None:
-            raise InvalidLLMResponseError(
-                "The LLM provider returned an invalid response."
-            )
-        return response
-
-    async def stream(
-        self,
-        history: Sequence[Message],
-        request: UserRequest,
     ) -> AsyncIterator[AgentStreamEvent]:
         logger.info(
             "agent.run.started history_size=%d max_iterations=%d",

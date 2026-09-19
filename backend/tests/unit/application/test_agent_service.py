@@ -40,7 +40,7 @@ class ControlledAgent:
         self._controls = controls
         self.calls: list[tuple[tuple[Message, ...], UserRequest]] = []
 
-    async def stream(
+    async def run(
         self,
         history: Sequence[Message],
         request: UserRequest,
@@ -61,7 +61,7 @@ class ControlledAgent:
 
 
 class PartiallyFailingAgent:
-    async def stream(
+    async def run(
         self,
         history: Sequence[Message],
         request: UserRequest,

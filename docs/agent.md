@@ -27,12 +27,7 @@ Agent(
     config: AgentConfig,
 )
 
-await Agent.run(
-    history: Sequence[Message],
-    request: UserRequest,
-) -> AgentResponse
-
-Agent.stream(
+Agent.run(
     history: Sequence[Message],
     request: UserRequest,
 ) -> AsyncIterator[AgentTextDelta | AgentResponse]
@@ -41,9 +36,8 @@ Agent.stream(
 `Agent.run` не изменяет переданную историю. Для запуска он формирует рабочий
 контекст из системного сообщения, снимка истории и нового пользовательского
 запроса. Внутренние сообщения о вызовах инструментов существуют только в этом
-контексте. `Agent.stream` является основным путём выполнения: он передаёт
-фрагменты только финального текста, а затем полный `AgentResponse`. `Agent.run`
-собирает тот же поток и сохраняет совместимый непотоковый интерфейс.
+контексте. `Agent.run` является единственным путём выполнения: он передаёт
+фрагменты только финального текста, а затем полный `AgentResponse`.
 
 ```python
 LLMProvider.stream(

@@ -24,7 +24,7 @@ class BlockingAgent:
         self.release = asyncio.Event()
         self.calls: list[tuple[tuple[Message, ...], UserRequest]] = []
 
-    async def stream(
+    async def run(
         self,
         history: Sequence[Message],
         request: UserRequest,

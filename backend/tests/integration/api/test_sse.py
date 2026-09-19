@@ -18,7 +18,7 @@ from smeshariki_ai.dialogs import InMemoryHistoryStore
 
 
 class StreamingAgent:
-    async def stream(
+    async def run(
         self,
         history: Sequence[Message],
         request: UserRequest,
