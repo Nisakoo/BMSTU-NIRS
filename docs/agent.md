@@ -10,8 +10,9 @@ Agent runtime — внутренняя часть backend, независима�
 
 - [`agent/runtime.py`](../backend/src/smeshariki_ai/agent/runtime.py) — цикл и
   класс `Agent`;
-- [`agent/llm.py`](../backend/src/smeshariki_ai/agent/llm.py) — абстракция
-  `LLMProvider` и текущий `FakeLLMProvider`;
+- [`agent/providers/`](../backend/src/smeshariki_ai/agent/providers/) —
+  абстракция `LLMProvider`, `FakeLLMProvider`, production-адаптер LiteLLM и его
+  отдельная конфигурация;
 - [`agent/tools.py`](../backend/src/smeshariki_ai/agent/tools.py) — `Tool` и
   `ToolRegistry`;
 - [`agent/models.py`](../backend/src/smeshariki_ai/agent/models.py) —
@@ -46,6 +47,26 @@ await LLMProvider.generate(
 
 Провайдер получает контекст и определения доступных инструментов на каждой
 итерации. Типы SDK конкретного поставщика не входят во внутренний контракт.
+Штатная сборка использует `LiteLLMProvider`, а `FakeLLMProvider` сохраняется для
+детерминированных тестов и явной подмены зависимости.
+
+```python
+LiteLLMProvider(
+    config=LiteLLMProviderConfig(
+        model="provider/model",
+        api_key=None,
+        base_url=None,
+        timeout_seconds=60,
+        num_retries=0,
+    )
+)
+```
+
+`LiteLLMProviderConfig` неизменяем и содержит только настройки провайдера.
+Общий [`load_config`](./configuration.md) читает environment на внешней границе;
+сам адаптер получает готовый объект и не загружает `.env`.
+Production-конфигурация требует `LLM_MODEL`, а необязательные `LLM_API_KEY` и
+`LLM_BASE_URL` зависят от выбранного через LiteLLM поставщика.
 
 ```python
 class Tool(ABC):
@@ -78,8 +99,18 @@ tool call. Неизвестное имя, невалидные аргумент�
 - отсутствие финального ответа в пределах лимита завершает запуск
   контролируемой ошибкой.
 
-Текущий `FakeLLMProvider` не использует сеть и всегда возвращает успешный пустой
-финальный ответ. Реальный провайдер и `search_knowledge` пока не реализованы.
+`LiteLLMProvider` использует только асинхронный непотоковый
+`litellm.acompletion`. Он переводит доменные сообщения и определения
+инструментов в Chat Completions format, а function calls — обратно в доменные
+`ToolCall`. Инструменты LiteLLM не выполняет: это остаётся ответственностью
+agent loop. Один экземпляр адаптера не хранит состояние отдельного запроса и
+может конкурентно обслуживать независимые диалоги.
+
+Некорректная структура внешнего ответа, невалидные JSON-аргументы tool call и
+ошибки внешнего сервиса преобразуются в безопасную `LLMProviderError`.
+`asyncio.CancelledError` не скрывается, чтобы shutdown мог отменить фоновый
+запуск. `FakeLLMProvider` по-прежнему не использует сеть и возвращает успешный
+пустой финальный ответ.
 
 ## Наблюдаемость
 
@@ -88,8 +119,16 @@ Runtime журналирует начало запуска, каждую ите�
 аргументы и результаты инструмента, финальный ответ и текст исключения в лог не
 передаются.
 
+LiteLLM-адаптер отдельно журналирует начало, завершение и ошибку внешнего
+запроса с model, количеством сообщений и инструментов и безопасным типом
+ошибки. API key, base URL, содержимое сообщений, tool payload, ответ модели и
+текст внешнего исключения не журналируются; callbacks LiteLLM не подключаются.
+
 ## Где искать подробности
 
 - [спецификация](../specs/changes/agent-runtime/spec.md);
 - [план](../specs/changes/agent-runtime/plan.md);
-- [результат проверки](../specs/changes/agent-runtime/verification.md).
+- [результат проверки](../specs/changes/agent-runtime/verification.md);
+- [спецификация LiteLLM-провайдера](../specs/changes/litellm-provider/spec.md);
+- [план LiteLLM-провайдера](../specs/changes/litellm-provider/plan.md);
+- [результат проверки LiteLLM-провайдера](../specs/changes/litellm-provider/verification.md).

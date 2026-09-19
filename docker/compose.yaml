@@ -6,6 +6,11 @@ services:
     environment:
       AGENT_SYSTEM_PROMPT: ${AGENT_SYSTEM_PROMPT:-You are a helpful Smeshariki assistant.}
       AGENT_MAX_ITERATIONS: ${AGENT_MAX_ITERATIONS:-4}
+      LLM_MODEL: ${LLM_MODEL:?Set LLM_MODEL in docker/.env}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-60}
+      LLM_NUM_RETRIES: ${LLM_NUM_RETRIES:-0}
     init: true
     ports:
       - "${BACKEND_PORT:-8000}:8000"

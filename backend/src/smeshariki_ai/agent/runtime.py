@@ -5,7 +5,6 @@ from smeshariki_ai.agent.errors import (
     AgentIterationLimitError,
     InvalidLLMResponseError,
 )
-from smeshariki_ai.agent.llm import LLMProvider
 from smeshariki_ai.agent.models import (
     AgentConfig,
     AgentResponse,
@@ -15,6 +14,7 @@ from smeshariki_ai.agent.models import (
     MessageRole,
     UserRequest,
 )
+from smeshariki_ai.agent.providers import LLMProvider
 from smeshariki_ai.agent.tools import ToolRegistry
 
 logger = logging.getLogger(__name__)
