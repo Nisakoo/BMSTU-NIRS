@@ -15,3 +15,5 @@ specs:
       status: done
     - name: dialog-event-broker
       status: done
+    - name: agent-system-prompt-resource
+      status: done

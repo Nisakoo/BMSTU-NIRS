@@ -23,6 +23,7 @@ def load_config(environ: Mapping[str, str] | None = None) -> Config: ...
 ```mermaid
 flowchart LR
     Environment[Process environment]
+    Prompt[agent/prompts/system.md]
     Loader[load_config]
     Config[Config]
     Entrypoint[main.py]
@@ -33,6 +34,7 @@ flowchart LR
     Provider[LiteLLMProvider]
 
     Environment --> Loader
+    Prompt --> Loader
     Loader --> Config
     Config --> Entrypoint
     Entrypoint --> Bootstrap
@@ -44,11 +46,12 @@ flowchart LR
     LLMConfig --> Provider
 ```
 
-ASGI-entrypoint выполняет `create_application(load_config())`: один раз читает
-environment и передаёт готовый корень в composition root. `bootstrap.py` не
-имеет собственного loader и не подставляет defaults при отсутствии config.
-`Agent` получает тот же экземпляр `config.agent`, а `LiteLLMProvider` — тот же
-экземпляр `config.llm`.
+ASGI-entrypoint выполняет `create_application(load_config())`: один раз
+собирает environment-настройки и версионируемый системный промпт, после чего
+передаёт готовый корень в composition root. `bootstrap.py` не имеет
+собственного loader и не подставляет defaults при отсутствии config. `Agent`
+получает тот же экземпляр `config.agent`, а `LiteLLMProvider` — тот же экземпляр
+`config.llm`.
 
 Внутренние пакеты `agent`, `agent.providers`, `application`, `api` и `dialogs`
 не импортируют корневой `Config` и не читают environment. Поэтому их можно
@@ -60,9 +63,16 @@ environment и передаёт готовый корень в composition root.
 `Mapping[str, str]` полностью заменяет этот источник; это позволяет
 детерминированно проверять загрузку без изменения process environment.
 
+Системный промпт не является environment-настройкой. Его production-версия
+хранится в
+[`agent/prompts/system.md`](../backend/src/smeshariki_ai/agent/prompts/system.md),
+читается через `importlib.resources` независимо от текущей рабочей директории и
+передаётся в `AgentConfig.system_prompt`. Пустой, отсутствующий или нечитаемый
+resource завершает старт контролируемой ошибкой. Переменная
+`AGENT_SYSTEM_PROMPT` не поддерживается и не переопределяет этот текст.
+
 | Переменная | Подконфиг и поле | Обязательность / default |
 | --- | --- | --- |
-| `AGENT_SYSTEM_PROMPT` | `agent.system_prompt` | `You are a helpful Smeshariki assistant.` |
 | `AGENT_MAX_ITERATIONS` | `agent.max_iterations` | `4`, целое число больше нуля |
 | `LLM_MODEL` | `llm.model` | Обязательная непустая строка |
 | `LLM_API_KEY` | `llm.api_key` | `None`; пустое значение нормализуется в `None` |
@@ -78,7 +88,8 @@ backend. Python-код не читает `.env` как файл и не испо
 ## Владение и валидация
 
 - `AgentConfig` принадлежит пакету [`agent`](./agent.md) и определяет только
-  настройки runtime агента.
+  настройки runtime агента. Текст production-промпта принадлежит тому же
+  пакету, но загружается внешним config loader до создания runtime.
 - `LiteLLMProviderConfig` принадлежит `agent.providers` и определяет только
   настройки адаптера LiteLLM.
 - Корневой `Config` агрегирует эти модели, но не дублирует их поля.
@@ -99,3 +110,6 @@ reload во время работы требуют отдельного SDD-из
 - [Спецификация](../specs/changes/backend-config/spec.md)
 - [План](../specs/changes/backend-config/plan.md)
 - [Результат проверки](../specs/changes/backend-config/verification.md)
+- [Спецификация resource системного промпта](../specs/changes/agent-system-prompt-resource/spec.md)
+- [План resource системного промпта](../specs/changes/agent-system-prompt-resource/plan.md)
+- [Результат проверки resource системного промпта](../specs/changes/agent-system-prompt-resource/verification.md)

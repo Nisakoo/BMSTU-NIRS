@@ -140,6 +140,11 @@
 5. Python-код не загружает `.env` как файл и не использует
    `pydantic-settings`: локальный `docker/.env` читает Docker Compose, после
    чего значения поступают backend через process environment.
+6. Production-системный промпт хранится в
+   `smeshariki_ai/agent/prompts/system.md`, загружается `load_config` как
+   package resource и передаётся агенту через `AgentConfig`. Переменная
+   `AGENT_SYSTEM_PROMPT` не поддерживается; runtime агента не читает resource
+   или environment самостоятельно.
 
 ## Реализованные диалоги и HTTP API
 
