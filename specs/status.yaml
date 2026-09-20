@@ -11,3 +11,7 @@ specs:
       status: done
     - name: backend-config
       status: done
+    - name: agent-sse-test-ui
+      status: done
+    - name: dialog-event-broker
+      status: done

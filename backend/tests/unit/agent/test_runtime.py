@@ -1,5 +1,5 @@
 import logging
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from typing import ClassVar
 
 import pytest
@@ -12,31 +12,51 @@ from smeshariki_ai.agent.errors import (
 from smeshariki_ai.agent.models import (
     AgentConfig,
     AgentResponse,
+    AgentTextDelta,
     LLMResponse,
     LLMResultType,
+    LLMTextDelta,
     Message,
     MessageRole,
     ToolCall,
     ToolDefinition,
     UserRequest,
 )
-from smeshariki_ai.agent.providers import LLMProvider
+from smeshariki_ai.agent.providers import LLMProvider, LLMStreamEvent
 from smeshariki_ai.agent.runtime import Agent
 from smeshariki_ai.agent.tools import Tool, ToolRegistry
 
 
 class ScriptedLLMProvider(LLMProvider):
-    def __init__(self, responses: Sequence[LLMResponse]) -> None:
-        self._responses = tuple(responses)
+    def __init__(
+        self,
+        responses: Sequence[LLMResponse | Sequence[LLMStreamEvent]],
+    ) -> None:
+        self._responses = tuple(
+            (
+                (
+                    *(
+                        (LLMTextDelta(content=response.content),)
+                        if response.content
+                        else ()
+                    ),
+                    response,
+                )
+                if isinstance(response, LLMResponse)
+                else tuple(response)
+            )
+            for response in responses
+        )
         self.calls: list[tuple[tuple[Message, ...], tuple[ToolDefinition, ...]]] = []
 
-    async def generate(
+    async def stream(
         self,
         messages: Sequence[Message],
         tools: Sequence[ToolDefinition],
-    ) -> LLMResponse:
+    ) -> AsyncIterator[LLMStreamEvent]:
         self.calls.append((tuple(messages), tuple(tools)))
-        return self._responses[len(self.calls) - 1]
+        for event in self._responses[len(self.calls) - 1]:
+            yield event
 
 
 class EchoArguments(BaseModel):
@@ -84,6 +104,14 @@ def make_agent(
     )
 
 
+async def collect_agent_events(
+    agent: Agent,
+    history: Sequence[Message],
+    request: UserRequest,
+) -> list[AgentTextDelta | AgentResponse]:
+    return [event async for event in agent.run(history, request)]
+
+
 @pytest.mark.parametrize(
     ("response", "expected_type"),
     [
@@ -112,12 +140,13 @@ async def test_direct_empty_response_preserves_history_and_builds_context() -> N
     original_history = tuple(history)
     tool = RecordingTool()
 
-    response = await make_agent(provider, [tool]).run(
+    events = await collect_agent_events(
+        make_agent(provider, [tool]),
         history,
         UserRequest(content="Current question"),
     )
 
-    assert response == AgentResponse(content="")
+    assert events == [AgentResponse(content="")]
     assert history == original_history
     messages, definitions = provider.calls[0]
     assert [(message.role, message.content) for message in messages] == [
@@ -127,6 +156,69 @@ async def test_direct_empty_response_preserves_history_and_builds_context() -> N
         (MessageRole.USER, "Current question"),
     ]
     assert [definition.name for definition in definitions] == ["echo"]
+
+
+@pytest.mark.asyncio
+async def test_run_yields_final_text_incrementally() -> None:
+    script = [
+        LLMTextDelta(content="Привет"),
+        LLMTextDelta(content=", Крош!"),
+        LLMResponse(content="Привет, Крош!"),
+    ]
+    streaming_provider = ScriptedLLMProvider([script])
+
+    events = [
+        event
+        async for event in make_agent(streaming_provider).run(
+            (), UserRequest(content="question")
+        )
+    ]
+
+    assert events == [
+        AgentTextDelta(content="Привет"),
+        AgentTextDelta(content=", Крош!"),
+        AgentResponse(content="Привет, Крош!"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_run_hides_tool_iteration_and_yields_only_final_text() -> None:
+    tool_call = ToolCall(id="call-1", name="echo", arguments={"text": "hello"})
+    provider = ScriptedLLMProvider(
+        [
+            [LLMResponse(tool_calls=(tool_call,))],
+            [
+                LLMTextDelta(content="do"),
+                LLMTextDelta(content="ne"),
+                LLMResponse(content="done"),
+            ],
+        ]
+    )
+
+    events = [
+        event
+        async for event in make_agent(provider, [RecordingTool()]).run(
+            (), UserRequest(content="Use a tool")
+        )
+    ]
+
+    assert events == [
+        AgentTextDelta(content="do"),
+        AgentTextDelta(content="ne"),
+        AgentResponse(content="done"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_run_rejects_terminal_text_that_differs_from_deltas() -> None:
+    provider = ScriptedLLMProvider(
+        [[LLMTextDelta(content="partial"), LLMResponse(content="different")]]
+    )
+
+    stream = make_agent(provider).run((), UserRequest(content="question"))
+    assert await anext(stream) == AgentTextDelta(content="partial")
+    with pytest.raises(InvalidLLMResponseError):
+        await anext(stream)
 
 
 @pytest.mark.asyncio
@@ -142,11 +234,11 @@ async def test_tool_call_is_added_with_structured_result_before_final_response()
     )
     tool = RecordingTool()
 
-    response = await make_agent(provider, [tool]).run(
-        (), UserRequest(content="Use a tool")
+    events = await collect_agent_events(
+        make_agent(provider, [tool]), (), UserRequest(content="Use a tool")
     )
 
-    assert response == AgentResponse(content="done")
+    assert events[-1] == AgentResponse(content="done")
     assert tool.calls == [EchoArguments(text="hello")]
     second_context, _ = provider.calls[1]
     assert second_context[-2].role is MessageRole.ASSISTANT
@@ -178,7 +270,9 @@ async def test_invalid_llm_response_is_rejected(response: LLMResponse) -> None:
     provider = ScriptedLLMProvider([response])
 
     with pytest.raises(InvalidLLMResponseError):
-        await make_agent(provider).run((), UserRequest(content="question"))
+        await collect_agent_events(
+            make_agent(provider), (), UserRequest(content="question")
+        )
 
     assert len(provider.calls) == 1
 
@@ -194,7 +288,9 @@ async def test_iteration_limit_stops_before_fifth_llm_call() -> None:
     provider = ScriptedLLMProvider(responses)
 
     with pytest.raises(AgentIterationLimitError):
-        await make_agent(provider).run((), UserRequest(content="question"))
+        await collect_agent_events(
+            make_agent(provider), (), UserRequest(content="question")
+        )
 
     assert len(provider.calls) == 4
 
@@ -229,11 +325,11 @@ async def test_tool_error_is_returned_to_llm_and_loop_continues(
         [LLMResponse(tool_calls=(tool_call,)), LLMResponse(content="recovered")]
     )
 
-    response = await make_agent(provider, tools).run(
-        (), UserRequest(content="question")
+    events = await collect_agent_events(
+        make_agent(provider, tools), (), UserRequest(content="question")
     )
 
-    assert response.content == "recovered"
+    assert events[-1] == AgentResponse(content="recovered")
     tool_message = provider.calls[1][0][-1]
     assert tool_message.tool_result is not None
     assert tool_message.tool_result.error is not None
@@ -254,7 +350,8 @@ async def test_runtime_logs_events_without_context_or_tool_payload(
         [LLMResponse(tool_calls=(tool_call,)), LLMResponse(content="private output")]
     )
 
-    await make_agent(provider, [RecordingTool()]).run(
+    await collect_agent_events(
+        make_agent(provider, [RecordingTool()]),
         (Message(role=MessageRole.USER, content="private history"),),
         UserRequest(content="private request"),
     )
@@ -290,7 +387,9 @@ async def test_controlled_failure_is_logged_without_request(
     provider = ScriptedLLMProvider([LLMResponse()])
 
     with pytest.raises(InvalidLLMResponseError):
-        await make_agent(provider).run((), UserRequest(content="private request"))
+        await collect_agent_events(
+            make_agent(provider), (), UserRequest(content="private request")
+        )
 
     assert caplog.records[-1].getMessage().startswith("agent.run.failed ")
     assert "error_type=InvalidLLMResponseError" in caplog.records[-1].getMessage()

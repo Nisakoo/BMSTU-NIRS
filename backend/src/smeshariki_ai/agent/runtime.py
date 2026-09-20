@@ -1,5 +1,5 @@
 import logging
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 
 from smeshariki_ai.agent.errors import (
     AgentIterationLimitError,
@@ -8,8 +8,10 @@ from smeshariki_ai.agent.errors import (
 from smeshariki_ai.agent.models import (
     AgentConfig,
     AgentResponse,
+    AgentTextDelta,
     LLMResponse,
     LLMResultType,
+    LLMTextDelta,
     Message,
     MessageRole,
     UserRequest,
@@ -18,6 +20,8 @@ from smeshariki_ai.agent.providers import LLMProvider
 from smeshariki_ai.agent.tools import ToolRegistry
 
 logger = logging.getLogger(__name__)
+
+AgentStreamEvent = AgentTextDelta | AgentResponse
 
 
 class Agent:
@@ -35,7 +39,7 @@ class Agent:
         self,
         history: Sequence[Message],
         request: UserRequest,
-    ) -> AgentResponse:
+    ) -> AsyncIterator[AgentStreamEvent]:
         logger.info(
             "agent.run.started history_size=%d max_iterations=%d",
             len(history),
@@ -58,10 +62,33 @@ class Agent:
                     iteration,
                     extra={"iteration": iteration},
                 )
-                llm_response = await self._llm_provider.generate(
-                    tuple(context),
-                    self._tool_registry.definitions,
-                )
+                llm_response: LLMResponse | None = None
+                content_parts: list[str] = []
+                async for event in self._llm_provider.stream(
+                    tuple(context), self._tool_registry.definitions
+                ):
+                    if isinstance(event, LLMTextDelta):
+                        if llm_response is not None:
+                            raise InvalidLLMResponseError(
+                                "The LLM provider returned an invalid response."
+                            )
+                        content_parts.append(event.content)
+                        yield AgentTextDelta(content=event.content)
+                    elif isinstance(event, LLMResponse):
+                        if llm_response is not None:
+                            raise InvalidLLMResponseError(
+                                "The LLM provider returned an invalid response."
+                            )
+                        llm_response = event
+                    else:
+                        raise InvalidLLMResponseError(
+                            "The LLM provider returned an invalid response."
+                        )
+
+                if llm_response is None:
+                    raise InvalidLLMResponseError(
+                        "The LLM provider returned an invalid response."
+                    )
                 result_type = self._result_type(llm_response)
                 logger.info(
                     "agent.llm.completed iteration=%d result_type=%s",
@@ -80,12 +107,22 @@ class Agent:
 
                 if result_type is LLMResultType.FINAL:
                     assert llm_response.content is not None
+                    if "".join(content_parts) != llm_response.content:
+                        raise InvalidLLMResponseError(
+                            "The LLM provider returned an invalid response."
+                        )
                     logger.info(
                         "agent.run.completed iterations=%d",
                         iteration,
                         extra={"iterations": iteration},
                     )
-                    return AgentResponse(content=llm_response.content)
+                    yield AgentResponse(content=llm_response.content)
+                    return
+
+                if content_parts:
+                    raise InvalidLLMResponseError(
+                        "The LLM provider returned an invalid response."
+                    )
 
                 for tool_call in llm_response.tool_calls:
                     context.append(

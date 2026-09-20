@@ -1,13 +1,23 @@
 import asyncio
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from uuid import UUID, uuid4
 
 import httpx
 import pytest
 
-from smeshariki_ai.agent import AgentResponse, Message, UserRequest
+from smeshariki_ai.agent import (
+    AgentResponse,
+    AgentStreamEvent,
+    AgentTextDelta,
+    Message,
+    UserRequest,
+)
 from smeshariki_ai.api import create_app
-from smeshariki_ai.application import AgentService, AgentServiceUnavailableError
+from smeshariki_ai.application import (
+    AgentService,
+    AgentServiceUnavailableError,
+    InMemoryDialogEventBroker,
+)
 from smeshariki_ai.dialogs import InMemoryHistoryStore
 
 
@@ -22,11 +32,20 @@ class BlockingAgent:
         self,
         history: Sequence[Message],
         request: UserRequest,
-    ) -> AgentResponse:
+    ) -> AsyncIterator[AgentStreamEvent]:
         self.calls.append((tuple(history), request))
         self.started.set()
         await self.release.wait()
-        return AgentResponse(content=self.response)
+        if self.response:
+            yield AgentTextDelta(content=self.response)
+        yield AgentResponse(content=self.response)
+
+
+def make_service(
+    agent: BlockingAgent,
+    history_store: InMemoryHistoryStore,
+) -> AgentService:
+    return AgentService(agent, history_store, InMemoryDialogEventBroker())
 
 
 def make_client(
@@ -62,7 +81,7 @@ async def wait_for_history_size(
 async def test_create_dialog_returns_201_uuid4_and_location() -> None:
     agent = BlockingAgent()
     store = InMemoryHistoryStore()
-    service = AgentService(agent, store)
+    service = make_service(agent, store)
     client = make_client(service)
 
     async with client:
@@ -82,7 +101,7 @@ async def test_create_dialog_returns_201_uuid4_and_location() -> None:
 async def test_message_returns_empty_202_before_agent_finishes() -> None:
     agent = BlockingAgent(response="")
     store = InMemoryHistoryStore()
-    service = AgentService(agent, store)
+    service = make_service(agent, store)
     dialog_id = await service.start_dialog()
     client = make_client(service)
 
@@ -111,7 +130,7 @@ async def test_message_returns_empty_202_before_agent_finishes() -> None:
 @pytest.mark.asyncio
 async def test_unknown_dialog_returns_404_without_starting_agent() -> None:
     agent = BlockingAgent()
-    service = AgentService(agent, InMemoryHistoryStore())
+    service = make_service(agent, InMemoryHistoryStore())
     client = make_client(service)
 
     async with client:
@@ -138,7 +157,7 @@ async def test_unknown_dialog_returns_404_without_starting_agent() -> None:
 )
 async def test_invalid_path_or_body_returns_422(path: str, body: object) -> None:
     agent = BlockingAgent()
-    service = AgentService(agent, InMemoryHistoryStore())
+    service = make_service(agent, InMemoryHistoryStore())
     client = make_client(service)
 
     async with client:
@@ -153,7 +172,7 @@ async def test_invalid_path_or_body_returns_422(path: str, body: object) -> None
 async def test_closed_service_returns_safe_503() -> None:
     agent = BlockingAgent()
     store = InMemoryHistoryStore()
-    service = AgentService(agent, store)
+    service = make_service(agent, store)
     dialog_id = await service.start_dialog()
     await service.shutdown()
     client = make_client(service)
@@ -173,7 +192,7 @@ async def test_closed_service_returns_safe_503() -> None:
 async def test_cookie_does_not_select_or_modify_dialog() -> None:
     agent = BlockingAgent()
     store = InMemoryHistoryStore()
-    service = AgentService(agent, store)
+    service = make_service(agent, store)
     dialog_id = await service.start_dialog()
     client = make_client(
         service,
@@ -198,7 +217,7 @@ async def test_cookie_does_not_select_or_modify_dialog() -> None:
 async def test_application_lifespan_shuts_service_down() -> None:
     agent = BlockingAgent()
     store = InMemoryHistoryStore()
-    service = AgentService(agent, store)
+    service = make_service(agent, store)
     dialog_id = await service.start_dialog()
     app = create_app(service)
 
