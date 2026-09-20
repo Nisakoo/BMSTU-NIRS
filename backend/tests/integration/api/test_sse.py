@@ -13,7 +13,7 @@ from smeshariki_ai.agent import (
     UserRequest,
 )
 from smeshariki_ai.api import create_app
-from smeshariki_ai.application import AgentService
+from smeshariki_ai.application import AgentService, InMemoryDialogEventBroker
 from smeshariki_ai.dialogs import InMemoryHistoryStore
 
 
@@ -44,7 +44,7 @@ def make_client(
 @pytest.mark.asyncio
 async def test_sse_stream_returns_ready_and_ordered_message_events() -> None:
     store = InMemoryHistoryStore()
-    service = AgentService(StreamingAgent(), store)
+    service = AgentService(StreamingAgent(), store, InMemoryDialogEventBroker())
     dialog_id = await service.start_dialog()
     client = make_client(service)
 
@@ -74,7 +74,11 @@ async def test_sse_stream_returns_ready_and_ordered_message_events() -> None:
 
 @pytest.mark.asyncio
 async def test_sse_sends_heartbeat_while_dialog_is_idle() -> None:
-    service = AgentService(StreamingAgent(), InMemoryHistoryStore())
+    service = AgentService(
+        StreamingAgent(),
+        InMemoryHistoryStore(),
+        InMemoryDialogEventBroker(),
+    )
     dialog_id = await service.start_dialog()
     client = make_client(service, heartbeat_seconds=0.001)
 
@@ -102,7 +106,11 @@ async def test_sse_rejects_invalid_or_unknown_dialog(
     path: str,
     expected_status: int,
 ) -> None:
-    service = AgentService(StreamingAgent(), InMemoryHistoryStore())
+    service = AgentService(
+        StreamingAgent(),
+        InMemoryHistoryStore(),
+        InMemoryDialogEventBroker(),
+    )
     client = make_client(service)
 
     async with client:
@@ -114,7 +122,11 @@ async def test_sse_rejects_invalid_or_unknown_dialog(
 
 @pytest.mark.asyncio
 async def test_sse_rejects_subscription_after_shutdown() -> None:
-    service = AgentService(StreamingAgent(), InMemoryHistoryStore())
+    service = AgentService(
+        StreamingAgent(),
+        InMemoryHistoryStore(),
+        InMemoryDialogEventBroker(),
+    )
     dialog_id = await service.start_dialog()
     await service.shutdown()
     client = make_client(service)

@@ -14,7 +14,7 @@ from smeshariki_ai.agent import (
     ToolRegistry,
 )
 from smeshariki_ai.api import create_app
-from smeshariki_ai.application import AgentService
+from smeshariki_ai.application import AgentService, InMemoryDialogEventBroker
 from smeshariki_ai.dialogs import InMemoryHistoryStore
 
 
@@ -49,7 +49,7 @@ async def test_background_litellm_failure_keeps_accepted_history_unchanged(
         config=AgentConfig(system_prompt="private system prompt"),
     )
     store = InMemoryHistoryStore()
-    service = AgentService(agent, store)
+    service = AgentService(agent, store, InMemoryDialogEventBroker())
     app = create_app(service)
     transport = httpx.ASGITransport(app=app)
 

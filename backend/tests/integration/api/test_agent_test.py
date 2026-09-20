@@ -3,7 +3,7 @@ import pytest
 
 from smeshariki_ai.agent import Agent, AgentConfig, FakeLLMProvider, ToolRegistry
 from smeshariki_ai.api import create_app
-from smeshariki_ai.application import AgentService
+from smeshariki_ai.application import AgentService, InMemoryDialogEventBroker
 from smeshariki_ai.dialogs import InMemoryHistoryStore
 
 
@@ -14,7 +14,11 @@ async def test_agent_test_returns_self_contained_same_origin_html() -> None:
         tool_registry=ToolRegistry(()),
         config=AgentConfig(system_prompt="test"),
     )
-    service = AgentService(agent, InMemoryHistoryStore())
+    service = AgentService(
+        agent,
+        InMemoryHistoryStore(),
+        InMemoryDialogEventBroker(),
+    )
     app = create_app(service)
     client = httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),

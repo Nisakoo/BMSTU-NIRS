@@ -9,7 +9,7 @@ from smeshariki_ai.agent import (
     ToolRegistry,
 )
 from smeshariki_ai.api import create_app
-from smeshariki_ai.application import AgentService
+from smeshariki_ai.application import AgentService, InMemoryDialogEventBroker
 from smeshariki_ai.config import Config
 from smeshariki_ai.dialogs import InMemoryHistoryStore
 
@@ -35,7 +35,12 @@ def build_agent_service(
         config=config.agent,
     )
     history_store = InMemoryHistoryStore()
-    return AgentService(agent=agent, history_store=history_store)
+    event_broker = InMemoryDialogEventBroker()
+    return AgentService(
+        agent=agent,
+        history_store=history_store,
+        event_broker=event_broker,
+    )
 
 
 def create_application(

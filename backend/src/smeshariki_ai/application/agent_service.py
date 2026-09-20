@@ -13,6 +13,7 @@ from smeshariki_ai.agent import (
     UserRequest,
 )
 from smeshariki_ai.application.errors import AgentServiceUnavailableError
+from smeshariki_ai.application.event_broker import DialogEventBroker
 from smeshariki_ai.application.events import (
     DialogEvent,
     DialogEventType,
@@ -36,19 +37,15 @@ class AgentService:
         self,
         agent: AgentRunner,
         history_store: HistoryStore,
-        *,
-        subscriber_queue_size: int = 64,
+        event_broker: DialogEventBroker,
     ) -> None:
-        if subscriber_queue_size <= 0:
-            raise ValueError("subscriber_queue_size must be positive")
         self._agent = agent
         self._history_store = history_store
-        self._subscriber_queue_size = subscriber_queue_size
+        self._event_broker = event_broker
         self._state_lock = asyncio.Lock()
         self._accepting = True
         self._dialog_tails: dict[UUID, asyncio.Task[None]] = {}
         self._tasks: set[asyncio.Task[None]] = set()
-        self._subscribers: dict[UUID, set[DialogSubscription]] = {}
 
     async def start_dialog(self) -> UUID:
         async with self._state_lock:
@@ -91,11 +88,7 @@ class AgentService:
         await self._history_store.get(dialog_id)
         async with self._state_lock:
             self._ensure_accepting()
-            subscription = DialogSubscription(
-                dialog_id,
-                self._subscriber_queue_size,
-            )
-            self._subscribers.setdefault(dialog_id, set()).add(subscription)
+            subscription = await self._event_broker.subscribe(dialog_id)
         logger.info(
             "dialog.subscription.opened dialog_id=%s",
             dialog_id,
@@ -104,13 +97,7 @@ class AgentService:
         return subscription
 
     async def unsubscribe(self, subscription: DialogSubscription) -> None:
-        async with self._state_lock:
-            subscribers = self._subscribers.get(subscription.dialog_id)
-            if subscribers is not None:
-                subscribers.discard(subscription)
-                if not subscribers:
-                    self._subscribers.pop(subscription.dialog_id, None)
-            subscription.close()
+        await self._event_broker.unsubscribe(subscription)
         logger.info(
             "dialog.subscription.closed dialog_id=%s",
             subscription.dialog_id,
@@ -121,14 +108,6 @@ class AgentService:
         async with self._state_lock:
             self._accepting = False
             tasks = tuple(self._tasks)
-            subscriptions = tuple(
-                subscription
-                for subscribers in self._subscribers.values()
-                for subscription in subscribers
-            )
-            self._subscribers.clear()
-            for subscription in subscriptions:
-                subscription.close(discard_pending=False)
             for task in tasks:
                 task.cancel()
 
@@ -137,6 +116,7 @@ class AgentService:
 
         self._tasks.clear()
         self._dialog_tails.clear()
+        await self._event_broker.shutdown()
 
     async def _run_after(
         self,
@@ -153,7 +133,7 @@ class AgentService:
                 dialog_id,
                 extra={"dialog_id": str(dialog_id)},
             )
-            await self._publish(
+            await self._event_broker.publish(
                 dialog_id,
                 DialogEvent(type=DialogEventType.MESSAGE_START),
             )
@@ -161,7 +141,7 @@ class AgentService:
             response: AgentResponse | None = None
             async for event in self._agent.run(history, request):
                 if isinstance(event, AgentTextDelta):
-                    await self._publish(
+                    await self._event_broker.publish(
                         dialog_id,
                         DialogEvent(
                             type=DialogEventType.MESSAGE_DELTA,
@@ -191,7 +171,7 @@ class AgentService:
                 dialog_id,
                 extra={"dialog_id": str(dialog_id)},
             )
-            await self._publish(
+            await self._event_broker.publish(
                 dialog_id,
                 DialogEvent(type=DialogEventType.MESSAGE_END),
             )
@@ -215,22 +195,8 @@ class AgentService:
                 },
             )
 
-    async def _publish(self, dialog_id: UUID, event: DialogEvent) -> None:
-        async with self._state_lock:
-            subscribers = self._subscribers.get(dialog_id)
-            if not subscribers:
-                return
-            closed = {
-                subscription
-                for subscription in subscribers
-                if not subscription.offer(event)
-            }
-            subscribers.difference_update(closed)
-            if not subscribers:
-                self._subscribers.pop(dialog_id, None)
-
     async def _publish_error(self, dialog_id: UUID) -> None:
-        await self._publish(
+        await self._event_broker.publish(
             dialog_id,
             DialogEvent(
                 type=DialogEventType.MESSAGE_ERROR,

@@ -13,7 +13,7 @@ from smeshariki_ai.agent import (
     FakeLLMProvider,
     LiteLLMProviderConfig,
 )
-from smeshariki_ai.application import AgentService
+from smeshariki_ai.application import AgentService, InMemoryDialogEventBroker
 from smeshariki_ai.bootstrap import (
     build_agent_service,
     configure_logging,
@@ -37,6 +37,7 @@ def test_bootstrap_builds_service_with_explicit_provider() -> None:
     app = create_application(config, llm_provider=provider)
 
     assert isinstance(service, AgentService)
+    assert isinstance(service._event_broker, InMemoryDialogEventBroker)
     assert isinstance(app, FastAPI)
     assert app.title == "smeshariki-ai"
     assert isinstance(app.state.agent_service, AgentService)
