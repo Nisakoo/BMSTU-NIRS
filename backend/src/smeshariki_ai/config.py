@@ -5,6 +5,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict
 
 from smeshariki_ai.agent import AgentConfig, LiteLLMProviderConfig
+from smeshariki_ai.agent.prompts import load_system_prompt
 
 __all__ = ["Config", "load_config"]
 
@@ -19,12 +20,10 @@ class Config(BaseModel):
 def load_config(environ: Mapping[str, str] | None = None) -> Config:
     source = os.environ if environ is None else environ
     agent_values: dict[str, Any] = {
-        "system_prompt": "You are a helpful Smeshariki assistant.",
+        "system_prompt": load_system_prompt(),
         "max_iterations": 4,
     }
 
-    if "AGENT_SYSTEM_PROMPT" in source:
-        agent_values["system_prompt"] = source["AGENT_SYSTEM_PROMPT"]
     if "AGENT_MAX_ITERATIONS" in source:
         agent_values["max_iterations"] = source["AGENT_MAX_ITERATIONS"]
 

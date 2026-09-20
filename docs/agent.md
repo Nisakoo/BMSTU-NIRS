@@ -17,6 +17,9 @@ Agent runtime — внутренняя часть backend, независима�
   `ToolRegistry`;
 - [`agent/models.py`](../backend/src/smeshariki_ai/agent/models.py) —
   неизменяемые Pydantic-модели сообщений, вызовов и ответов.
+- [`agent/prompts/system.md`](../backend/src/smeshariki_ai/agent/prompts/system.md)
+  — версионируемый production-системный промпт; соседний Python-модуль
+  загружает его как package resource.
 
 ## Внутренние контракты
 
@@ -38,6 +41,13 @@ Agent.run(
 запроса. Внутренние сообщения о вызовах инструментов существуют только в этом
 контексте. `Agent.run` является единственным путём выполнения: он передаёт
 фрагменты только финального текста, а затем полный `AgentResponse`.
+
+Runtime не читает Markdown-файл или environment. Общий
+[`load_config`](./configuration.md) загружает production-промпт через
+`importlib.resources` при старте и передаёт готовый текст в неизменяемом
+`AgentConfig`. Поэтому изменение промпта проходит обычное Git-review и входит
+в Python-дистрибутив, а deployment override через `AGENT_SYSTEM_PROMPT` не
+поддерживается.
 
 ```python
 LLMProvider.stream(
@@ -136,6 +146,9 @@ LiteLLM-адаптер отдельно журналирует начало, з�
 - [спецификация LiteLLM-провайдера](../specs/changes/litellm-provider/spec.md);
 - [план LiteLLM-провайдера](../specs/changes/litellm-provider/plan.md);
 - [результат проверки LiteLLM-провайдера](../specs/changes/litellm-provider/verification.md);
+- [спецификация resource системного промпта](../specs/changes/agent-system-prompt-resource/spec.md);
+- [план resource системного промпта](../specs/changes/agent-system-prompt-resource/plan.md);
+- [результат проверки resource системного промпта](../specs/changes/agent-system-prompt-resource/verification.md);
 - [спецификация streaming и SSE](../specs/changes/agent-sse-test-ui/spec.md);
 - [план streaming и SSE](../specs/changes/agent-sse-test-ui/plan.md);
 - [результат проверки streaming и SSE](../specs/changes/agent-sse-test-ui/verification.md).
