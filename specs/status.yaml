@@ -17,3 +17,9 @@ specs:
       status: done
     - name: agent-system-prompt-resource
       status: done
+    - name: frontend-static-ui-import
+      status: done
+    - name: frontend-src-layout
+      status: done
+    - name: frontend-agent-integration
+      status: in-progress

@@ -23,6 +23,12 @@ FastAPI-маршруты только валидируют HTTP-ввод и пр
   запросов и ответов;
 - [`api/agent_test.html`](../backend/src/smeshariki_ai/api/agent_test.html) —
   самодостаточный тестовый интерфейс;
+- [`frontend/src/agent-api.js`](../frontend/src/agent-api.js) — браузерный
+  HTTP/SSE-клиент dialog API;
+- [`frontend/src/script.js`](../frontend/src/script.js) — состояния формы,
+  порядок сообщений и отображение потокового ответа;
+- [`frontend/vite.config.js`](../frontend/vite.config.js) — локальный same-
+  origin proxy пути `/api`;
 - [`bootstrap.py`](../backend/src/smeshariki_ai/bootstrap.py) — сборка готовых
   зависимостей приложения.
 
@@ -148,6 +154,37 @@ results и история через поток не выдаются. `Last-Eve
 одного HTML с встроенными CSS и vanilla JavaScript, не загружает внешние ресурсы
 и вставляет запросы и ответы в DOM как текст.
 
+## Frontend-интеграция
+
+Основной frontend запускается отдельным Vite-процессом. Браузер обращается к
+относительным адресам `/api/v1/...` на origin Vite, а dev server проксирует
+путь `/api` в backend. Default target — `http://127.0.0.1:8000`, несекретное
+переопределение задаётся переменной процесса Vite `BACKEND_URL`. Поэтому
+локальный сценарий не требует CORS и не меняет FastAPI-контракт.
+
+```mermaid
+flowchart LR
+    Browser[Browser / frontend] -->|HTTP + EventSource /api/v1| Vite[Vite dev server]
+    Vite -->|proxy /api| API[FastAPI backend]
+    API --> Service[AgentService]
+    Service --> Agent[Agent runtime]
+    Service --> Broker[DialogEventBroker]
+    Broker -->|SSE events| API
+```
+
+При загрузке страницы frontend создаёт новый диалог, открывает один
+`EventSource` и блокирует форму до `ready`. После успешного `202 Accepted`
+пользовательское сообщение добавляется в чат, а события `message_delta`
+дописываются в одну реплику ассистента. События, пришедшие во время POST,
+буферизуются, чтобы ответ агента не оказался выше сообщения пользователя.
+Одновременно допускается только один незавершённый запрос.
+
+Пользовательский текст, delta и сообщения ошибок добавляются через
+`textContent`. `dialog_id` не сохраняется в cookie или `localStorage`; полная
+перезагрузка создаёт новый диалог. Ошибка EventSource блокирует форму, пока
+браузер пытается переподключиться, но потерянные события не восстанавливаются,
+так как backend не поддерживает replay.
+
 ## Наблюдаемость и lifecycle
 
 Сервис журналирует создание диалога, принятие запроса, начало и завершение
@@ -174,4 +211,7 @@ results и история через поток не выдаются. `Last-Eve
 - [спецификация брокера событий](../specs/changes/dialog-event-broker/spec.md);
 - [план брокера событий](../specs/changes/dialog-event-broker/plan.md);
 - [результат проверки брокера событий](../specs/changes/dialog-event-broker/verification.md);
+- [спецификация frontend-интеграции](../specs/changes/frontend-agent-integration/spec.md);
+- [план frontend-интеграции](../specs/changes/frontend-agent-integration/plan.md);
+- [результат проверки frontend-интеграции](../specs/changes/frontend-agent-integration/verification.md);
 - [запуск и тестовые HTTP-запросы](../docker/README.md).

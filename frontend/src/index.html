@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Истории со Смешариками — AI чат · тёмная тема</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<main class="sai" aria-label="Сервис генерации историй со Смешариками">
+  <section class="sai-hero">
+    <div class="sai-kicker">Добрые истории вместе с ИИ</div>
+    <h1>Придумай историю<br>со <span class="sai-title-accent">Смешариками</span></h1>
+  </section>
+
+  <section class="sai-scene">
+    <div class="sai-moon" aria-hidden="true"></div>
+
+    <div class="sai-night-landscape" aria-hidden="true">
+      <svg viewBox="0 0 1200 430" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id="saiHillBack" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#1d5a4c"/>
+            <stop offset="1" stop-color="#123b34"/>
+          </linearGradient>
+          <linearGradient id="saiHillMid" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#246b55"/>
+            <stop offset="1" stop-color="#174738"/>
+          </linearGradient>
+          <linearGradient id="saiGrass" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#2d7a57"/>
+            <stop offset=".62" stop-color="#225e47"/>
+            <stop offset="1" stop-color="#153f34"/>
+          </linearGradient>
+          <linearGradient id="saiPath" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#d6c58f" stop-opacity=".76"/>
+            <stop offset="1" stop-color="#9d8b61" stop-opacity=".48"/>
+          </linearGradient>
+          <radialGradient id="saiPond" cx="50%" cy="32%" r="75%">
+            <stop offset="0" stop-color="#62d5ff" stop-opacity=".72"/>
+            <stop offset=".55" stop-color="#2a86a9" stop-opacity=".72"/>
+            <stop offset="1" stop-color="#174c67" stop-opacity=".75"/>
+          </radialGradient>
+          <filter id="saiGlow" x="-200%" y="-200%" width="400%" height="400%">
+            <feGaussianBlur stdDeviation="3" result="b"/>
+            <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+        </defs>
+
+        <!-- дальние холмы -->
+        <path d="M0 191 C118 132 224 137 338 189 C451 240 551 170 671 160 C815 149 901 229 1018 196 C1087 176 1143 153 1200 171 L1200 430 L0 430 Z" fill="url(#saiHillBack)"/>
+        <path d="M0 244 C146 183 253 197 384 246 C523 299 609 216 752 211 C899 206 994 279 1200 221 L1200 430 L0 430 Z" fill="url(#saiHillMid)"/>
+
+        <!-- основная поляна -->
+        <path d="M0 286 C198 243 340 266 503 301 C667 337 820 275 983 274 C1085 274 1148 289 1200 306 L1200 430 L0 430 Z" fill="url(#saiGrass)"/>
+
+        <!-- дорожка -->
+        <path d="M588 430 C550 392 575 362 624 337 C672 311 700 286 694 257 C740 275 746 307 716 333 C683 362 666 393 698 430 Z" fill="url(#saiPath)" opacity=".85"/>
+
+        <!-- пруд -->
+        <ellipse cx="957" cy="346" rx="118" ry="35" fill="url(#saiPond)"/>
+        <ellipse cx="943" cy="336" rx="58" ry="9" fill="#b4efff" opacity=".18"/>
+        <path d="M864 347 C900 333 922 333 950 340 C982 348 1010 349 1048 338" fill="none" stroke="#bcefff" stroke-opacity=".24" stroke-width="3" stroke-linecap="round"/>
+
+        <!-- деревья -->
+        <g transform="translate(72 198)">
+          <rect x="39" y="74" width="15" height="86" rx="7" fill="#6b4936"/>
+          <circle cx="47" cy="68" r="42" fill="#256b4f"/>
+          <circle cx="25" cy="86" r="31" fill="#2e7c57"/>
+          <circle cx="70" cy="90" r="34" fill="#1f6047"/>
+        </g>
+        <g transform="translate(1042 204) scale(.82)">
+          <rect x="39" y="74" width="15" height="86" rx="7" fill="#6b4936"/>
+          <circle cx="47" cy="68" r="42" fill="#256b4f"/>
+          <circle cx="25" cy="86" r="31" fill="#2e7c57"/>
+          <circle cx="70" cy="90" r="34" fill="#1f6047"/>
+        </g>
+        <g transform="translate(930 221) scale(.52)">
+          <rect x="39" y="74" width="15" height="86" rx="7" fill="#6b4936"/>
+          <circle cx="47" cy="68" r="42" fill="#2c7654"/>
+          <circle cx="25" cy="86" r="31" fill="#367f59"/>
+          <circle cx="70" cy="90" r="34" fill="#256a4c"/>
+        </g>
+
+        <!-- маленький домик на дальнем холме -->
+        <g transform="translate(836 202) scale(.68)" opacity=".92">
+          <path d="M0 42 L43 10 L86 42 Z" fill="#b55947"/>
+          <rect x="11" y="40" width="64" height="46" rx="7" fill="#ead28a"/>
+          <rect x="37" y="56" width="15" height="30" rx="4" fill="#7d5e44"/>
+          <rect x="17" y="50" width="14" height="13" rx="4" fill="#8edfff" opacity=".7"/>
+          <rect x="58" y="50" width="11" height="13" rx="4" fill="#8edfff" opacity=".7"/>
+        </g>
+
+        <!-- ромашки -->
+        <g fill="#fff" opacity=".92">
+          <g transform="translate(178 350)"><circle cx="0" cy="-7" r="5"/><circle cx="7" cy="0" r="5"/><circle cx="0" cy="7" r="5"/><circle cx="-7" cy="0" r="5"/><circle cx="0" cy="0" r="4" fill="#ffd84d"/></g>
+          <g transform="translate(252 386) scale(.8)"><circle cx="0" cy="-7" r="5"/><circle cx="7" cy="0" r="5"/><circle cx="0" cy="7" r="5"/><circle cx="-7" cy="0" r="5"/><circle cx="0" cy="0" r="4" fill="#ffd84d"/></g>
+          <g transform="translate(801 370) scale(.9)"><circle cx="0" cy="-7" r="5"/><circle cx="7" cy="0" r="5"/><circle cx="0" cy="7" r="5"/><circle cx="-7" cy="0" r="5"/><circle cx="0" cy="0" r="4" fill="#ffd84d"/></g>
+          <g transform="translate(1090 382) scale(.75)"><circle cx="0" cy="-7" r="5"/><circle cx="7" cy="0" r="5"/><circle cx="0" cy="7" r="5"/><circle cx="-7" cy="0" r="5"/><circle cx="0" cy="0" r="4" fill="#ffd84d"/></g>
+          <g transform="translate(724 403) scale(.6)"><circle cx="0" cy="-7" r="5"/><circle cx="7" cy="0" r="5"/><circle cx="0" cy="7" r="5"/><circle cx="-7" cy="0" r="5"/><circle cx="0" cy="0" r="4" fill="#ffd84d"/></g>
+        </g>
+
+        <!-- светлячки -->
+        <g fill="#ffe775" filter="url(#saiGlow)">
+          <circle cx="144" cy="304" r="2.2"/><circle cx="338" cy="327" r="2"/><circle cx="781" cy="312" r="2.1"/><circle cx="1077" cy="320" r="2.2"/>
+        </g>
+      </svg>
+    </div>
+    <div class="sai-tag one">в каждой истории живёт немного чуда ✦</div>
+    <div class="sai-tag two">фантазируй · общайся · читай</div>
+
+    <div class="sai-char-bubble sai-krosh" aria-label="Крош в мыльном пузыре">
+      <div class="sai-char-inner"><img src="/static/characters/krosh.png" alt="Крош" referrerpolicy="no-referrer" decoding="async" /></div>
+    </div>
+    <div class="sai-hint"><b>Ёлки-иголки! Привет!</b><br>Я Крош. Давай сочиним что-нибудь такое, чтобы даже Кар-Карыч удивился! Расскажи, кого берём в историю и куда отправимся.</div>
+
+    <div class="sai-char-bubble sai-yozhik" aria-label="Крош в мыльном пузыре">
+      <div class="sai-char-inner"><img src="/static/characters/kopatych.png" alt="Ёжик" referrerpolicy="no-referrer" decoding="async" /></div>
+    </div>
+
+    <section class="sai-chat" aria-label="Чат с ИИ">
+      <header class="sai-chat-head">
+        <div class="sai-ai">
+          <div class="sai-ai-mark">✦</div>
+          <div><strong>Смешарики AI</strong><small>Сочиняем новую историю</small></div>
+        </div>
+        <div class="sai-status" id="saiStatus" role="status" aria-live="polite" data-state="connecting">
+          <i></i><span id="saiStatusText">подключение…</span>
+        </div>
+      </header>
+
+      <div class="sai-messages" id="saiMessages" aria-live="polite">
+        <div class="sai-row">
+          <div class="sai-msg-icon">⭐</div>
+          <div class="sai-bubble"><strong>Привет! Давай придумаем историю вместе.</strong><br><br>Назови <strong>героев, место и настроение</strong> — я соберу идею в цельный сюжет. Потом ты сможешь менять историю: добавлять персонажей, просить другой финал или продолжать приключение дальше.</div>
+        </div>
+      </div>
+
+      <div class="sai-compose-wrap">
+        <form class="sai-composer" id="saiForm">
+          <textarea id="saiPrompt" rows="1" placeholder="Например: Крош и Ёжик строят ракету и отправляются смотреть звёзды…" aria-label="Идея для истории" disabled></textarea>
+          <button class="sai-send" type="submit" aria-label="Отправить" disabled>
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 12.4 20 5l-5.8 14-2.5-5.1L4 12.4Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="m11.7 13.9 3.5-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </button>
+        </form>
+        <div class="sai-chips">
+          <button class="sai-chip" type="button" aria-pressed="false" disabled>Про дружбу</button>
+          <button class="sai-chip" type="button" aria-pressed="false" disabled>Приключение</button>
+          <button class="sai-chip" type="button" aria-pressed="false" disabled>Перед сном</button>
+          <button class="sai-chip" type="button" aria-pressed="false" disabled>В космосе</button>
+          <button class="sai-chip" type="button" aria-pressed="false" disabled>Про чувства</button>
+          <button class="sai-chip" type="button" aria-pressed="false" disabled>Поучительная</button>
+        </div>
+      </div>
+    </section>
+  </section>
+
+</main>
+
+<script type="module" src="script.js"></script>
+</body>
+</html>

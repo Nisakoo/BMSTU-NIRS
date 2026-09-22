@@ -13,7 +13,7 @@
 
 | Часть | Назначение | Где смотреть |
 | --- | --- | --- |
-| `frontend/` | Каркас отдельно запускаемого пользовательского интерфейса; приложение пока не реализовано | [Frontend](../frontend/) |
+| `frontend/` | Отдельное Vite-приложение чата с proxy к dialog/SSE API | [Frontend](../frontend/) |
 | `backend/` | Единое приложение с HTTP API, application-слоем и runtime агента | [Backend](../backend/) |
 | `docker/` | Контейнерный запуск backend и будущих инфраструктурных зависимостей | [Запуск и конфигурация](../docker/README.md) |
 | `docs/` | Глобальная карта и тематические страницы архитектуры и контрактов | [Текущий каталог](./README.md) |
@@ -37,7 +37,13 @@ Backend является модульным монолитом. HTTP-слой в
 
 ```mermaid
 flowchart LR
-    Client[HTTP-клиент]
+    Browser[Browser]
+
+    subgraph Frontend[frontend]
+        UI[Vanilla JavaScript chat]
+        Vite[Vite /api proxy]
+        UI --> Vite
+    end
 
     subgraph Backend[backend / smeshariki_ai]
         Config[Config / config]
@@ -65,7 +71,8 @@ flowchart LR
     Model[Настроенный LLM endpoint]
     Environment[Process environment]
 
-    Client --> API
+    Browser --> UI
+    Vite --> API
     Environment --> Config
     LLM --> Model
 ```
@@ -91,6 +98,7 @@ flowchart LR
 | Компонент | Назначение | Состояние | Где реализация | Где конкретика |
 | --- | --- | --- | --- | --- |
 | Каркас проекта | Границы frontend, модульного backend и служебных каталогов | Проверено | [`frontend/`](../frontend/), [`backend/`](../backend/) | [spec](../specs/changes/project-scaffold/spec.md), [plan](../specs/changes/project-scaffold/plan.md), [verification](../specs/changes/project-scaffold/verification.md) |
+| Frontend-чат | Vite proxy, создание диалога, отправка запроса и потоковое отображение SSE-ответа | Реализуется | [`frontend/src/`](../frontend/src/) | [описание](../frontend/README.md), [страница API](./dialogs.md), [integration spec](../specs/changes/frontend-agent-integration/spec.md), [integration plan](../specs/changes/frontend-agent-integration/plan.md), [integration verification](../specs/changes/frontend-agent-integration/verification.md) |
 | Agent runtime | Собственный ограниченный tool-calling loop и независимые контракты LLM и инструментов | Проверено | [`smeshariki_ai/agent`](../backend/src/smeshariki_ai/agent/) | [страница компонента](./agent.md), [spec](../specs/changes/agent-runtime/spec.md), [plan](../specs/changes/agent-runtime/plan.md), [verification](../specs/changes/agent-runtime/verification.md) |
 | LiteLLM-провайдер | Асинхронный production-адаптер Chat Completions и отдельная provider-конфигурация | Проверено | [`agent/providers`](../backend/src/smeshariki_ai/agent/providers/) | [страница компонента](./agent.md), [spec](../specs/changes/litellm-provider/spec.md), [plan](../specs/changes/litellm-provider/plan.md), [verification](../specs/changes/litellm-provider/verification.md) |
 | Конфигурация backend | Единая загрузка environment, корневой immutable `Config` и раздача подконфигов | Проверено | [`config.py`](../backend/src/smeshariki_ai/config.py), [`main.py`](../backend/src/smeshariki_ai/main.py), [`bootstrap.py`](../backend/src/smeshariki_ai/bootstrap.py) | [страница компонента](./configuration.md), [spec](../specs/changes/backend-config/spec.md), [plan](../specs/changes/backend-config/plan.md), [verification](../specs/changes/backend-config/verification.md) |
@@ -103,7 +111,8 @@ flowchart LR
 
 ## Что пока не реализовано
 
-Frontend-приложение, RAG и инструмент `search_knowledge`, CORS, постоянное
-хранилище истории, replay SSE-событий и авторизация относятся к будущим изменениям.
-Существующие каталоги или согласованное архитектурное направление не означают,
-что эти возможности уже доступны.
+Production deployment и reverse proxy frontend, RAG и инструмент
+`search_knowledge`, CORS, постоянное хранилище истории, replay SSE-событий и
+авторизация относятся к будущим изменениям. Существующая локальная интеграция
+через Vite proxy или согласованное архитектурное направление не означают, что
+эти возможности уже доступны.

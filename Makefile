@@ -3,11 +3,12 @@ SHELL := /bin/sh
 COMPOSE_FILE := docker/compose.yaml
 ENV_FILE := docker/.env
 
-.PHONY: help run test lint format
+.PHONY: help run frontend test lint format
 
 help:
 	@echo "Available commands:"
 	@echo "  make run     Run the backend and its infrastructure"
+	@echo "  make frontend Run the Vite frontend development server"
 	@echo "  make test    Run all configured project tests"
 	@echo "  make lint    Check backend code with Ruff"
 	@echo "  make format  Fix and format backend code with Ruff"
@@ -22,6 +23,9 @@ run:
 	else \
 		docker compose -f "$(COMPOSE_FILE)" up --build; \
 	fi
+
+frontend:
+	@npm --prefix frontend run dev
 
 test:
 	@uv run --project backend --locked pytest

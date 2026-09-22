@@ -36,8 +36,10 @@ curl -i -X POST http://localhost:8000/api/v1/dialogs/<dialog_id>/messages \
 ```
 
 Ручка сообщения немедленно возвращает пустой `202 Accepted`. Agent loop
-выполняется в фоне, а его результат в текущей версии доступен только в
-in-memory истории и серверных логах.
+выполняется в фоне, а его потоковые события доступны через
+`GET /api/v1/dialogs/<dialog_id>/events`. Основной frontend подключается к этим
+ручкам через локальный Vite proxy; подробности запуска находятся в
+[`frontend/README.md`](../frontend/README.md).
 
 ## Состав
 

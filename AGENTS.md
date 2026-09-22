@@ -192,9 +192,35 @@
     и `InMemoryDialogEventBroker`; fake-провайдер применяется только как явная
     тестовая зависимость.
 
+## Реализованный frontend
+
+1. Frontend остаётся отдельным vanilla JavaScript приложением в
+   `frontend/src/` и запускается Vite-процессом вне Docker Compose backend.
+2. Vite использует `frontend/src/` как root и проксирует браузерные запросы
+   `/api` в backend. Default target — `http://127.0.0.1:8000`, локальное
+   переопределение задаётся `BACKEND_URL` процессу Vite; браузерный код не
+   содержит cross-origin backend URL.
+3. При загрузке frontend создаёт новый диалог, открывает один `EventSource` и
+   блокирует форму до `ready`. `dialog_id` не сохраняется в cookie или
+   `localStorage`; перезагрузка создаёт новый in-memory диалог.
+4. Пользовательский запрос добавляется в чат только после `202 Accepted`.
+   Быстрые `message_*` события буферизуются до завершения POST, delta
+   дописываются в одну реплику ассистента, а одновременная отправка нескольких
+   запросов блокируется.
+5. Динамический пользовательский, модельный и error-текст вставляется только
+   как текст, без `innerHTML`. Ошибки создания, отправки и SSE переводят форму
+   в явное безопасное состояние; hardcoded ответ отсутствует.
+6. `make frontend` запускает dev server, а `make test` выполняет frontend
+   Node-тесты сетевого контракта и полный backend Pytest. Vite build создаёт
+   игнорируемый `frontend/dist/`.
+
 ## Согласованные технологии
 
 - Python 3.12 — runtime backend.
+- Node.js 22 и npm — runtime инструментов разработки frontend и управление
+  зафиксированными frontend-зависимостями.
+- Vite — dev server, production build и локальный proxy `/api` к backend;
+  frontend-фреймворк не используется.
 - `uv` — обязательный инструмент для установки Python, управления виртуальным окружением и зависимостями, синхронизации lock-файла и запуска Python-команд. Не использовать `pip`, `poetry` или `pipenv` в стандартном процессе разработки.
 - FastAPI и Pydantic — HTTP API, валидация входных и выходных данных и SSE-интерфейс.
 - LiteLLM Python SDK — асинхронная интеграция backend с LLM через внутренний
