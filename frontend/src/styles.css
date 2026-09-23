@@ -231,6 +231,8 @@
   .sai-bubble{
     max-width:min(670px,84%);
     padding:15px 17px;
+    white-space:pre-wrap;
+    overflow-wrap:anywhere;
     border:1px solid #e2eef5;
     border-radius:20px 20px 20px 8px;
     background:#f7fbfe;
@@ -423,8 +425,8 @@
   }
   .sai-krosh{width:204px;height:204px;left:-58px;bottom:27px;animation:saiFloat 5.7s ease-in-out infinite}
   .sai-krosh .sai-char-inner img{width:78%;height:84%;bottom:5%}
-  .sai-yozhik{width:166px;height:166px;right:-38px;top:39px;animation:saiFloat 6.4s ease-in-out -1.3s infinite}
-  .sai-yozhik .sai-char-inner img{width:78%;height:82%;bottom:6%}
+  .sai-kopatych{width:166px;height:166px;right:-38px;top:39px;animation:saiFloat 6.4s ease-in-out -1.3s infinite}
+  .sai-kopatych .sai-char-inner img{width:78%;height:82%;bottom:6%}
   @keyframes saiFloat{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-9px) rotate(2deg)}}
 
   .sai-hint{
@@ -517,7 +519,7 @@
   @media (max-width:1050px){
     .sai-scene{padding:42px 38px 44px}
     .sai-krosh{left:-24px;bottom:22px;width:174px;height:174px}
-    .sai-yozhik{right:-18px;width:148px;height:148px}
+    .sai-kopatych{right:-18px;width:148px;height:148px}
     .sai-hint{left:66px;bottom:157px;width:210px}
   }
   @media (max-width:820px){
@@ -525,7 +527,7 @@
     .sai-scene{padding:20px 12px 150px;border-radius:38px}
     .sai-chat{border-radius:28px}
     .sai-krosh{left:14px;bottom:4px;width:144px;height:144px}
-    .sai-yozhik{right:12px;top:auto;bottom:8px;width:124px;height:124px}
+    .sai-kopatych{right:12px;top:auto;bottom:8px;width:124px;height:124px}
     .sai-hint{left:126px;bottom:80px;width:min(245px,calc(100% - 270px))}
     .sai-tag{display:none}
     .sai-steps{grid-template-columns:1fr}
@@ -545,7 +547,7 @@
     .sai-chips::-webkit-scrollbar{display:none}
     .sai-chip{white-space:nowrap}
     .sai-krosh{width:126px;height:126px;left:8px}
-    .sai-yozhik{width:106px;height:106px;right:7px}
+    .sai-kopatych{width:106px;height:106px;right:7px}
     .sai-hint{left:102px;bottom:70px;width:calc(100% - 210px);min-width:150px;font-size:10.5px;padding:10px 11px}
   }
 

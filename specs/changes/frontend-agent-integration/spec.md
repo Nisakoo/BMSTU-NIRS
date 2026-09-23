@@ -183,8 +183,8 @@ backend-страницу `/agent_test`.
 | Требования | Способ проверки |
 | --- | --- |
 | REQ-001–REQ-003 | Vite build и runtime-проверка proxy; ревью FastAPI и Compose diff на отсутствие CORS/frontend service |
-| REQ-004–REQ-012 | Node unit-тесты сетевого ES-модуля с fake `fetch`/`EventSource`; browser E2E с детерминированным backend `FakeLLMProvider` для UI state и порядка сообщений |
-| REQ-013 | Browser runtime-проверка тематической кнопки, Enter и textarea autosize |
+| REQ-004–REQ-012 | Node-тесты сетевого ES-модуля и DOM-состояний с fake `fetch`/`EventSource`; локальная HTTP/SSE-проверка Vite proxy через Node без запуска браузера |
+| REQ-013 | Node-тест DOM-состояний тематической кнопки, Enter и textarea autosize; визуальный браузерный рендеринг не проверяется по ограничению пользователя |
 | REQ-014–REQ-015 | `npm --prefix frontend test` и полный `make test` без реального LLM и внешней сети |
 | REQ-016 | `npm --prefix frontend run build`, ревью `.gitignore` и итогового Git diff |
 | REQ-017 | Ревью `frontend/README.md`, `docs/README.md`, `docs/dialogs.md`, `AGENTS.md` и команд запуска без искусственных структурных тестов |

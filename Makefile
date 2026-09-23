@@ -7,7 +7,7 @@ ENV_FILE := docker/.env
 
 help:
 	@echo "Available commands:"
-	@echo "  make run     Run the backend and its infrastructure"
+	@echo "  make run     Build and run the full application with Docker Compose"
 	@echo "  make frontend Run the Vite frontend development server"
 	@echo "  make test    Run all configured project tests"
 	@echo "  make lint    Check backend code with Ruff"
@@ -28,6 +28,7 @@ frontend:
 	@npm --prefix frontend run dev
 
 test:
+	@npm --prefix frontend test
 	@uv run --project backend --locked pytest
 
 lint:

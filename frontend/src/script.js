@@ -26,6 +26,8 @@ let processing = false;
 let submitting = false;
 let currentAssistant = null;
 let pendingEvents = [];
+let retryTimer = null;
+let unloading = false;
 
 function autosize() {
   prompt.style.height = "auto";
@@ -76,7 +78,7 @@ function markInvalidEvent() {
 function applyAgentEvent(type, data) {
   if (type === "ready") {
     ready = true;
-    setStatus(processing ? "агент отвечает…" : "готов к идеям");
+    setStatus(processing ? "агент отвечает…" : "готов к идеям", processing ? "processing" : "ready");
     updateForm();
     if (!processing && !submitting) prompt.focus();
     return;
@@ -127,6 +129,7 @@ function handleConnectionError() {
 }
 
 async function createDialog() {
+  if (unloading) return;
   ready = false;
   processing = false;
   submitting = false;
@@ -139,7 +142,9 @@ async function createDialog() {
   updateForm();
 
   try {
-    dialogId = await api.createDialog();
+    const createdDialogId = await api.createDialog();
+    if (unloading) return;
+    dialogId = createdDialogId;
     setStatus("подключение к потоку…", "connecting");
     connection = api.connectEvents(dialogId, {
       onEvent: applyAgentEvent,
@@ -147,8 +152,16 @@ async function createDialog() {
       onConnectionError: handleConnectionError,
     });
   } catch {
-    setStatus("backend недоступен", "error");
+    if (unloading) return;
+    dialogId = null;
+    setStatus("backend недоступен; повторная попытка…", "error");
     updateForm();
+    if (retryTimer === null) {
+      retryTimer = window.setTimeout(() => {
+        retryTimer = null;
+        void createDialog();
+      }, 3000);
+    }
   }
 }
 
@@ -191,10 +204,11 @@ form.addEventListener("submit", async event => {
     hint?.classList.add("is-hidden");
 
     submitting = false;
+    processing = true;
+    setStatus(ready ? "агент отвечает…" : "переподключение…", ready ? "processing" : "connecting");
     const buffered = pendingEvents;
     pendingEvents = [];
     for (const [type, data] of buffered) applyAgentEvent(type, data);
-    if (!processing) setStatus("запрос принят");
   } catch {
     submitting = false;
     pendingEvents = [];
@@ -203,5 +217,9 @@ form.addEventListener("submit", async event => {
   updateForm();
 });
 
-window.addEventListener("beforeunload", () => connection?.close());
+window.addEventListener("beforeunload", () => {
+  unloading = true;
+  if (retryTimer !== null) window.clearTimeout(retryTimer);
+  connection?.close();
+});
 createDialog();

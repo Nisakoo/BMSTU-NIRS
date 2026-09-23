@@ -59,6 +59,18 @@ test("createDialog posts to the dialog collection and returns dialog_id", async 
   assert.deepEqual(calls, [["/api/v1/dialogs", { method: "POST" }]]);
 });
 
+test("createDialog calls a receiver-sensitive fetch with the global receiver", async () => {
+  const api = new AgentApi({
+    fetchImpl: async function () {
+      assert.equal(this, globalThis);
+      return response(201, { dialog_id: "dialog-1" });
+    },
+    EventSourceImpl: FakeEventSource,
+  });
+
+  assert.equal(await api.createDialog(), "dialog-1");
+});
+
 test("createDialog rejects unsafe or unsuccessful responses", async () => {
   const missingId = new AgentApi({
     fetchImpl: async () => response(201, {}),
@@ -99,6 +111,18 @@ test("submitMessage sends the exact dialog request contract", async () => {
       body: JSON.stringify({ request: "Привет, агент!" }),
     },
   ]]);
+});
+
+test("submitMessage calls a receiver-sensitive fetch with the global receiver", async () => {
+  const api = new AgentApi({
+    fetchImpl: async function () {
+      assert.equal(this, globalThis);
+      return response(202);
+    },
+    EventSourceImpl: FakeEventSource,
+  });
+
+  await api.submitMessage("dialog-1", "Привет");
 });
 
 test("submitMessage rejects a status other than 202", async () => {

@@ -22,4 +22,10 @@ specs:
     - name: frontend-src-layout
       status: done
     - name: frontend-agent-integration
-      status: in-progress
+      status: done
+    - name: frontend-dialog-retry
+      status: done
+    - name: frontend-fetch-binding
+      status: done
+    - name: compose-caddy-nginx-stack
+      status: done

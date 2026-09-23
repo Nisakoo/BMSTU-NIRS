@@ -16,11 +16,12 @@ SSE schema не меняются; Vite обеспечивает same-origin prox
 3. После зелёных сетевых тестов текущий UI переводится с демонстрационного
    ответа на реальное состояние dialog/SSE.
 4. Документация обновляется после стабилизации команд и поведения.
-5. В конце выполняются сборка, полный test/lint и browser E2E через Vite proxy
-   с детерминированным backend.
+5. В конце выполняются сборка, полный test/lint, Node-тесты UI-состояний и
+   локальная HTTP/SSE-проверка Vite proxy без запуска браузера.
 
-Рискованная граница — поток SSE через dev proxy. Она проверяется не только
-unit-тестами URL, но и реальным browser E2E с несколькими delta.
+Рискованная граница — поток SSE через dev proxy. Она проверяется локальными
+HTTP-запросами к Vite с несколькими delta и fake backend. UI-порядок и
+блокировка формы проверяются отдельно в Node с fake DOM и EventSource.
 
 ## Задача 1. Добавить Vite/npm-контур
 
@@ -125,7 +126,7 @@ npm --prefix frontend test
 npm --prefix frontend run build
 ```
 
-Browser E2E этой задачи входит в итоговый verify.
+Проверка UI-состояний в Node входит в итоговый verify.
 
 ## Задача 4. Обновить контракты и документацию
 
@@ -167,8 +168,9 @@ rg -n "Vite|BACKEND_URL|EventSource|frontend" frontend/README.md docs/README.md 
 **Связанные требования:** REQ-001–REQ-017.
 
 **Критерии приёмки:** сборка, frontend/backend tests и Python lint зелёные;
-browser E2E через Vite proxy создаёт диалог, отправляет текст и отображает
-несколько SSE delta как один ответ; scope не расширен.
+Node-тесты подтверждают dialog/SSE lifecycle и сборку delta в один ответ,
+локальные HTTP-запросы подтверждают Vite proxy для POST и SSE; scope не
+расширен.
 
 **Зависимости:** задачи 1–4.
 
@@ -180,6 +182,7 @@ browser E2E через Vite proxy создаёт диалог, отправля�
 
 ```sh
 npm --prefix frontend run build
+npm --prefix frontend run test:proxy
 make test
 make lint
 git diff --check
@@ -187,16 +190,16 @@ git diff --check
 
 **Runtime-проверка:**
 
-1. Запустить детерминированный FastAPI backend с потоковым fake provider.
-2. Запустить Vite dev server с proxy на этот backend.
-3. В headless Chrome проверить создание диалога, ready, отправку сообщения,
-   блокировку формы, порядок user/assistant и итоговый текст из нескольких
-   delta.
+1. Запустить локальный fake HTTP backend и Vite dev server программно из Node.
+2. HTTP-запросами подтвердить выдачу страницы, создание диалога через proxy и
+   передачу SSE с несколькими delta.
+3. Node-тестами с fake DOM, `fetch` и `EventSource` подтвердить `ready`,
+   блокировку формы, порядок user/assistant, delta, ошибки и переподключение.
 4. Проверить отсутствие CORS middleware и frontend service в Compose.
 
 ## Итоговая проверка реализации
 
-1. Сопоставить каждый REQ и критерий приёмки с тестом, browser E2E или ревью.
+1. Сопоставить каждый REQ и критерий приёмки с Node-тестом, HTTP/SSE-проверкой или ревью.
 2. Убедиться, что backend API/SSE code не менялся, `/agent_test` сохранён, CORS
    не добавлен и frontend не попал в Compose.
 3. Проверить, что `node_modules/` и `frontend/dist/` отсутствуют в Git status.

@@ -25,7 +25,7 @@ export class AgentApi {
     if (typeof EventSourceImpl !== "function") {
       throw new TypeError("EventSourceImpl must be a constructor");
     }
-    this.fetchImpl = fetchImpl;
+    this.fetchImpl = fetchImpl.bind(globalThis);
     this.EventSourceImpl = EventSourceImpl;
   }
 

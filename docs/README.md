@@ -13,9 +13,9 @@
 
 | Часть | Назначение | Где смотреть |
 | --- | --- | --- |
-| `frontend/` | Отдельное Vite-приложение чата с proxy к dialog/SSE API | [Frontend](../frontend/) |
+| `frontend/` | Vanilla JavaScript чат: Vite build для Nginx и отдельный dev server | [Frontend](../frontend/) |
 | `backend/` | Единое приложение с HTTP API, application-слоем и runtime агента | [Backend](../backend/) |
-| `docker/` | Контейнерный запуск backend и будущих инфраструктурных зависимостей | [Запуск и конфигурация](../docker/README.md) |
+| `docker/` | Единый Compose запуск Caddy, Nginx/frontend и backend | [Запуск и конфигурация](../docker/README.md) |
 | `docs/` | Глобальная карта и тематические страницы архитектуры и контрактов | [Текущий каталог](./README.md) |
 | `specs/` | Полные SDD-спецификации, планы, результаты проверки и реестр состояний | [SDD-артефакты](../specs/) |
 
@@ -27,7 +27,7 @@
   хранение истории, очередь запросов, SSE, HTTP и наблюдаемость.
 - [Конфигурация backend](./configuration.md) — корневой `Config`, загрузка
   environment и передача component-owned подконфигов.
-- [Запуск backend](../docker/README.md) — Docker Compose, настройки и примеры
+- [Запуск приложения](../docker/README.md) — Docker Compose, настройки и примеры
   тестовых запросов.
 
 ## Архитектура
@@ -39,11 +39,8 @@ Backend является модульным монолитом. HTTP-слой в
 flowchart LR
     Browser[Browser]
 
-    subgraph Frontend[frontend]
-        UI[Vanilla JavaScript chat]
-        Vite[Vite /api proxy]
-        UI --> Vite
-    end
+    Caddy[Caddy / public HTTP]
+    Nginx[Nginx / frontend build]
 
     subgraph Backend[backend / smeshariki_ai]
         Config[Config / config]
@@ -71,8 +68,9 @@ flowchart LR
     Model[Настроенный LLM endpoint]
     Environment[Process environment]
 
-    Browser --> UI
-    Vite --> API
+    Browser --> Caddy
+    Caddy -->|static pages and assets| Nginx
+    Caddy -->|/api HTTP and SSE| API
     Environment --> Config
     LLM --> Model
 ```
@@ -98,7 +96,8 @@ flowchart LR
 | Компонент | Назначение | Состояние | Где реализация | Где конкретика |
 | --- | --- | --- | --- | --- |
 | Каркас проекта | Границы frontend, модульного backend и служебных каталогов | Проверено | [`frontend/`](../frontend/), [`backend/`](../backend/) | [spec](../specs/changes/project-scaffold/spec.md), [plan](../specs/changes/project-scaffold/plan.md), [verification](../specs/changes/project-scaffold/verification.md) |
-| Frontend-чат | Vite proxy, создание диалога, отправка запроса и потоковое отображение SSE-ответа | Реализуется | [`frontend/src/`](../frontend/src/) | [описание](../frontend/README.md), [страница API](./dialogs.md), [integration spec](../specs/changes/frontend-agent-integration/spec.md), [integration plan](../specs/changes/frontend-agent-integration/plan.md), [integration verification](../specs/changes/frontend-agent-integration/verification.md) |
+| Контейнерный запуск | Caddy как единая точка входа, Nginx/frontend и backend в одном Compose проекте | Проверено | [`docker/`](../docker/) | [spec](../specs/changes/compose-caddy-nginx-stack/spec.md), [plan](../specs/changes/compose-caddy-nginx-stack/plan.md), [verification](../specs/changes/compose-caddy-nginx-stack/verification.md) |
+| Frontend-чат | Создание диалога с повтором при временной ошибке, отправка запроса и потоковое отображение SSE-ответа | Проверено | [`frontend/src/`](../frontend/src/) | [описание](../frontend/README.md), [страница API](./dialogs.md), [integration spec](../specs/changes/frontend-agent-integration/spec.md), [integration verification](../specs/changes/frontend-agent-integration/verification.md), [retry spec](../specs/changes/frontend-dialog-retry/spec.md), [retry verification](../specs/changes/frontend-dialog-retry/verification.md), [fetch spec](../specs/changes/frontend-fetch-binding/spec.md), [fetch verification](../specs/changes/frontend-fetch-binding/verification.md) |
 | Agent runtime | Собственный ограниченный tool-calling loop и независимые контракты LLM и инструментов | Проверено | [`smeshariki_ai/agent`](../backend/src/smeshariki_ai/agent/) | [страница компонента](./agent.md), [spec](../specs/changes/agent-runtime/spec.md), [plan](../specs/changes/agent-runtime/plan.md), [verification](../specs/changes/agent-runtime/verification.md) |
 | LiteLLM-провайдер | Асинхронный production-адаптер Chat Completions и отдельная provider-конфигурация | Проверено | [`agent/providers`](../backend/src/smeshariki_ai/agent/providers/) | [страница компонента](./agent.md), [spec](../specs/changes/litellm-provider/spec.md), [plan](../specs/changes/litellm-provider/plan.md), [verification](../specs/changes/litellm-provider/verification.md) |
 | Конфигурация backend | Единая загрузка environment, корневой immutable `Config` и раздача подконфигов | Проверено | [`config.py`](../backend/src/smeshariki_ai/config.py), [`main.py`](../backend/src/smeshariki_ai/main.py), [`bootstrap.py`](../backend/src/smeshariki_ai/bootstrap.py) | [страница компонента](./configuration.md), [spec](../specs/changes/backend-config/spec.md), [plan](../specs/changes/backend-config/plan.md), [verification](../specs/changes/backend-config/verification.md) |
@@ -111,8 +110,7 @@ flowchart LR
 
 ## Что пока не реализовано
 
-Production deployment и reverse proxy frontend, RAG и инструмент
-`search_knowledge`, CORS, постоянное хранилище истории, replay SSE-событий и
-авторизация относятся к будущим изменениям. Существующая локальная интеграция
-через Vite proxy или согласованное архитектурное направление не означают, что
-эти возможности уже доступны.
+Публичный HTTPS deployment, RAG и инструмент `search_knowledge`, CORS,
+постоянное хранилище истории, replay SSE-событий и авторизация относятся к
+будущим изменениям. Текущий Compose stack предоставляет локальный HTTP-вход;
+Vite proxy остаётся отдельным dev-режимом.
