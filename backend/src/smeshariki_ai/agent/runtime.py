@@ -1,4 +1,6 @@
+import asyncio
 import logging
+import time
 from collections.abc import AsyncIterator, Sequence
 
 from smeshariki_ai.agent.errors import (
@@ -18,6 +20,7 @@ from smeshariki_ai.agent.models import (
 )
 from smeshariki_ai.agent.providers import LLMProvider
 from smeshariki_ai.agent.tools import ToolRegistry
+from smeshariki_ai.observability import bind_context, log_event, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -40,14 +43,14 @@ class Agent:
         history: Sequence[Message],
         request: UserRequest,
     ) -> AsyncIterator[AgentStreamEvent]:
-        logger.info(
-            "agent.run.started history_size=%d max_iterations=%d",
-            len(history),
-            self._config.max_iterations,
-            extra={
-                "history_size": len(history),
-                "max_iterations": self._config.max_iterations,
-            },
+        started_at = utc_now()
+        started = time.monotonic()
+        log_event(
+            logger,
+            logging.INFO,
+            "agent.run.started",
+            history_size=len(history),
+            max_iterations=self._config.max_iterations,
         )
         context = [
             Message(role=MessageRole.SYSTEM, content=self._config.system_prompt),
@@ -57,10 +60,8 @@ class Agent:
 
         try:
             for iteration in range(1, self._config.max_iterations + 1):
-                logger.info(
-                    "agent.iteration.started iteration=%d",
-                    iteration,
-                    extra={"iteration": iteration},
+                log_event(
+                    logger, logging.INFO, "agent.iteration.started", iteration=iteration
                 )
                 llm_response: LLMResponse | None = None
                 content_parts: list[str] = []
@@ -90,14 +91,12 @@ class Agent:
                         "The LLM provider returned an invalid response."
                     )
                 result_type = self._result_type(llm_response)
-                logger.info(
-                    "agent.llm.completed iteration=%d result_type=%s",
-                    iteration,
-                    result_type.value,
-                    extra={
-                        "iteration": iteration,
-                        "result_type": result_type.value,
-                    },
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "agent.llm.completed",
+                    iteration=iteration,
+                    result_type=result_type.value,
                 )
 
                 if result_type is LLMResultType.INVALID:
@@ -111,10 +110,14 @@ class Agent:
                         raise InvalidLLMResponseError(
                             "The LLM provider returned an invalid response."
                         )
-                    logger.info(
-                        "agent.run.completed iterations=%d",
-                        iteration,
-                        extra={"iterations": iteration},
+                    log_event(
+                        logger,
+                        logging.INFO,
+                        "agent.run.completed",
+                        iterations=iteration,
+                        started_at=started_at,
+                        duration_ms=round((time.monotonic() - started) * 1000, 3),
+                        outcome="completed",
                     )
                     yield AgentResponse(content=llm_response.content)
                     return
@@ -125,26 +128,56 @@ class Agent:
                     )
 
                 for tool_call in llm_response.tool_calls:
+                    tool_name = (
+                        tool_call.name
+                        if self._tool_registry.get(tool_call.name) is not None
+                        else "<unknown>"
+                    )
                     context.append(
                         Message(
                             role=MessageRole.ASSISTANT,
                             tool_call=tool_call,
                         )
                     )
-                    tool_result = await self._tool_registry.execute(tool_call)
-                    logger.info(
-                        "agent.tool.completed iteration=%d tool_name=%s tool_status=%s",
-                        iteration,
-                        tool_call.name,
-                        "error" if tool_result.is_error else "success",
-                        extra={
-                            "iteration": iteration,
-                            "tool_name": tool_call.name,
-                            "tool_status": (
-                                "error" if tool_result.is_error else "success"
+                    tool_started_at = utc_now()
+                    tool_started = time.monotonic()
+                    with bind_context(tool_call_id=tool_call.id):
+                        log_event(
+                            logger,
+                            logging.INFO,
+                            "agent.tool.started",
+                            iteration=iteration,
+                            tool_name=tool_name,
+                        )
+                        try:
+                            tool_result = await self._tool_registry.execute(tool_call)
+                        except asyncio.CancelledError:
+                            log_event(
+                                logger,
+                                logging.INFO,
+                                "agent.tool.cancelled",
+                                iteration=iteration,
+                                tool_name=tool_name,
+                                started_at=tool_started_at,
+                                duration_ms=round(
+                                    (time.monotonic() - tool_started) * 1000, 3
+                                ),
+                                outcome="cancelled",
+                            )
+                            raise
+                        log_event(
+                            logger,
+                            logging.INFO if not tool_result.is_error else logging.ERROR,
+                            "agent.tool.completed",
+                            iteration=iteration,
+                            tool_name=tool_name,
+                            tool_status="error" if tool_result.is_error else "success",
+                            started_at=tool_started_at,
+                            duration_ms=round(
+                                (time.monotonic() - tool_started) * 1000, 3
                             ),
-                        },
-                    )
+                            outcome="failed" if tool_result.is_error else "completed",
+                        )
                     context.append(
                         Message(
                             role=MessageRole.TOOL,
@@ -157,11 +190,25 @@ class Agent:
             raise AgentIterationLimitError(
                 "The agent reached its iteration limit without a final response."
             )
+        except asyncio.CancelledError:
+            log_event(
+                logger,
+                logging.INFO,
+                "agent.run.cancelled",
+                started_at=started_at,
+                duration_ms=round((time.monotonic() - started) * 1000, 3),
+                outcome="cancelled",
+            )
+            raise
         except Exception as error:
-            logger.error(
-                "agent.run.failed error_type=%s",
-                type(error).__name__,
-                extra={"error_type": type(error).__name__},
+            log_event(
+                logger,
+                logging.ERROR,
+                "agent.run.failed",
+                error_type=type(error).__name__,
+                started_at=started_at,
+                duration_ms=round((time.monotonic() - started) * 1000, 3),
+                outcome="failed",
             )
             raise
 

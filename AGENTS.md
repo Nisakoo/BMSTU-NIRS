@@ -128,8 +128,9 @@
 ## Реализованная конфигурация backend
 
 1. Общий модуль `smeshariki_ai.config` определяет единственный корневой
-   неизменяемый `Config` с подконфигами `agent: AgentConfig` и
-   `llm: LiteLLMProviderConfig` и функцию `load_config`.
+   неизменяемый `Config` с подконфигами `agent: AgentConfig`,
+   `llm: LiteLLMProviderConfig` и `logging: LoggingConfig` и функцию
+   `load_config`.
 2. Только `load_config` читает `os.environ`. ASGI-entrypoint вызывает его один
    раз и передаёт готовый `Config` в `create_application`; bootstrap и
    внутренние компоненты environment не читают.
@@ -148,6 +149,20 @@
    package resource и передаётся агенту через `AgentConfig`. Переменная
    `AGENT_SYSTEM_PROMPT` не поддерживается; runtime агента не читает resource
    или environment самостоятельно.
+
+## Реализованное логирование backend
+
+1. `LOG_LEVEL` и `LOG_FORMAT` загружаются только через `load_config`; defaults —
+   `INFO` и `human`, альтернативный формат — построчный `json`.
+2. HTTP-запросы к API получают серверный `request_id` в `X-Request-ID`.
+   Контекст принятого сообщения сохраняется в фоновой задаче; `dialog_id`,
+   `call_id` вызова LLM и `tool_call_id` различают связанные операции.
+3. Терминальные события HTTP, обработки сообщения, LLM и инструментов содержат
+   UTC-время начала, длительность и исход. Для LLM также журналируются
+   подтверждённые провайдером числа входных/выходных токенов либо явное
+   отсутствие usage.
+4. Журнал не содержит пользовательский текст, payload инструментов и секреты.
+   Штатный Uvicorn access log отключён; подробный вывод LiteLLM отключён.
 
 ## Реализованные диалоги и HTTP API
 

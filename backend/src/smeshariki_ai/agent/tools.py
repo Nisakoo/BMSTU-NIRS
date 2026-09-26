@@ -1,4 +1,5 @@
 import logging
+import time
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from types import MappingProxyType
@@ -9,6 +10,7 @@ from pydantic_core import to_jsonable_python
 
 from smeshariki_ai.agent.errors import DuplicateToolError
 from smeshariki_ai.agent.models import ToolCall, ToolDefinition, ToolError, ToolResult
+from smeshariki_ai.observability import log_event, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -76,17 +78,21 @@ class ToolRegistry:
             )
 
         try:
+            started_at = utc_now()
+            started = time.monotonic()
             output = await tool.execute(arguments)
             json_output = to_jsonable_python(output)
         except Exception as error:
-            logger.error(
-                "agent.tool.execution_failed tool_name=%s error_type=%s",
-                tool.name,
-                type(error).__name__,
-                extra={
-                    "tool_name": tool.name,
-                    "error_type": type(error).__name__,
-                },
+            log_event(
+                logger,
+                logging.ERROR,
+                "agent.tool.execution_failed",
+                tool_name=tool.name,
+                tool_call_id=tool_call.id,
+                error_type=type(error).__name__,
+                started_at=started_at,
+                duration_ms=round((time.monotonic() - started) * 1000, 3),
+                outcome="failed",
             )
             return ToolResult(
                 call_id=tool_call.id,

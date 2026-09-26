@@ -10,6 +10,7 @@ Backend загружает внешнюю конфигурацию через о
 class Config(BaseModel):
     agent: AgentConfig
     llm: LiteLLMProviderConfig
+    logging: LoggingConfig
 
 def load_config(environ: Mapping[str, str] | None = None) -> Config: ...
 ```
@@ -30,8 +31,10 @@ flowchart LR
     Bootstrap[bootstrap.py]
     AgentConfig[AgentConfig]
     LLMConfig[LiteLLMProviderConfig]
+    LogConfig[LoggingConfig]
     Agent[Agent]
     Provider[LiteLLMProvider]
+    Logging[EventFormatter and request context]
 
     Environment --> Loader
     Prompt --> Loader
@@ -40,10 +43,12 @@ flowchart LR
     Entrypoint --> Bootstrap
     Config --> AgentConfig
     Config --> LLMConfig
+    Config --> LogConfig
     Bootstrap --> AgentConfig
     Bootstrap --> LLMConfig
     AgentConfig --> Agent
     LLMConfig --> Provider
+    LogConfig --> Logging
 ```
 
 ASGI-entrypoint выполняет `create_application(load_config())`: один раз
@@ -51,7 +56,7 @@ ASGI-entrypoint выполняет `create_application(load_config())`: один
 передаёт готовый корень в composition root. `bootstrap.py` не имеет
 собственного loader и не подставляет defaults при отсутствии config. `Agent`
 получает тот же экземпляр `config.agent`, а `LiteLLMProvider` — тот же экземпляр
-`config.llm`.
+`config.llm`. Логирование настраивается через `config.logging`.
 
 Внутренние пакеты `agent`, `agent.providers`, `application`, `api` и `dialogs`
 не импортируют корневой `Config` и не читают environment. Поэтому их можно
@@ -79,6 +84,8 @@ resource завершает старт контролируемой ошибко
 | `LLM_BASE_URL` | `llm.base_url` | `None`; при наличии HTTP(S) URL |
 | `LLM_TIMEOUT_SECONDS` | `llm.timeout_seconds` | `60`, число больше нуля |
 | `LLM_NUM_RETRIES` | `llm.num_retries` | `0`, целое число не меньше нуля |
+| `LOG_LEVEL` | `logging.level` | `INFO`; `DEBUG`, `INFO`, `WARNING` или `ERROR` |
+| `LOG_FORMAT` | `logging.format` | `human`; `human` или `json` |
 
 Docker Compose загружает локальный `docker/.env` и передаёт значения процессу
 backend. Python-код не читает `.env` как файл и не использует
@@ -92,6 +99,8 @@ backend. Python-код не читает `.env` как файл и не испо
   пакету, но загружается внешним config loader до создания runtime.
 - `LiteLLMProviderConfig` принадлежит `agent.providers` и определяет только
   настройки адаптера LiteLLM.
+- `LoggingConfig` принадлежит модулю `observability`; формат и поля описаны
+  на [странице логирования](./logging.md).
 - Корневой `Config` агрегирует эти модели, но не дублирует их поля.
 - Все модели запрещают неизвестные поля и изменение после создания.
 - API key хранится как `SecretStr` и не раскрывается в строковом представлении

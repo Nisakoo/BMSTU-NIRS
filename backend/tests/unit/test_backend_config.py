@@ -27,7 +27,7 @@ class EnvironmentAccessForbidden(Mapping[str, str]):
 def test_config_has_component_owned_nested_configs() -> None:
     config = load_config({"LLM_MODEL": "test/model"})
 
-    assert set(Config.model_fields) == {"agent", "llm"}
+    assert set(Config.model_fields) == {"agent", "llm", "logging"}
     assert isinstance(config.agent, AgentConfig)
     assert isinstance(config.llm, LiteLLMProviderConfig)
     assert not hasattr(config_module, "ApplicationConfig")
@@ -43,6 +43,23 @@ def test_load_config_uses_agent_and_provider_defaults() -> None:
         ),
         llm=LiteLLMProviderConfig(model="test/model"),
     )
+    assert config.logging.level == "INFO"
+    assert config.logging.format == "human"
+
+
+def test_load_config_reads_logging_options() -> None:
+    config = load_config(
+        {"LLM_MODEL": "test/model", "LOG_LEVEL": "DEBUG", "LOG_FORMAT": "json"}
+    )
+
+    assert config.logging.level == "DEBUG"
+    assert config.logging.format == "json"
+
+
+@pytest.mark.parametrize("name,value", [("LOG_LEVEL", "TRACE"), ("LOG_FORMAT", "xml")])
+def test_load_config_rejects_invalid_logging_options(name: str, value: str) -> None:
+    with pytest.raises(ValidationError):
+        load_config({"LLM_MODEL": "test/model", name: value})
 
 
 def test_load_config_reads_all_supported_values() -> None:

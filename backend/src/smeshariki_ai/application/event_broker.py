@@ -1,10 +1,13 @@
 import asyncio
+import logging
 from abc import ABC, abstractmethod
 from uuid import UUID
 
 from smeshariki_ai.application.events import DialogEvent, DialogSubscription
+from smeshariki_ai.observability import log_event
 
 _CLOSED = object()
+logger = logging.getLogger(__name__)
 
 
 class DialogEventBroker(ABC):
@@ -113,6 +116,14 @@ class InMemoryDialogEventBroker(DialogEventBroker):
                 for subscription in subscribers
                 if not subscription.offer(event)
             }
+            for _ in closed:
+                log_event(
+                    logger,
+                    logging.WARNING,
+                    "dialog.subscription.closed",
+                    dialog_id=str(dialog_id),
+                    reason="queue_overflow",
+                )
             subscribers.difference_update(closed)
             if not subscribers:
                 self._subscribers.pop(dialog_id, None)
@@ -130,3 +141,10 @@ class InMemoryDialogEventBroker(DialogEventBroker):
             self._subscribers.clear()
             for subscription in subscriptions:
                 subscription.close(discard_pending=False)
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "dialog.subscription.closed",
+                    dialog_id=str(subscription.dialog_id),
+                    reason="broker_shutdown",
+                )

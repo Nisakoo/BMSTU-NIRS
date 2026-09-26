@@ -20,6 +20,7 @@ from smeshariki_ai.bootstrap import (
     create_application,
 )
 from smeshariki_ai.config import Config
+from smeshariki_ai.observability import LoggingConfig
 
 
 def make_config() -> Config:
@@ -110,7 +111,7 @@ def test_configure_logging_enables_application_info_events() -> None:
     application_logger.setLevel(logging.WARNING)
 
     try:
-        configure_logging()
+        configure_logging(LoggingConfig())
         assert application_logger.level == logging.INFO
     finally:
         application_logger.setLevel(original_level)

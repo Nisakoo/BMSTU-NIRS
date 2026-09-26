@@ -1,5 +1,6 @@
 import asyncio
 import inspect
+import logging
 from uuid import uuid4
 
 import pytest
@@ -60,7 +61,10 @@ async def test_does_not_replay_events_published_without_subscribers() -> None:
 
 
 @pytest.mark.asyncio
-async def test_overflow_closes_only_the_slow_subscriber() -> None:
+async def test_overflow_closes_only_the_slow_subscriber(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.WARNING, logger="smeshariki_ai.application.event_broker")
     broker = InMemoryDialogEventBroker(queue_size=1)
     dialog_id = uuid4()
     slow = await broker.subscribe(dialog_id)
@@ -76,6 +80,13 @@ async def test_overflow_closes_only_the_slow_subscriber() -> None:
     assert await slow.receive() is None
     assert not active.closed
     assert await active.receive() == second
+    overflow = next(
+        record
+        for record in caplog.records
+        if record.getMessage().startswith("dialog.subscription.closed")
+    )
+    assert overflow.dialog_id == str(dialog_id)
+    assert overflow.reason == "queue_overflow"
     await broker.shutdown()
 
 

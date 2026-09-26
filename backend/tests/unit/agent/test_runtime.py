@@ -361,13 +361,17 @@ async def test_runtime_logs_events_without_context_or_tool_payload(
         "agent.run.started",
         "agent.iteration.started",
         "agent.llm.completed",
+        "agent.tool.started",
         "agent.tool.completed",
         "agent.iteration.started",
         "agent.llm.completed",
         "agent.run.completed",
     ]
     assert "iteration=1 result_type=tool_call" in caplog.records[2].getMessage()
-    assert "tool_name=echo tool_status=success" in caplog.records[3].getMessage()
+    assert "tool_name=echo tool_status=success" in caplog.records[4].getMessage()
+    assert caplog.records[4].tool_call_id == "call-1"
+    assert caplog.records[4].duration_ms >= 0
+    assert caplog.records[4].outcome == "completed"
     assert all(
         private_value not in caplog.text
         for private_value in (

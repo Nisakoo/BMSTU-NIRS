@@ -2,10 +2,11 @@ import os
 from collections.abc import Mapping
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from smeshariki_ai.agent import AgentConfig, LiteLLMProviderConfig
 from smeshariki_ai.agent.prompts import load_system_prompt
+from smeshariki_ai.observability import LoggingConfig
 
 __all__ = ["Config", "load_config"]
 
@@ -15,6 +16,7 @@ class Config(BaseModel):
 
     agent: AgentConfig
     llm: LiteLLMProviderConfig
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
 
 def load_config(environ: Mapping[str, str] | None = None) -> Config:
@@ -39,7 +41,16 @@ def load_config(environ: Mapping[str, str] | None = None) -> Config:
         if environment_name in source and source[environment_name].strip():
             provider_values[field_name] = source[environment_name]
 
+    logging_values: dict[str, Any] = {}
+    for environment_name, field_name in (
+        ("LOG_LEVEL", "level"),
+        ("LOG_FORMAT", "format"),
+    ):
+        if environment_name in source:
+            logging_values[field_name] = source[environment_name]
+
     return Config(
         agent=AgentConfig.model_validate(agent_values),
         llm=LiteLLMProviderConfig.model_validate(provider_values),
+        logging=LoggingConfig.model_validate(logging_values),
     )

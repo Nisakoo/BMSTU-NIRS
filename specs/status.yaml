@@ -29,3 +29,5 @@ specs:
       status: done
     - name: compose-caddy-nginx-stack
       status: done
+    - name: backend-observability-logging
+      status: done
