@@ -31,3 +31,5 @@ specs:
       status: done
     - name: backend-observability-logging
       status: done
+    - name: get-context-example
+      status: done

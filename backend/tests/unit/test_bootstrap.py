@@ -42,6 +42,9 @@ def test_bootstrap_builds_service_with_explicit_provider() -> None:
     assert isinstance(app, FastAPI)
     assert app.title == "smeshariki-ai"
     assert isinstance(app.state.agent_service, AgentService)
+    assert [
+        definition.name for definition in service._agent._tool_registry.definitions
+    ] == ["get_context"]
 
 
 def test_bootstrap_passes_exact_component_configs(

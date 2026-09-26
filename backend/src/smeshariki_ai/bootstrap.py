@@ -6,6 +6,7 @@ from smeshariki_ai.agent import (
     LLMProvider,
     ToolRegistry,
 )
+from smeshariki_ai.agent.get_context import GetContextTool
 from smeshariki_ai.api import create_app
 from smeshariki_ai.application import AgentService, InMemoryDialogEventBroker
 from smeshariki_ai.config import Config
@@ -19,7 +20,7 @@ def build_agent_service(
     llm_provider: LLMProvider | None = None,
 ) -> AgentService:
     provider = LiteLLMProvider(config.llm) if llm_provider is None else llm_provider
-    tool_registry = ToolRegistry(())
+    tool_registry = ToolRegistry((GetContextTool(),))
     agent = Agent(
         llm_provider=provider,
         tool_registry=tool_registry,

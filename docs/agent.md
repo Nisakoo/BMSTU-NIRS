@@ -15,6 +15,8 @@ Agent runtime — внутренняя часть backend, независима�
   отдельная конфигурация;
 - [`agent/tools.py`](../backend/src/smeshariki_ai/agent/tools.py) — `Tool` и
   `ToolRegistry`;
+- [`agent/get_context.py`](../backend/src/smeshariki_ai/agent/get_context.py) —
+  демонстрационный инструмент `get_context` с фиксированным контекстом;
 - [`agent/models.py`](../backend/src/smeshariki_ai/agent/models.py) —
   неизменяемые Pydantic-модели сообщений, вызовов и ответов.
 - [`agent/prompts/system.md`](../backend/src/smeshariki_ai/agent/prompts/system.md)
@@ -99,6 +101,12 @@ await ToolRegistry.execute(tool_call: ToolCall) -> ToolResult
 tool call. Неизвестное имя, невалидные аргументы и ошибка исполнения
 преобразуются в безопасный `ToolResult`.
 
+Production bootstrap регистрирует `get_context` в `ToolRegistry`. Инструмент
+принимает только пустой объект аргументов и возвращает одну фиксированную строку
+с произвольным маркером и контрольной фразой. Он не читает внешние данные и не
+имеет отдельного HTTP-маршрута. Описание инструмента подсказывает модели, когда
+его вызвать, но решение о вызове остаётся за моделью.
+
 ## Правила agent loop
 
 - стандартный лимит — четыре итерации, значение задаётся через `AgentConfig`;
@@ -151,4 +159,7 @@ LiteLLM-адаптер отдельно журналирует начало, з�
 - [результат проверки resource системного промпта](../specs/changes/agent-system-prompt-resource/verification.md);
 - [спецификация streaming и SSE](../specs/changes/agent-sse-test-ui/spec.md);
 - [план streaming и SSE](../specs/changes/agent-sse-test-ui/plan.md);
-- [результат проверки streaming и SSE](../specs/changes/agent-sse-test-ui/verification.md).
+- [результат проверки streaming и SSE](../specs/changes/agent-sse-test-ui/verification.md);
+- [спецификация `get_context`](../specs/changes/get-context-example/spec.md);
+- [план `get_context`](../specs/changes/get-context-example/plan.md);
+- [результат проверки `get_context`](../specs/changes/get-context-example/verification.md).
