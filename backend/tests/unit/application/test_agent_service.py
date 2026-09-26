@@ -27,6 +27,7 @@ from smeshariki_ai.dialogs import (
     DialogNotFoundError,
     InMemoryHistoryStore,
 )
+from smeshariki_ai.observability import bind_context
 
 
 @dataclass
@@ -335,7 +336,10 @@ async def test_late_subscription_does_not_replay_completed_events() -> None:
 
 
 @pytest.mark.asyncio
-async def test_requests_for_one_dialog_run_in_order_with_completed_history() -> None:
+async def test_requests_for_one_dialog_run_in_order_with_completed_history(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="smeshariki_ai.application.agent_service")
     first = RunControl(response="first answer")
     second = RunControl(response="second answer")
     agent = ControlledAgent({"first": first, "second": second})
@@ -343,8 +347,10 @@ async def test_requests_for_one_dialog_run_in_order_with_completed_history() -> 
     service = make_service(agent, store)
     dialog_id = await service.start_dialog()
 
-    await service.submit(dialog_id, UserRequest(content="first"))
-    await service.submit(dialog_id, UserRequest(content="second"))
+    with bind_context(request_id="request-first"):
+        await service.submit(dialog_id, UserRequest(content="first"))
+    with bind_context(request_id="request-second"):
+        await service.submit(dialog_id, UserRequest(content="second"))
     await asyncio.wait_for(first.started.wait(), timeout=0.1)
     await asyncio.sleep(0)
 
@@ -362,11 +368,20 @@ async def test_requests_for_one_dialog_run_in_order_with_completed_history() -> 
 
     second.release.set()
     await wait_for_history_size(store, dialog_id, 4)
+    completed = [
+        record.request_id
+        for record in caplog.records
+        if record.getMessage().startswith("dialog.run.completed")
+    ]
+    assert completed == ["request-first", "request-second"]
     await service.shutdown()
 
 
 @pytest.mark.asyncio
-async def test_different_dialogs_run_independently() -> None:
+async def test_different_dialogs_run_independently(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="smeshariki_ai.application.agent_service")
     first = RunControl()
     second = RunControl()
     agent = ControlledAgent({"first": first, "second": second})
@@ -375,8 +390,10 @@ async def test_different_dialogs_run_independently() -> None:
     first_dialog_id = await service.start_dialog()
     second_dialog_id = await service.start_dialog()
 
-    await service.submit(first_dialog_id, UserRequest(content="first"))
-    await service.submit(second_dialog_id, UserRequest(content="second"))
+    with bind_context(request_id="request-first"):
+        await service.submit(first_dialog_id, UserRequest(content="first"))
+    with bind_context(request_id="request-second"):
+        await service.submit(second_dialog_id, UserRequest(content="second"))
 
     await asyncio.wait_for(first.started.wait(), timeout=0.1)
     await asyncio.wait_for(second.started.wait(), timeout=0.1)
@@ -384,6 +401,15 @@ async def test_different_dialogs_run_independently() -> None:
     second.release.set()
     await wait_for_history_size(store, first_dialog_id, 2)
     await wait_for_history_size(store, second_dialog_id, 2)
+    completed = {
+        record.dialog_id: record.request_id
+        for record in caplog.records
+        if record.getMessage().startswith("dialog.run.completed")
+    }
+    assert completed == {
+        str(first_dialog_id): "request-first",
+        str(second_dialog_id): "request-second",
+    }
     await service.shutdown()
 
 
@@ -467,7 +493,8 @@ async def test_service_logs_lifecycle_without_message_content(
     service = make_service(ControlledAgent({"private request": control}), store)
     dialog_id = await service.start_dialog()
 
-    await service.submit(dialog_id, UserRequest(content="private request"))
+    with bind_context(request_id="request-1"):
+        await service.submit(dialog_id, UserRequest(content="private request"))
     await asyncio.wait_for(control.started.wait(), timeout=0.1)
     control.release.set()
     await wait_for_history_size(store, dialog_id, 2)
@@ -477,8 +504,8 @@ async def test_service_logs_lifecycle_without_message_content(
         "dialog.created",
         "dialog.request.accepted",
         "dialog.run.started",
-        "dialog.run.completed",
         "dialog.history.persisted",
+        "dialog.run.completed",
     ]
     assert all(record.dialog_id == str(dialog_id) for record in caplog.records)
     assert all(
@@ -486,4 +513,13 @@ async def test_service_logs_lifecycle_without_message_content(
     )
     assert "private request" not in caplog.text
     assert "private response" not in caplog.text
+    run_completion = next(
+        record
+        for record in caplog.records
+        if record.getMessage().startswith("dialog.run.completed ")
+    )
+    assert run_completion.request_id == "request-1"
+    assert run_completion.started_at.endswith("Z")
+    assert run_completion.duration_ms >= 0
+    assert run_completion.outcome == "completed"
     await service.shutdown()

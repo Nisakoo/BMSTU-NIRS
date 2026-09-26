@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from collections.abc import AsyncIterator, Sequence
 from typing import Protocol
 from uuid import UUID
@@ -20,6 +21,7 @@ from smeshariki_ai.application.events import (
     DialogSubscription,
 )
 from smeshariki_ai.dialogs import HistoryStore
+from smeshariki_ai.observability import bind_context, log_event, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -52,11 +54,7 @@ class AgentService:
             self._ensure_accepting()
             dialog_id = await self._history_store.create()
 
-        logger.info(
-            "dialog.created dialog_id=%s",
-            dialog_id,
-            extra={"dialog_id": str(dialog_id)},
-        )
+        log_event(logger, logging.INFO, "dialog.created", dialog_id=str(dialog_id))
         return dialog_id
 
     async def submit(self, dialog_id: UUID, request: UserRequest) -> None:
@@ -65,10 +63,11 @@ class AgentService:
         async with self._state_lock:
             self._ensure_accepting()
             previous_task = self._dialog_tails.get(dialog_id)
-            task = asyncio.create_task(
-                self._run_after(previous_task, dialog_id, request),
-                name=f"agent-dialog-{dialog_id}",
-            )
+            with bind_context(dialog_id=str(dialog_id)):
+                task = asyncio.create_task(
+                    self._run_after(previous_task, dialog_id, request),
+                    name=f"agent-dialog-{dialog_id}",
+                )
             self._dialog_tails[dialog_id] = task
             self._tasks.add(task)
             task.add_done_callback(
@@ -78,10 +77,8 @@ class AgentService:
                 )
             )
 
-        logger.info(
-            "dialog.request.accepted dialog_id=%s",
-            dialog_id,
-            extra={"dialog_id": str(dialog_id)},
+        log_event(
+            logger, logging.INFO, "dialog.request.accepted", dialog_id=str(dialog_id)
         )
 
     async def subscribe(self, dialog_id: UUID) -> DialogSubscription:
@@ -89,19 +86,18 @@ class AgentService:
         async with self._state_lock:
             self._ensure_accepting()
             subscription = await self._event_broker.subscribe(dialog_id)
-        logger.info(
-            "dialog.subscription.opened dialog_id=%s",
-            dialog_id,
-            extra={"dialog_id": str(dialog_id)},
+        log_event(
+            logger, logging.INFO, "dialog.subscription.opened", dialog_id=str(dialog_id)
         )
         return subscription
 
     async def unsubscribe(self, subscription: DialogSubscription) -> None:
         await self._event_broker.unsubscribe(subscription)
-        logger.info(
-            "dialog.subscription.closed dialog_id=%s",
-            subscription.dialog_id,
-            extra={"dialog_id": str(subscription.dialog_id)},
+        log_event(
+            logger,
+            logging.INFO,
+            "dialog.subscription.closed",
+            dialog_id=str(subscription.dialog_id),
         )
 
     async def shutdown(self) -> None:
@@ -124,14 +120,14 @@ class AgentService:
         dialog_id: UUID,
         request: UserRequest,
     ) -> None:
+        started_at = utc_now()
+        started = time.monotonic()
         try:
             if previous_task is not None:
                 await previous_task
 
-            logger.info(
-                "dialog.run.started dialog_id=%s",
-                dialog_id,
-                extra={"dialog_id": str(dialog_id)},
+            log_event(
+                logger, logging.INFO, "dialog.run.started", dialog_id=str(dialog_id)
             )
             await self._event_broker.publish(
                 dialog_id,
@@ -153,12 +149,6 @@ class AgentService:
 
             if response is None:
                 raise RuntimeError("Agent stream ended without a response.")
-            logger.info(
-                "dialog.run.completed dialog_id=%s",
-                dialog_id,
-                extra={"dialog_id": str(dialog_id)},
-            )
-
             await self._history_store.append(
                 dialog_id,
                 (
@@ -166,33 +156,48 @@ class AgentService:
                     Message(role=MessageRole.ASSISTANT, content=response.content),
                 ),
             )
-            logger.info(
-                "dialog.history.persisted dialog_id=%s",
-                dialog_id,
-                extra={"dialog_id": str(dialog_id)},
+            log_event(
+                logger,
+                logging.INFO,
+                "dialog.history.persisted",
+                dialog_id=str(dialog_id),
             )
             await self._event_broker.publish(
                 dialog_id,
                 DialogEvent(type=DialogEventType.MESSAGE_END),
             )
+            log_event(
+                logger,
+                logging.INFO,
+                "dialog.run.completed",
+                dialog_id=str(dialog_id),
+                started_at=started_at,
+                duration_ms=round((time.monotonic() - started) * 1000, 3),
+                outcome="completed",
+            )
         except asyncio.CancelledError:
             await self._publish_error(dialog_id)
-            logger.info(
-                "dialog.run.cancelled dialog_id=%s",
-                dialog_id,
-                extra={"dialog_id": str(dialog_id)},
+            log_event(
+                logger,
+                logging.INFO,
+                "dialog.run.cancelled",
+                dialog_id=str(dialog_id),
+                started_at=started_at,
+                duration_ms=round((time.monotonic() - started) * 1000, 3),
+                outcome="cancelled",
             )
             raise
         except Exception as error:
             await self._publish_error(dialog_id)
-            logger.error(
-                "dialog.run.failed dialog_id=%s error_type=%s",
-                dialog_id,
-                type(error).__name__,
-                extra={
-                    "dialog_id": str(dialog_id),
-                    "error_type": type(error).__name__,
-                },
+            log_event(
+                logger,
+                logging.ERROR,
+                "dialog.run.failed",
+                dialog_id=str(dialog_id),
+                error_type=type(error).__name__,
+                started_at=started_at,
+                duration_ms=round((time.monotonic() - started) * 1000, 3),
+                outcome="failed",
             )
 
     async def _publish_error(self, dialog_id: UUID) -> None:

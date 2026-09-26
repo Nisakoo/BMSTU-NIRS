@@ -17,6 +17,7 @@ from smeshariki_ai.application import (
     DialogEventType,
 )
 from smeshariki_ai.dialogs import DialogNotFoundError
+from smeshariki_ai.observability import RequestLogMiddleware
 
 AGENT_TEST_HTML = (
     files("smeshariki_ai.api").joinpath("agent_test.html").read_text(encoding="utf-8")
@@ -37,6 +38,7 @@ def create_app(
         await agent_service.shutdown()
 
     app = FastAPI(title="smeshariki-ai", lifespan=lifespan)
+    app.add_middleware(RequestLogMiddleware)
     app.state.agent_service = agent_service
 
     @app.get("/agent_test", response_class=HTMLResponse, include_in_schema=False)

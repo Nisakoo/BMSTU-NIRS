@@ -28,6 +28,12 @@ Backend использует LiteLLM Python SDK внутри своего про
 60 секунд), а число повторов — `LLM_NUM_RETRIES` (по умолчанию 0). Отдельный
 LiteLLM Proxy не запускается.
 
+`LOG_LEVEL` задаёт уровень журнала backend (`DEBUG`, `INFO`, `WARNING`,
+`ERROR`), `LOG_FORMAT` выбирает читаемый формат `human` либо построчный `json`.
+По умолчанию используются `INFO` и `human`. Логи доступны через
+`docker compose -f docker/compose.yaml logs backend`; поля и границы метрик
+описаны в [каталоге логирования](../docs/logging.md).
+
 Создание диалога:
 
 ```sh
@@ -54,7 +60,7 @@ curl -i -X POST http://localhost:8080/api/v1/dialogs/<dialog_id>/messages \
 - `Dockerfile` — Python 3.12 образ backend с зависимостями из `backend/uv.lock`;
 - `frontend.Dockerfile` — Node.js 22 build frontend и runtime Nginx;
 - `Caddyfile` — маршруты `/api` к backend и остальных запросов к Nginx;
-- `.env.example` — несекретный шаблон порта, агента и LiteLLM-провайдера.
+- `.env.example` — несекретный шаблон порта, агента, LiteLLM-провайдера и логов.
 
 `make frontend` по-прежнему запускает отдельный Vite dev server при разработке;
 для основного запуска он не нужен.

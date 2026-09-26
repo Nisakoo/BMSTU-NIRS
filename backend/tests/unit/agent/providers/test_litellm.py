@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator, Iterable
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -94,11 +95,72 @@ async def test_stream_awaits_acompletion_with_provider_config(
         model="openai/test-model",
         messages=[{"role": "user", "content": "question"}],
         stream=True,
+        stream_options={"include_usage": True},
         timeout=12.5,
         num_retries=2,
         api_key="private-api-key",
         base_url="https://llm.example.test/v1",
     )
+
+
+@pytest.mark.asyncio
+async def test_stream_logs_usage_from_empty_choices_chunk(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.DEBUG, logger="smeshariki_ai.agent.providers.litellm")
+    usage_chunk = SimpleNamespace(
+        choices=[],
+        usage=SimpleNamespace(prompt_tokens=12, completion_tokens=4, total_tokens=16),
+    )
+    completion = AsyncMock(
+        return_value=AsyncChunkStream([make_chunk("answer"), usage_chunk])
+    )
+    monkeypatch.setattr(provider_module.litellm_sdk, "acompletion", completion)
+    provider = LiteLLMProvider(LiteLLMProviderConfig(model="test/model"))
+
+    events = await collect_events(provider)
+
+    assert events == [LLMTextDelta(content="answer"), LLMResponse(content="answer")]
+    completed = next(
+        record
+        for record in caplog.records
+        if record.getMessage().startswith("llm.request.completed")
+    )
+    assert completed.usage_available is True
+    assert completed.input_tokens == 12
+    assert completed.output_tokens == 4
+    assert completed.total_tokens == 16
+    assert completed.duration_ms >= 0
+    assert completed.call_id
+    assert any(record.event == "llm.response.first_token" for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_stream_does_not_invent_invalid_or_missing_usage(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="smeshariki_ai.agent.providers.litellm")
+    invalid = SimpleNamespace(
+        choices=[],
+        usage=SimpleNamespace(prompt_tokens=-1, completion_tokens=2, total_tokens=1),
+    )
+    completion = AsyncMock(return_value=AsyncChunkStream([make_chunk("ok"), invalid]))
+    monkeypatch.setattr(provider_module.litellm_sdk, "acompletion", completion)
+    provider = LiteLLMProvider(LiteLLMProviderConfig(model="test/model"))
+
+    await collect_events(provider)
+    invalid_record = caplog.records[-1]
+    assert invalid_record.usage_available is False
+    assert invalid_record.input_tokens is None
+
+    caplog.clear()
+    completion.return_value = make_response("ok")
+    await collect_events(provider)
+    missing_record = caplog.records[-1]
+    assert missing_record.usage_available is False
+    assert missing_record.output_tokens is None
 
 
 @pytest.mark.asyncio
@@ -467,7 +529,9 @@ async def test_stream_wraps_provider_error_and_logs_only_safe_metadata(
 @pytest.mark.asyncio
 async def test_stream_propagates_cancellation(
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
+    caplog.set_level(logging.INFO, logger="smeshariki_ai.agent.providers.litellm")
     monkeypatch.setattr(
         provider_module.litellm_sdk,
         "acompletion",
@@ -477,6 +541,10 @@ async def test_stream_propagates_cancellation(
 
     with pytest.raises(asyncio.CancelledError):
         await collect_events(provider)
+    terminal = caplog.records[-1]
+    assert terminal.event == "llm.request.cancelled"
+    assert terminal.outcome == "cancelled"
+    assert terminal.duration_ms >= 0
 
 
 @pytest.mark.asyncio
