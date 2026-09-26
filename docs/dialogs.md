@@ -23,6 +23,14 @@ FastAPI-маршруты только валидируют HTTP-ввод и пр
   запросов и ответов;
 - [`api/agent_test.html`](../backend/src/smeshariki_ai/api/agent_test.html) —
   самодостаточный тестовый интерфейс;
+- [`frontend/src/agent-api.js`](../frontend/src/agent-api.js) — браузерный
+  HTTP/SSE-клиент dialog API;
+- [`frontend/src/script.js`](../frontend/src/script.js) — состояния формы,
+  порядок сообщений и отображение потокового ответа;
+- [`frontend/vite.config.js`](../frontend/vite.config.js) — локальный same-
+  origin dev proxy пути `/api`;
+- [`docker/Caddyfile`](../docker/Caddyfile) — основной same-origin маршрут
+  `/api` к backend и остальных путей к Nginx;
 - [`bootstrap.py`](../backend/src/smeshariki_ai/bootstrap.py) — сборка готовых
   зависимостей приложения.
 
@@ -148,6 +156,45 @@ results и история через поток не выдаются. `Last-Eve
 одного HTML с встроенными CSS и vanilla JavaScript, не загружает внешние ресурсы
 и вставляет запросы и ответы в DOM как текст.
 
+## Frontend-интеграция
+
+В основном Compose запуске браузер получает frontend от Nginx через Caddy и
+обращается к относительным адресам `/api/v1/...` на том же origin. Caddy
+передаёт API и SSE в backend, сохраняя префикс `/api`; остальные запросы
+направляет в Nginx. Backend и Nginx не публикуют порты на хосте.
+Отдельный Vite dev server также проксирует `/api` в backend: default target —
+`http://127.0.0.1:8000`, переопределение — `BACKEND_URL`. Ни один из сценариев
+не требует CORS или изменения FastAPI-контракта.
+`AgentApi` вызывает браузерный `fetch` с глобальным контекстом `Window`:
+сохранённая функция не должна получать `AgentApi` как `this`, иначе запрос
+может завершиться до отправки в сеть.
+
+```mermaid
+flowchart LR
+    Browser[Browser] -->|HTTP + EventSource| Caddy[Caddy]
+    Caddy -->|page and assets| Nginx[Nginx / frontend build]
+    Caddy -->|/api/v1 HTTP and SSE| API[FastAPI backend]
+    API --> Service[AgentService]
+    Service --> Agent[Agent runtime]
+    Service --> Broker[DialogEventBroker]
+    Broker -->|SSE events| API
+```
+
+При загрузке страницы frontend создаёт новый диалог, открывает один
+`EventSource` и блокирует форму до `ready`. При ошибке создания диалога
+frontend оставляет форму заблокированной и повторяет запрос через три секунды;
+после успешного создания повтор прекращается. После успешного `202 Accepted`
+пользовательское сообщение добавляется в чат, а события `message_delta`
+дописываются в одну реплику ассистента. События, пришедшие во время POST,
+буферизуются, чтобы ответ агента не оказался выше сообщения пользователя.
+Одновременно допускается только один незавершённый запрос.
+
+Пользовательский текст, delta и сообщения ошибок добавляются через
+`textContent`. `dialog_id` не сохраняется в cookie или `localStorage`; полная
+перезагрузка создаёт новый диалог. Ошибка EventSource блокирует форму, пока
+браузер пытается переподключиться, но потерянные события не восстанавливаются,
+так как backend не поддерживает replay.
+
 ## Наблюдаемость и lifecycle
 
 Сервис журналирует создание диалога, принятие запроса, начало и завершение
@@ -174,4 +221,10 @@ results и история через поток не выдаются. `Last-Eve
 - [спецификация брокера событий](../specs/changes/dialog-event-broker/spec.md);
 - [план брокера событий](../specs/changes/dialog-event-broker/plan.md);
 - [результат проверки брокера событий](../specs/changes/dialog-event-broker/verification.md);
+- [спецификация единого Compose запуска](../specs/changes/compose-caddy-nginx-stack/spec.md);
+- [план единого Compose запуска](../specs/changes/compose-caddy-nginx-stack/plan.md);
+- [результат проверки единого Compose запуска](../specs/changes/compose-caddy-nginx-stack/verification.md);
+- [спецификация frontend-интеграции](../specs/changes/frontend-agent-integration/spec.md);
+- [план frontend-интеграции](../specs/changes/frontend-agent-integration/plan.md);
+- [результат проверки frontend-интеграции](../specs/changes/frontend-agent-integration/verification.md);
 - [запуск и тестовые HTTP-запросы](../docker/README.md).

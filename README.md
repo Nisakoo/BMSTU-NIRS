@@ -6,24 +6,26 @@
 
 - `frontend/` — пользовательский интерфейс;
 - `backend/` — API, runtime агента, серверная бизнес-логика и RAG;
-- `docker/` — контейнерный запуск backend и его инфраструктуры;
+- `docker/` — единый контейнерный запуск Caddy, frontend и backend;
 - `docs/` — краткий каталог архитектуры, реализации и контрактов;
 - `specs/` — спецификации, планы и результаты проверки SDD-изменений.
 
-Frontend запускается отдельно от Docker-окружения backend. Агент и RAG входят
-в состав единого backend-приложения.
+Основной запуск собирает frontend и поднимает Caddy, Nginx и backend одним
+Docker Compose проектом. Агент и RAG входят в состав backend-приложения.
 
 ## Команды
 
-- `make run` — запуск backend через Docker Compose;
-- `make test` — запуск всех продуктовых Python-тестов;
+- `make run` — сборка и запуск всего приложения через Docker Compose;
+- `make frontend` — отдельный Vite dev server при разработке frontend;
+- `make test` — запуск frontend Node-тестов и backend Pytest;
 - `make lint` — проверка Python-кода через Ruff;
 - `make format` — автоматическое исправление и форматирование Python-кода.
 
-Настройки и примеры HTTP-запросов описаны в [`docker/README.md`](docker/README.md).
-Текущий backend использует fake LLM-провайдер и in-memory историю. Frontend,
-RAG, постоянное хранилище и реальный LLM-провайдер будут добавляться отдельными
-SDD-изменениями.
+После настройки `docker/.env` приложение доступно на
+[`http://localhost:8080/`](http://localhost:8080/). Настройки и примеры HTTP-
+запросов описаны в [`docker/README.md`](docker/README.md). Backend использует
+настраиваемый LiteLLM-провайдер и in-memory историю; RAG и постоянное хранилище
+пока не реализованы.
 
 ## Документация
 
