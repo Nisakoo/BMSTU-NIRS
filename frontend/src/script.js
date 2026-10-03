@@ -34,6 +34,10 @@ function autosize() {
   prompt.style.height = `${Math.min(prompt.scrollHeight, 132)}px`;
 }
 
+function dismissHint() {
+  hint?.classList.add("is-hidden");
+}
+
 function setStatus(text, state = "ready") {
   statusText.textContent = text;
   status.dataset.state = state;
@@ -169,6 +173,7 @@ chips.forEach(chip => chip.addEventListener("click", () => {
   const promptPart = presets[chip.textContent.trim()];
   if (!promptPart || chip.disabled) return;
 
+  dismissHint();
   prompt.value = promptPart;
   resetChips();
   chip.classList.add("is-selected");
@@ -177,6 +182,9 @@ chips.forEach(chip => chip.addEventListener("click", () => {
   prompt.focus();
 }));
 
+for (const eventType of ["pointerdown", "touchstart"]) {
+  prompt.addEventListener(eventType, dismissHint);
+}
 prompt.addEventListener("input", autosize);
 prompt.addEventListener("keydown", event => {
   if (event.key === "Enter" && !event.shiftKey) {
@@ -201,7 +209,6 @@ form.addEventListener("submit", async event => {
     prompt.value = "";
     autosize();
     resetChips();
-    hint?.classList.add("is-hidden");
 
     submitting = false;
     processing = true;

@@ -90,6 +90,27 @@ Frontend допускает один незавершённый запрос, б
 получения `202 Accepted` и вставляет пользовательский и модельный текст только
 через `textContent`.
 
+## Адаптивность и подсказка Кроша
+
+На ноутбучных viewport от `821px` до `1440px` интерфейс сохраняет исходный
+масштаб: контейнер ограничен `1180px`, чат — `860px`, базовая высота сцены —
+`650px`. После `1440px` композиция плавно увеличивается; к `1920px` сцена
+расширяется до `1600px`, а чат — до `1120px`, при этом ширина отдельных реплик
+остаётся ограниченной.
+
+До `820px` CSS media query скрывает hero и всю декоративную сцену: луну,
+пейзаж, теги, персонажей и подсказку. На экране остаётся оформленный чат без
+пустого места от декора. Начиная с ширины `320px`, форма ввода находится внутри
+viewport без горизонтальной прокрутки страницы, а тематические кнопки
+прокручиваются только внутри собственного ряда.
+
+Подсказка Кроша видна при открытии desktop-версии и не исчезает от
+автоматического фокуса после подключения SSE, клавиатурного ввода или отправки.
+Она скрывается до следующей перезагрузки после прямого нажатия мышью,
+трекпадом или касания textarea, а также после выбора тематической кнопки. В
+мобильном режиме подсказка скрыта вместе с Крошем и остальной декоративной
+сценой.
+
 ## Ограничения
 
 - Диалог и история хранятся только в памяти backend и теряются при рестарте.
@@ -111,6 +132,21 @@ Frontend допускает один незавершённый запрос, б
 Исправление browser `fetch` описано в
 [`spec.md`](../specs/changes/frontend-fetch-binding/spec.md) и
 [`verification.md`](../specs/changes/frontend-fetch-binding/verification.md).
+Адаптивная геометрия и жизненный цикл подсказки Кроша описаны в
+[`spec.md`](../specs/changes/frontend-responsive-layout/spec.md), порядок работ —
+в [`plan.md`](../specs/changes/frontend-responsive-layout/plan.md), результаты
+проверки — в
+[`verification.md`](../specs/changes/frontend-responsive-layout/verification.md).
+Ноутбучная базовая геометрия, wide-screen масштаб и мобильный режим только с
+чатом уточнены в
+[`spec.md`](../specs/changes/frontend-laptop-baseline-mobile-chat/spec.md),
+[`plan.md`](../specs/changes/frontend-laptop-baseline-mobile-chat/plan.md) и
+[`verification.md`](../specs/changes/frontend-laptop-baseline-mobile-chat/verification.md).
+Правило скрытия подсказки после прямого нажатия на textarea или выбора типа
+истории описано в
+[`spec.md`](../specs/changes/frontend-krosh-hint-input-dismiss/spec.md),
+[`plan.md`](../specs/changes/frontend-krosh-hint-input-dismiss/plan.md) и
+[`verification.md`](../specs/changes/frontend-krosh-hint-input-dismiss/verification.md).
 Единый контейнерный запуск описан в
 [`spec.md`](../specs/changes/compose-caddy-nginx-stack/spec.md), его проверка — в
 [`verification.md`](../specs/changes/compose-caddy-nginx-stack/verification.md).

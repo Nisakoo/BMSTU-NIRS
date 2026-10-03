@@ -33,3 +33,9 @@ specs:
       status: done
     - name: get-context-example
       status: done
+    - name: frontend-responsive-layout
+      status: done
+    - name: frontend-laptop-baseline-mobile-chat
+      status: done
+    - name: frontend-krosh-hint-input-dismiss
+      status: done

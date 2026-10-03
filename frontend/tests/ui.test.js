@@ -19,11 +19,18 @@ class FakeElement {
   }
 
   addEventListener(type, listener) {
-    this.listeners.set(type, listener);
+    const listeners = this.listeners.get(type) ?? [];
+    listeners.push(listener);
+    this.listeners.set(type, listeners);
   }
 
   dispatch(type, event = {}) {
-    return this.listeners.get(type)?.({ preventDefault() {}, ...event });
+    let result;
+    const dispatchedEvent = { preventDefault() {}, ...event };
+    for (const listener of this.listeners.get(type) ?? []) {
+      result = listener(dispatchedEvent);
+    }
+    return result;
   }
 
   append(child) {
@@ -31,7 +38,7 @@ class FakeElement {
   }
 
   setAttribute() {}
-  focus() {}
+  focus() { return this.dispatch("focus"); }
   requestSubmit() { return this.dispatch("submit"); }
   get scrollHeight() { return 30; }
 }
@@ -124,7 +131,21 @@ async function setup(submitResponse, { autoReady = true, createStatus = 201, cre
     await new Promise(resolve => setImmediate(resolve));
     return true;
   };
-  return { source, form, prompt, send, status, bubbles, requests, chips, window: globalThis.window, timers, timerDelays, runNextTimer };
+  return {
+    source,
+    form,
+    prompt,
+    send,
+    status,
+    hint: elements[".sai-hint"],
+    bubbles,
+    requests,
+    chips,
+    window: globalThis.window,
+    timers,
+    timerDelays,
+    runNextTimer,
+  };
 }
 
 test("dialog creation retries and recovers without a page reload", async () => {
@@ -202,6 +223,38 @@ test("preset, autosize, and Enter submission remain available", async () => {
   assert.equal(ui.send.disabled, true);
 });
 
+test("automatic focus keeps the Krosh hint visible", async () => {
+  const ui = await setup(deferred());
+  assert.equal(ui.hint.classList.contains("is-hidden"), false);
+});
+
+test("pressing or touching the prompt dismisses the Krosh hint", async () => {
+  for (const type of ["pointerdown", "touchstart"]) {
+    const ui = await setup(deferred());
+    ui.prompt.dispatch(type);
+    assert.equal(ui.hint.classList.contains("is-hidden"), true, type);
+
+    ui.prompt.dispatch(type);
+    assert.equal(ui.hint.classList.contains("is-hidden"), true, `${type} is idempotent`);
+  }
+});
+
+test("non-pointer prompt events keep the Krosh hint visible", async () => {
+  for (const type of ["focus", "keydown", "input", "paste", "drop"]) {
+    const ui = await setup(deferred());
+    ui.prompt.dispatch(type, type === "keydown" ? { key: "а", shiftKey: true } : {});
+    assert.equal(ui.hint.classList.contains("is-hidden"), false, type);
+  }
+});
+
+test("choosing a preset dismisses the Krosh hint", async () => {
+  const ui = await setup(deferred());
+  ui.chips[0].dispatch("click");
+  assert.equal(ui.hint.classList.contains("is-hidden"), true);
+  assert.match(ui.prompt.value, /Кроша и Ёжика/);
+  assert.equal(ui.prompt.style.height, "30px");
+});
+
 test("invalid SSE JSON is reported without displaying payload as HTML", async () => {
   const ui = await setup(deferred());
   ui.source.emitRaw("message_delta", "<script>invalid</script>");
@@ -218,6 +271,7 @@ test("accepted request keeps the form locked until message_end", async () => {
   response.resolve({ status: 202 });
   await submission;
   assert.equal(ui.send.disabled, true);
+  assert.equal(ui.hint.classList.contains("is-hidden"), false);
   assert.equal(ui.bubbles()[0].textContent, "История");
   await ui.form.dispatch("submit");
   assert.equal(ui.requests.length, 2);
