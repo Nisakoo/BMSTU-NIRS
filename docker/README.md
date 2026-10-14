@@ -17,8 +17,9 @@ make run
 `LLM_API_KEY` и `LLM_BASE_URL`. Локальный `docker/.env` не отслеживается Git;
 реальные секреты не должны попадать в `.env.example`.
 
-После запуска frontend доступен на `http://localhost:8080/`, API — на том же
-origin по пути `/api/v1/...`. Значение `APP_PORT` в `docker/.env` меняет внешний
+После запуска frontend доступен на `http://localhost:8080/`, demo-макет панели
+администратора — на `http://localhost:8080/admin/`, API — на том же origin по
+пути `/api/v1/...`. Значение `APP_PORT` в `docker/.env` меняет внешний
 порт. Compose публикует только порт Caddy на `127.0.0.1`; backend и Nginx
 доступны лишь внутри его сети. Локальный вход использует HTTP: публичный домен
 и HTTPS этим изменением не настроены.

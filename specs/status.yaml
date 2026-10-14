@@ -39,3 +39,7 @@ specs:
       status: done
     - name: frontend-krosh-hint-input-dismiss
       status: done
+    - name: admin-dashboard-frontend
+      status: done
+    - name: admin-active-navigation
+      status: done

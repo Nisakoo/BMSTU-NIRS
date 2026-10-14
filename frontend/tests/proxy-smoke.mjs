@@ -35,6 +35,10 @@ try {
   assert.equal(page.status, 200);
   assert.match(await page.text(), /id="saiForm"/);
 
+  const adminPage = await fetch(`${base}/admin/`);
+  assert.equal(adminPage.status, 200);
+  assert.match(await adminPage.text(), /id="adminDashboard"/);
+
   const dialog = await fetch(`${base}/api/v1/dialogs`, { method: "POST" });
   assert.equal(dialog.status, 201);
   assert.deepEqual(await dialog.json(), { dialog_id: "fake-dialog" });
