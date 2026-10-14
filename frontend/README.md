@@ -12,6 +12,8 @@ Vite proxy остаётся отдельным режимом локальной
 - `src/agent-api.js` — HTTP/SSE-клиент без зависимости от DOM;
 - `src/admin/` — отдельная страница административного макета, её стили,
   поведение и локальные демонстрационные данные;
+- `src/auth-api.js` — клиент контракта аутентификации без зависимости от DOM;
+- `src/login/` — страница входа и регистрации `/login/`, её стили и поведение;
 - `src/static/characters/` — изображения персонажей;
 - `tests/` — детерминированные Node-тесты сетевого контракта и состояний UI;
 - `vite.config.js` — root, build output и proxy `/api`;
@@ -28,10 +30,11 @@ make run
 ```
 
 Откройте `http://localhost:8080/` (или порт из `APP_PORT`) для пользовательского
-чата либо `http://localhost:8080/admin/` для административного макета.
+чата, `http://localhost:8080/admin/` для административного макета либо
+`http://localhost:8080/login/` для страницы входа и регистрации.
 Frontend, Caddy и backend работают в одном Compose проекте; отдельные `npm ci`
 и `make frontend` для этого сценария не требуются. Все браузерные запросы
-остаются на одном origin. Caddy передаёт `/api/*` в backend, а обе статические
+остаются на одном origin. Caddy передаёт `/api/*` в backend, а статические
 страницы — Nginx.
 
 ## Vite dev-режим
@@ -142,6 +145,25 @@ HTTP/SSE-поведение от admin-entry не зависят.
 сетка. На tablet и mobile навигация становится компактной, секции переходят в
 одну колонку, а записи пользователей отображаются карточками без
 горизонтальной прокрутки страницы.
+## Страница входа и регистрации
+
+`/login/` — вторая HTML-entry того же Vite build и Nginx-контейнера. Страница
+выполнена в стилистике чата и занимает одну ночную сцену во весь экран: слева
+логотип, слоган «Сочиняй истории вместе со Смешариками» и групповое
+изображение `src/static/characters/smeshariki.png` с приветственной
+подсказкой, справа стеклянная карточка формы с сегментированным переключателем
+«Вход»/«Регистрация». На узких экранах блоки выстраиваются в одну колонку над
+формой.
+
+Поля проверяются до отправки по правилам контракта. Регистрация отправляет
+`POST /api/v1/users`, затем выполняет вход; после успешного входа страница
+переходит в чат `/`. Если при открытии уже есть действительная сессия,
+страница сразу переходит в чат. Пароль хранится только в поле формы, сессия —
+только в `HttpOnly` cookie, которую браузер выставляет сам.
+
+Контракт описан в [`docs/auth.md`](../docs/auth.md). Пока backend его не
+реализует, страница показывает «Сервис временно недоступен»; чат по `/` от
+авторизации пока не зависит.
 
 ## Ограничения
 
@@ -185,6 +207,13 @@ HTTP/SSE-поведение от admin-entry не зависят.
 [`plan.md`](../specs/changes/admin-dashboard-frontend/plan.md), результаты
 проверки — в
 [`verification.md`](../specs/changes/admin-dashboard-frontend/verification.md).
+Редизайн страницы входа описан в
+[`spec.md`](../specs/changes/login-page-redesign/spec.md) и
+[`verification.md`](../specs/changes/login-page-redesign/verification.md).
+Страница входа описана в
+[`spec.md`](../specs/changes/auth-frontend-contract/spec.md) и
+[`plan.md`](../specs/changes/auth-frontend-contract/plan.md), проверка — в
+[`verification.md`](../specs/changes/auth-frontend-contract/verification.md).
 Единый контейнерный запуск описан в
 [`spec.md`](../specs/changes/compose-caddy-nginx-stack/spec.md), его проверка — в
 [`verification.md`](../specs/changes/compose-caddy-nginx-stack/verification.md).

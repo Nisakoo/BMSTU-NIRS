@@ -38,6 +38,9 @@ try {
   const adminPage = await fetch(`${base}/admin/`);
   assert.equal(adminPage.status, 200);
   assert.match(await adminPage.text(), /id="adminDashboard"/);
+  const loginPage = await fetch(`${base}/login/`);
+  assert.equal(loginPage.status, 200);
+  assert.match(await loginPage.text(), /id="authForm"/);
 
   const dialog = await fetch(`${base}/api/v1/dialogs`, { method: "POST" });
   assert.equal(dialog.status, 201);

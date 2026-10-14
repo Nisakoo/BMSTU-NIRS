@@ -5,3 +5,4 @@ __pycache__/
 docker/.env
 frontend/node_modules/
 frontend/dist/
+.DS_Store
