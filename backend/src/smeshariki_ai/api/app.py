@@ -5,11 +5,23 @@ from contextlib import asynccontextmanager
 from importlib.resources import files
 from uuid import UUID
 
-from fastapi import APIRouter, FastAPI, HTTPException, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    FastAPI,
+    HTTPException,
+    Request,
+    Response,
+    status,
+)
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, StreamingResponse
+from pydantic import ValidationError
 
+from smeshariki_ai.admin import AdminStatsService
 from smeshariki_ai.agent import UserRequest
-from smeshariki_ai.api.auth import install_auth
+from smeshariki_ai.api.admin import install_admin
+from smeshariki_ai.api.auth import current_user, install_auth, install_auth_errors
 from smeshariki_ai.api.schemas import StartDialogResponse, SubmitMessageRequest
 from smeshariki_ai.application import (
     AgentService,
@@ -32,6 +44,7 @@ def create_app(
     heartbeat_seconds: float = 15.0,
     auth_service: AuthService | None = None,
     auth_cookie_secure: bool = False,
+    admin_stats: AdminStatsService | None = None,
     on_shutdown: Sequence[Callable[[], Awaitable[None]]] = (),
 ) -> FastAPI:
     if heartbeat_seconds <= 0:
@@ -49,12 +62,14 @@ def create_app(
     app = FastAPI(title="smeshariki-ai", lifespan=lifespan)
     app.add_middleware(RequestLogMiddleware)
     app.state.agent_service = agent_service
+    install_auth_errors(app)
 
     @app.get("/agent_test", response_class=HTMLResponse, include_in_schema=False)
     async def agent_test() -> HTMLResponse:
         return HTMLResponse(AGENT_TEST_HTML)
 
-    router = APIRouter(prefix="/api/v1")
+    # Authentication runs before path and body validation, so guests get 401.
+    router = APIRouter(prefix="/api/v1", dependencies=[Depends(current_user)])
 
     @router.post(
         "/dialogs",
@@ -80,8 +95,9 @@ def create_app(
     )
     async def submit_message(
         dialog_id: UUID,
-        body: SubmitMessageRequest,
+        request: Request,
     ) -> Response:
+        body = await _read_submit_request(request)
         try:
             await agent_service.submit(
                 dialog_id,
@@ -149,7 +165,22 @@ def create_app(
     app.include_router(router)
     if auth_service is not None:
         install_auth(app, auth_service, cookie_secure=auth_cookie_secure)
+    install_admin(app, admin_stats)
     return app
+
+
+async def _read_submit_request(request: Request) -> SubmitMessageRequest:
+    # Parsed here rather than by FastAPI, which rejects malformed JSON before
+    # running the authentication dependency.
+    try:
+        return SubmitMessageRequest.model_validate_json(await request.body())
+    except ValidationError as error:
+        raise RequestValidationError(
+            [
+                {**detail, "loc": ("body", *detail["loc"])}
+                for detail in error.errors(include_url=False, include_context=False)
+            ]
+        ) from error
 
 
 def _format_dialog_event(event: DialogEvent) -> str:

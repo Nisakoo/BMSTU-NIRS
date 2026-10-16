@@ -596,6 +596,17 @@
     backdrop-filter:blur(16px);
   }
   .sai-chat-head{border-bottom-color:#203b52}
+  .sai-head-actions{display:flex;align-items:center;gap:12px;min-width:0}
+  .sai-logout{
+    flex:0 0 auto;height:32px;padding:0 14px;
+    border:1px solid #2a4c66;border-radius:999px;
+    background:rgba(16,47,72,.72);color:#9eb3c8;
+    font:700 12px Inter,system-ui,sans-serif;cursor:pointer;
+    transition:color .18s ease,border-color .18s ease,background .18s ease;
+  }
+  .sai-logout:hover{color:#8edcff;border-color:#3d6f93;background:#102f48}
+  .sai-logout:focus-visible{outline:2px solid #8edcff;outline-offset:2px}
+  .sai-logout:disabled{opacity:.55;cursor:default}
   .sai-ai-mark{
     background:linear-gradient(145deg,#1d729f,#4fc6f4);
     border-color:#19354d;
@@ -816,6 +827,8 @@
     .sai-chat{border-radius:23px}
     .sai-chat-head{padding:14px 14px 12px}
     .sai-status{display:none}
+    .sai-status[data-state="error"]{display:flex}
+    .sai-logout{height:30px;padding:0 12px}
     .sai-messages{padding:18px 14px 9px;min-height:270px;max-height:355px}
     .sai-bubble{max-width:89%;font-size:13.5px}
     .sai-compose-wrap{padding:12px 10px 14px}

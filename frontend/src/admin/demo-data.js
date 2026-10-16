@@ -1,8 +1,8 @@
 export const PERIODS = Object.freeze(["7", "30", "90"]);
 
+// Agent statistics are not persisted yet, so these figures stay demonstrational;
+// user figures come from the backend.
 const METRIC_KEYS = Object.freeze([
-  "usersTotal",
-  "activeUsers",
   "dialogs",
   "messages",
   "successRate",
@@ -15,18 +15,11 @@ function deepFreeze(value) {
   return Object.freeze(value);
 }
 
-function user(id, name, lastActive, dialogs, status) {
-  return { id, name, lastActive, dialogs, status };
-}
-
 const DATASETS = deepFreeze({
   "7": {
     period: "7",
     periodLabel: "7 дней",
-    comparison: "+12% к прошлой неделе",
     metrics: {
-      usersTotal: 1284,
-      activeUsers: 462,
       dialogs: 836,
       messages: 4198,
       successRate: 96.8,
@@ -41,21 +34,11 @@ const DATASETS = deepFreeze({
       { label: "Сб", value: 158 },
       { label: "Вс", value: 132 },
     ],
-    recentUsers: [
-      user("demo-u-1048", "Алёна С.", "сегодня, 12:48", 14, "active"),
-      user("demo-u-1047", "Марк Т.", "сегодня, 11:32", 3, "new"),
-      user("demo-u-1046", "Лиза К.", "сегодня, 10:06", 8, "active"),
-      user("demo-u-1045", "Илья Н.", "вчера, 21:17", 6, "inactive"),
-      user("demo-u-1044", "Соня Р.", "вчера, 18:42", 11, "active"),
-    ],
   },
   "30": {
     period: "30",
     periodLabel: "30 дней",
-    comparison: "+18% к прошлому периоду",
     metrics: {
-      usersTotal: 1548,
-      activeUsers: 972,
       dialogs: 3542,
       messages: 18240,
       successRate: 97.2,
@@ -71,21 +54,11 @@ const DATASETS = deepFreeze({
       { label: "25–27", value: 492 },
       { label: "28–30", value: 518 },
     ],
-    recentUsers: [
-      user("demo-u-1284", "Маша В.", "2 минуты назад", 17, "active"),
-      user("demo-u-1283", "Антон П.", "18 минут назад", 1, "new"),
-      user("demo-u-1282", "Варя Л.", "сегодня, 12:02", 9, "active"),
-      user("demo-u-1281", "Денис М.", "сегодня, 09:45", 5, "inactive"),
-      user("demo-u-1280", "Полина А.", "вчера, 22:19", 12, "active"),
-    ],
   },
   "90": {
     period: "90",
     periodLabel: "90 дней",
-    comparison: "+31% к прошлому кварталу",
     metrics: {
-      usersTotal: 2384,
-      activeUsers: 1690,
       dialogs: 11784,
       messages: 54832,
       successRate: 96.9,
@@ -105,13 +78,6 @@ const DATASETS = deepFreeze({
       { label: "Нед. 11", value: 1126 },
       { label: "Нед. 12", value: 1264 },
     ],
-    recentUsers: [
-      user("demo-u-1548", "Кирилл Б.", "сегодня, 13:04", 21, "active"),
-      user("demo-u-1547", "Алиса Д.", "сегодня, 12:51", 2, "new"),
-      user("demo-u-1546", "Тимур Ж.", "сегодня, 11:46", 13, "active"),
-      user("demo-u-1545", "Вика О.", "сегодня, 10:28", 7, "inactive"),
-      user("demo-u-1544", "Роман Е.", "вчера, 23:11", 18, "active"),
-    ],
   },
 });
 
@@ -123,7 +89,7 @@ export function validateDashboardData(data) {
   if (!data || typeof data !== "object") return false;
   if (!PERIODS.includes(data.period) || typeof data.periodLabel !== "string") return false;
   if (!data.metrics || !METRIC_KEYS.every(key => isMetric(data.metrics[key]))) return false;
-  if (data.metrics.successRate > 100 || data.metrics.activeUsers > data.metrics.usersTotal) return false;
+  if (data.metrics.successRate > 100) return false;
   if (!Array.isArray(data.activity) || data.activity.length === 0) return false;
   if (!data.activity.every(point => (
     typeof point?.label === "string"
@@ -131,17 +97,7 @@ export function validateDashboardData(data) {
     && point.value >= 0
   ))) return false;
   const activityTotal = data.activity.reduce((total, point) => total + point.value, 0);
-  if (activityTotal !== data.metrics.dialogs) return false;
-  if (!Array.isArray(data.recentUsers) || data.recentUsers.length === 0) return false;
-  return data.recentUsers.every(entry => (
-    typeof entry?.id === "string"
-    && entry.id.startsWith("demo-")
-    && typeof entry.name === "string"
-    && typeof entry.lastActive === "string"
-    && Number.isInteger(entry.dialogs)
-    && entry.dialogs >= 0
-    && ["active", "new", "inactive"].includes(entry.status)
-  ));
+  return activityTotal === data.metrics.dialogs;
 }
 
 export function getDashboardData(period) {

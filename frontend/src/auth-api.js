@@ -80,6 +80,16 @@ export class AuthApi {
     await this.request("/api/v1/auth/logout", { method: "POST" }, 204);
   }
 
+  async refresh() {
+    const response = await this.request(
+      "/api/v1/auth/refresh",
+      { method: "POST" },
+      200,
+      { 401: "unauthorized" },
+    );
+    return this.readUser(response);
+  }
+
   async me() {
     const response = await this.request(
       "/api/v1/users/me",

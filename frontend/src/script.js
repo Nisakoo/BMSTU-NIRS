@@ -1,4 +1,6 @@
 import { AgentApi } from "./agent-api.js";
+import { AuthApi } from "./auth-api.js";
+import { LOGIN_PATH, SESSION, checkSession, refreshSession } from "./auth-session.js";
 
 const form = document.querySelector("#saiForm");
 const prompt = document.querySelector("#saiPrompt");
@@ -7,6 +9,7 @@ const send = document.querySelector(".sai-send");
 const status = document.querySelector("#saiStatus");
 const statusText = document.querySelector("#saiStatusText");
 const hint = document.querySelector(".sai-hint");
+const logoutButton = document.querySelector("#saiLogout");
 const chips = [...document.querySelectorAll(".sai-chip")];
 
 const presets = {
@@ -19,6 +22,7 @@ const presets = {
 };
 
 const api = new AgentApi();
+const auth = new AuthApi();
 let dialogId = null;
 let connection = null;
 let ready = false;
@@ -28,6 +32,9 @@ let currentAssistant = null;
 let pendingEvents = [];
 let retryTimer = null;
 let unloading = false;
+let sessionCheck = null;
+let reopenedSinceReady = false;
+let loggingOut = false;
 
 function autosize() {
   prompt.style.height = "auto";
@@ -82,6 +89,7 @@ function markInvalidEvent() {
 function applyAgentEvent(type, data) {
   if (type === "ready") {
     ready = true;
+    reopenedSinceReady = false;
     setStatus(processing ? "агент отвечает…" : "готов к идеям", processing ? "processing" : "ready");
     updateForm();
     if (!processing && !submitting) prompt.focus();
@@ -130,6 +138,89 @@ function handleConnectionError() {
   ready = false;
   setStatus("переподключение…", "connecting");
   updateForm();
+  void verifyConnection();
+}
+
+const eventHandlers = {
+  onEvent: applyAgentEvent,
+  onInvalidEvent: markInvalidEvent,
+  onConnectionError: handleConnectionError,
+};
+
+function redirectToLogin() {
+  unloading = true;
+  if (retryTimer !== null) window.clearTimeout(retryTimer);
+  retryTimer = null;
+  connection?.close();
+  window.location.replace(LOGIN_PATH);
+}
+
+function scheduleRetry(action) {
+  if (retryTimer !== null) return;
+  retryTimer = window.setTimeout(() => {
+    retryTimer = null;
+    void action();
+  }, 3000);
+}
+
+// Retries an operation once after a 401 if refresh renews the session.
+async function withSession(operation) {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error?.code !== "unauthorized") throw error;
+  }
+  const session = await refreshSession(auth);
+  if (session.status === SESSION.ANONYMOUS) {
+    redirectToLogin();
+    throw new Error("session expired");
+  }
+  if (session.status === SESSION.UNAVAILABLE) throw new Error("auth unavailable");
+  try {
+    return await operation();
+  } catch (error) {
+    if (error?.code === "unauthorized") redirectToLogin();
+    throw error;
+  }
+}
+
+// EventSource hides the HTTP status, so a failed stream is checked separately.
+async function verifyConnection() {
+  if (sessionCheck || unloading) return;
+  const current = connection;
+  sessionCheck = checkSession(auth);
+  const session = await sessionCheck;
+  sessionCheck = null;
+  if (unloading || connection !== current || !current) return;
+  if (session.status === SESSION.ANONYMOUS) {
+    redirectToLogin();
+    return;
+  }
+  if (session.status !== SESSION.USER || !current.isClosed()) return;
+  if (reopenedSinceReady) {
+    setStatus("соединение потеряно; обновите страницу", "error");
+    return;
+  }
+  reopenedSinceReady = true;
+  connection = api.connectEvents(dialogId, eventHandlers);
+}
+
+async function start() {
+  if (unloading) return;
+  setStatus("проверка входа…", "connecting");
+  updateForm();
+  const session = await checkSession(auth);
+  if (unloading) return;
+  if (session.status === SESSION.ANONYMOUS) {
+    redirectToLogin();
+    return;
+  }
+  if (session.status === SESSION.UNAVAILABLE) {
+    setStatus("backend недоступен; повторная попытка…", "error");
+    scheduleRetry(start);
+    return;
+  }
+  await createDialog();
 }
 
 async function createDialog() {
@@ -146,26 +237,18 @@ async function createDialog() {
   updateForm();
 
   try {
-    const createdDialogId = await api.createDialog();
+    const createdDialogId = await withSession(() => api.createDialog());
     if (unloading) return;
     dialogId = createdDialogId;
+    reopenedSinceReady = false;
     setStatus("подключение к потоку…", "connecting");
-    connection = api.connectEvents(dialogId, {
-      onEvent: applyAgentEvent,
-      onInvalidEvent: markInvalidEvent,
-      onConnectionError: handleConnectionError,
-    });
+    connection = api.connectEvents(dialogId, eventHandlers);
   } catch {
     if (unloading) return;
     dialogId = null;
     setStatus("backend недоступен; повторная попытка…", "error");
     updateForm();
-    if (retryTimer === null) {
-      retryTimer = window.setTimeout(() => {
-        retryTimer = null;
-        void createDialog();
-      }, 3000);
-    }
+    scheduleRetry(createDialog);
   }
 }
 
@@ -204,7 +287,7 @@ form.addEventListener("submit", async event => {
   updateForm();
 
   try {
-    await api.submitMessage(dialogId, request);
+    await withSession(() => api.submitMessage(dialogId, request));
     addMessage(request, "user");
     prompt.value = "";
     autosize();
@@ -219,9 +302,26 @@ form.addEventListener("submit", async event => {
   } catch {
     submitting = false;
     pendingEvents = [];
+    if (unloading) return;
     setStatus("не удалось отправить сообщение", "error");
   }
   updateForm();
+});
+
+// Cookies are cleared by the backend only on success, so a failed logout stays.
+logoutButton.addEventListener("click", async () => {
+  if (loggingOut) return;
+  loggingOut = true;
+  logoutButton.disabled = true;
+  try {
+    await auth.logout();
+  } catch {
+    loggingOut = false;
+    logoutButton.disabled = false;
+    setStatus("Не удалось выйти. Попробуйте ещё раз", "error");
+    return;
+  }
+  redirectToLogin();
 });
 
 window.addEventListener("beforeunload", () => {
@@ -229,4 +329,4 @@ window.addEventListener("beforeunload", () => {
   if (retryTimer !== null) window.clearTimeout(retryTimer);
   connection?.close();
 });
-createDialog();
+void start();

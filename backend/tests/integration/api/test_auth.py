@@ -1,6 +1,7 @@
 import logging
 from collections.abc import AsyncIterator, Iterator
 from io import StringIO
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
@@ -280,11 +281,131 @@ async def test_current_user_dependency_protects_routes(
     assert response.status_code == 200
 
 
-async def test_dialog_routes_keep_their_error_format(client: httpx.AsyncClient) -> None:
-    response = await client.post("/api/v1/dialogs/not-a-uuid/messages", json={})
+DIALOG_ROUTE_REQUESTS = [
+    pytest.param("POST", "/api/v1/dialogs", None, id="start"),
+    pytest.param(
+        "POST", f"/api/v1/dialogs/{uuid4()}/messages", b'{"request":"hi"}', id="submit"
+    ),
+    pytest.param("POST", "/api/v1/dialogs/not-a-uuid/messages", b"{}", id="bad-id"),
+    pytest.param(
+        "POST", f"/api/v1/dialogs/{uuid4()}/messages", b"{broken", id="bad-json"
+    ),
+    pytest.param("GET", f"/api/v1/dialogs/{uuid4()}/events", None, id="events"),
+]
+
+
+async def send_dialog_request(
+    client: httpx.AsyncClient, method: str, path: str, body: bytes | None
+) -> httpx.Response:
+    headers = {"Content-Type": "application/json"} if body is not None else None
+    return await client.request(method, path, content=body, headers=headers)
+
+
+@pytest.mark.parametrize(("method", "path", "body"), DIALOG_ROUTE_REQUESTS)
+async def test_dialog_routes_require_access_cookie(
+    client: httpx.AsyncClient, method: str, path: str, body: bytes | None
+) -> None:
+    response = await send_dialog_request(client, method, path, body)
+
+    assert response.status_code == 401
+    assert response.json() == {"error": "unauthorized"}
+
+
+@pytest.mark.parametrize(("method", "path", "body"), DIALOG_ROUTE_REQUESTS)
+async def test_dialog_routes_reject_invalid_access_token(
+    client: httpx.AsyncClient, method: str, path: str, body: bytes | None
+) -> None:
+    client.cookies.set("access_token", "not-a-jwt")
+
+    response = await send_dialog_request(client, method, path, body)
+
+    assert response.status_code == 401
+    assert response.json() == {"error": "unauthorized"}
+
+
+async def test_dialog_routes_reject_blacklisted_access_token(
+    client: httpx.AsyncClient,
+) -> None:
+    login = await register_and_login(client)
+    access = login.cookies["access_token"]
+    await client.post("/api/v1/auth/logout")
+    client.cookies.set("access_token", access)
+
+    response = await client.post("/api/v1/dialogs")
+
+    assert response.status_code == 401
+    assert response.json() == {"error": "unauthorized"}
+
+
+async def test_dialog_routes_fail_closed_when_storage_is_unavailable(
+    client: httpx.AsyncClient,
+    blacklist: SwitchableBlacklist,
+) -> None:
+    await register_and_login(client)
+    blacklist.available = False
+
+    response = await client.post("/api/v1/dialogs")
+
+    assert response.status_code == 503
+    assert response.json() == {"error": "unavailable"}
+
+
+async def test_dialog_routes_fail_closed_without_auth_service() -> None:
+    service = AgentService(
+        NoAgent(), InMemoryHistoryStore(), InMemoryDialogEventBroker()
+    )
+    app = create_app(service)
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"access_token": "anything"},
+    ) as client:
+        response = await client.post("/api/v1/dialogs")
+        page = await client.get("/agent_test")
+
+    assert response.status_code == 503
+    assert response.json() == {"error": "unavailable"}
+    assert page.status_code == 200
+
+
+async def test_authenticated_dialog_routes_keep_their_behavior(
+    client: httpx.AsyncClient,
+) -> None:
+    await register_and_login(client)
+
+    created = await client.post("/api/v1/dialogs")
+    missing = await client.post(
+        f"/api/v1/dialogs/{uuid4()}/messages", json={"request": "hi"}
+    )
+    missing_events = await client.get(f"/api/v1/dialogs/{uuid4()}/events")
+
+    assert created.status_code == 201
+    assert UUID(created.json()["dialog_id"])
+    assert missing.status_code == missing_events.status_code == 404
+    assert missing.json() == {"detail": "Dialog not found."}
+
+
+@pytest.mark.parametrize(
+    ("path", "body"),
+    [
+        pytest.param("/api/v1/dialogs/not-a-uuid/messages", b"{}", id="bad-id"),
+        pytest.param(f"/api/v1/dialogs/{uuid4()}/messages", b"{}", id="no-request"),
+        pytest.param(f"/api/v1/dialogs/{uuid4()}/messages", b"{broken", id="bad-json"),
+        pytest.param(
+            f"/api/v1/dialogs/{uuid4()}/messages", b'{"request":""}', id="empty"
+        ),
+    ],
+)
+async def test_dialog_routes_keep_their_error_format(
+    client: httpx.AsyncClient, path: str, body: bytes
+) -> None:
+    await register_and_login(client)
+
+    response = await send_dialog_request(client, "POST", path, body)
 
     assert response.status_code == 422
-    assert "detail" in response.json()
+    assert isinstance(response.json()["detail"], list)
 
 
 async def test_logs_do_not_contain_credentials_or_tokens(

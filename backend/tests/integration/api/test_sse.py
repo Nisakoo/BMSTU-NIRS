@@ -4,6 +4,7 @@ from uuid import uuid4
 
 import httpx
 import pytest
+from api_auth_support import AUTH_COOKIES, static_auth_service
 
 from smeshariki_ai.agent import (
     AgentResponse,
@@ -34,10 +35,15 @@ def make_client(
     *,
     heartbeat_seconds: float = 15.0,
 ) -> httpx.AsyncClient:
-    app = create_app(service, heartbeat_seconds=heartbeat_seconds)
+    app = create_app(
+        service,
+        heartbeat_seconds=heartbeat_seconds,
+        auth_service=static_auth_service(),
+    )
     return httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
         base_url="http://test",
+        cookies=AUTH_COOKIES,
     )
 
 

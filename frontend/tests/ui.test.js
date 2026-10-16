@@ -78,8 +78,25 @@ function deferred() {
 
 let moduleCounter = 0;
 
-async function setup(submitResponse, { autoReady = true, createStatus = 201, createStatuses } = {}) {
-  const ids = ["#saiForm", "#saiPrompt", "#saiMessages", ".sai-send", "#saiStatus", "#saiStatusText", ".sai-hint"];
+async function settle() {
+  for (let i = 0; i < 5; i += 1) await new Promise(resolve => setImmediate(resolve));
+}
+
+const USER = { id: "user-1", login: "krosh", role: "user" };
+
+function authResponse(status) {
+  return { status, json: async () => (status === 200 ? USER : { error: "unauthorized" }) };
+}
+
+async function setup(submitResponse, {
+  autoReady = true,
+  createStatus = 201,
+  createStatuses,
+  meStatuses = [200],
+  refreshStatuses = [401],
+  logoutResponse = Promise.resolve({ status: 204 }),
+} = {}) {
+  const ids = ["#saiForm", "#saiPrompt", "#saiMessages", ".sai-send", "#saiStatus", "#saiStatusText", ".sai-hint", "#saiLogout"];
   const elements = Object.fromEntries(ids.map(id => [id, new FakeElement()]));
   const chips = [new FakeElement("Про дружбу")];
   const requests = [];
@@ -87,6 +104,10 @@ async function setup(submitResponse, { autoReady = true, createStatus = 201, cre
   const timerDelays = [];
   let nextTimer = 0;
   let createCalls = 0;
+  const authRequests = [];
+  const redirects = [];
+  const nextStatus = (statuses, path) =>
+    statuses[authRequests.filter(request => request === path).length - 1] ?? statuses.at(-1);
   FakeEventSource.instances = [];
   globalThis.document = {
     querySelector: selector => elements[selector],
@@ -101,8 +122,20 @@ async function setup(submitResponse, { autoReady = true, createStatus = 201, cre
     return id;
   };
   globalThis.window.clearTimeout = id => timers.delete(id);
+  globalThis.window.location = { replace: url => redirects.push(url) };
   globalThis.EventSource = FakeEventSource;
   globalThis.fetch = async (...args) => {
+    if (args[0] === "/api/v1/auth/logout") {
+      authRequests.push(args[0]);
+      return logoutResponse;
+    }
+    if (args[0] === "/api/v1/users/me" || args[0] === "/api/v1/auth/refresh") {
+      authRequests.push(args[0]);
+      return authResponse(nextStatus(
+        args[0] === "/api/v1/users/me" ? meStatuses : refreshStatuses,
+        args[0],
+      ));
+    }
     requests.push(args);
     if (args[0] === "/api/v1/dialogs") {
       const status = createStatuses?.[createCalls] ?? createStatus;
@@ -113,7 +146,7 @@ async function setup(submitResponse, { autoReady = true, createStatus = 201, cre
   };
 
   await import(`../src/script.js?case=${++moduleCounter}`);
-  await new Promise(resolve => setImmediate(resolve));
+  await settle();
   const source = FakeEventSource.instances[0];
   if (autoReady) source?.emit("ready", { dialog_id: "dialog-1" });
   const form = elements["#saiForm"];
@@ -128,7 +161,7 @@ async function setup(submitResponse, { autoReady = true, createStatus = 201, cre
     const [id, callback] = next;
     timers.delete(id);
     callback();
-    await new Promise(resolve => setImmediate(resolve));
+    await settle();
     return true;
   };
   return {
@@ -138,8 +171,11 @@ async function setup(submitResponse, { autoReady = true, createStatus = 201, cre
     send,
     status,
     hint: elements[".sai-hint"],
+    logout: elements["#saiLogout"],
     bubbles,
     requests,
+    authRequests,
+    redirects,
     chips,
     window: globalThis.window,
     timers,
@@ -336,4 +372,169 @@ test("failed submission preserves the draft and does not show it in chat", async
   assert.equal(ui.prompt.value, "История");
   assert.equal(ui.bubbles().length, 0);
   assert.equal(ui.send.disabled, false);
+});
+
+test("a guest is redirected to the login page without creating a dialog", async () => {
+  const ui = await setup(deferred(), { meStatuses: [401], refreshStatuses: [401] });
+  assert.deepEqual(ui.authRequests, ["/api/v1/users/me", "/api/v1/auth/refresh"]);
+  assert.deepEqual(ui.redirects, ["/login/"]);
+  assert.equal(ui.requests.length, 0);
+  assert.equal(FakeEventSource.instances.length, 0);
+  assert.equal(ui.send.disabled, true);
+});
+
+test("an expired access token is renewed before the dialog is created", async () => {
+  const ui = await setup(deferred(), { meStatuses: [401], refreshStatuses: [200] });
+  assert.deepEqual(ui.authRequests, ["/api/v1/users/me", "/api/v1/auth/refresh"]);
+  assert.deepEqual(ui.redirects, []);
+  assert.equal(ui.requests[0][0], "/api/v1/dialogs");
+  assert.equal(ui.send.disabled, false);
+});
+
+test("an unavailable auth backend keeps the page and retries the check", async () => {
+  const ui = await setup(deferred(), { meStatuses: [503, 200] });
+  assert.deepEqual(ui.redirects, []);
+  assert.equal(ui.requests.length, 0);
+  assert.equal(ui.send.disabled, true);
+  assert.match(ui.status.textContent, /повторная попытка/);
+  assert.deepEqual(ui.timerDelays, [3000]);
+
+  await ui.runNextTimer();
+  assert.deepEqual(ui.authRequests, ["/api/v1/users/me", "/api/v1/users/me"]);
+  assert.equal(ui.requests[0][0], "/api/v1/dialogs");
+});
+
+test("a 401 on dialog creation refreshes once and retries", async () => {
+  const ui = await setup(deferred(), { createStatuses: [401, 201], refreshStatuses: [200] });
+  assert.deepEqual(ui.authRequests, ["/api/v1/users/me", "/api/v1/auth/refresh"]);
+  assert.equal(ui.requests.length, 2);
+  assert.deepEqual(ui.redirects, []);
+  assert.equal(ui.send.disabled, false);
+});
+
+test("a 401 on dialog creation after a failed refresh redirects to login", async () => {
+  const ui = await setup(deferred(), { createStatus: 401, refreshStatuses: [401] });
+  assert.equal(ui.requests.length, 1);
+  assert.deepEqual(ui.redirects, ["/login/"]);
+  assert.equal(ui.timers.size, 0);
+});
+
+test("a repeated 401 after a successful refresh redirects to login", async () => {
+  const ui = await setup(deferred(), { createStatus: 401, refreshStatuses: [200] });
+  assert.equal(ui.requests.length, 2);
+  assert.deepEqual(ui.redirects, ["/login/"]);
+});
+
+test("a 401 on submission refreshes and resends the message once", async () => {
+  const responses = [{ status: 401 }, { status: 202 }];
+  const ui = await setup({ get promise() { return Promise.resolve(responses.shift()); } }, {
+    refreshStatuses: [200],
+  });
+  ui.prompt.value = "История";
+  await ui.form.dispatch("submit");
+
+  const submissions = ui.requests.filter(([path]) => path.endsWith("/messages"));
+  assert.equal(submissions.length, 2);
+  assert.deepEqual(ui.bubbles().map(bubble => bubble.textContent), ["История"]);
+  assert.deepEqual(ui.redirects, []);
+});
+
+test("an expired session on submission redirects without showing the message", async () => {
+  const ui = await setup({ promise: Promise.resolve({ status: 401 }) }, { refreshStatuses: [401] });
+  ui.prompt.value = "История";
+  await ui.form.dispatch("submit");
+
+  assert.equal(ui.bubbles().length, 0);
+  assert.deepEqual(ui.redirects, ["/login/"]);
+});
+
+test("an SSE error without a session redirects to login", async () => {
+  const ui = await setup(deferred(), { meStatuses: [200, 401], refreshStatuses: [401] });
+  ui.source.fail();
+  await settle();
+  assert.deepEqual(ui.redirects, ["/login/"]);
+  assert.equal(ui.source.closed, true);
+});
+
+test("a closed SSE connection with a valid session is reopened once until ready", async () => {
+  const ui = await setup(deferred());
+  ui.source.readyState = 2;
+  ui.source.fail();
+  await settle();
+  assert.equal(FakeEventSource.instances.length, 2);
+  const reopened = FakeEventSource.instances[1];
+  assert.equal(reopened.url, ui.source.url);
+
+  reopened.readyState = 2;
+  reopened.fail();
+  await settle();
+  assert.equal(FakeEventSource.instances.length, 2);
+  assert.match(ui.status.textContent, /обновите страницу/);
+
+  reopened.readyState = 1;
+  reopened.emit("ready");
+  assert.equal(ui.send.disabled, false);
+  reopened.readyState = 2;
+  reopened.fail();
+  await settle();
+  assert.equal(FakeEventSource.instances.length, 3);
+});
+
+test("an SSE error while the browser reconnects keeps the same connection", async () => {
+  const ui = await setup(deferred());
+  ui.source.readyState = 0;
+  ui.source.fail();
+  await settle();
+  assert.equal(FakeEventSource.instances.length, 1);
+  assert.deepEqual(ui.authRequests, ["/api/v1/users/me", "/api/v1/users/me"]);
+  assert.deepEqual(ui.redirects, []);
+});
+
+test("logout ends the session, closes the stream and opens the login page", async () => {
+  const ui = await setup(deferred());
+  await ui.logout.dispatch("click");
+  await settle();
+
+  assert.deepEqual(ui.authRequests.slice(1), ["/api/v1/auth/logout"]);
+  assert.equal(ui.source.closed, true);
+  assert.deepEqual(ui.redirects, ["/login/"]);
+});
+
+test("logout locks the button and ignores repeated clicks", async () => {
+  const response = deferred();
+  const ui = await setup(deferred(), { logoutResponse: response.promise });
+  ui.logout.dispatch("click");
+  ui.logout.dispatch("click");
+  assert.equal(ui.logout.disabled, true);
+  response.resolve({ status: 204 });
+  await settle();
+
+  assert.deepEqual(ui.authRequests.slice(1), ["/api/v1/auth/logout"]);
+  assert.deepEqual(ui.redirects, ["/login/"]);
+});
+
+test("logout cancels a pending dialog retry", async () => {
+  const ui = await setup(deferred(), { createStatus: 503 });
+  assert.equal(ui.timers.size, 1);
+  await ui.logout.dispatch("click");
+  await settle();
+
+  assert.equal(ui.timers.size, 0);
+  assert.deepEqual(ui.redirects, ["/login/"]);
+});
+
+test("a failed logout keeps the chat and lets the user try again", async () => {
+  for (const respond of [
+    () => Promise.resolve({ status: 503 }),
+    () => Promise.reject(new TypeError("Failed to fetch")),
+  ]) {
+    const ui = await setup(deferred(), { logoutResponse: { then: (...args) => respond().then(...args) } });
+    await ui.logout.dispatch("click");
+    await settle();
+
+    assert.deepEqual(ui.redirects, []);
+    assert.equal(ui.logout.disabled, false);
+    assert.equal(ui.status.textContent, "Не удалось выйти. Попробуйте ещё раз");
+    assert.notEqual(ui.source.closed, true);
+  }
 });

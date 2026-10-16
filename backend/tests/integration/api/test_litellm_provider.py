@@ -4,6 +4,7 @@ from uuid import UUID
 
 import httpx
 import pytest
+from api_auth_support import AUTH_COOKIES, static_auth_service
 
 import smeshariki_ai.agent.providers.litellm as provider_module
 from smeshariki_ai.agent import (
@@ -50,12 +51,13 @@ async def test_background_litellm_failure_keeps_accepted_history_unchanged(
     )
     store = InMemoryHistoryStore()
     service = AgentService(agent, store, InMemoryDialogEventBroker())
-    app = create_app(service)
+    app = create_app(service, auth_service=static_auth_service())
     transport = httpx.ASGITransport(app=app)
 
     async with httpx.AsyncClient(
         transport=transport,
         base_url="http://test",
+        cookies=AUTH_COOKIES,
     ) as client:
         create_response = await client.post("/api/v1/dialogs")
         dialog_id = UUID(create_response.json()["dialog_id"])

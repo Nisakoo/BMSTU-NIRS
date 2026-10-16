@@ -1,3 +1,5 @@
+const EVENT_SOURCE_CLOSED = 2;
+
 const EVENT_TYPES = [
   "ready",
   "message_start",
@@ -36,6 +38,9 @@ export class AgentApi {
     } catch {
       throw new AgentApiError("create_failed");
     }
+    if (response.status === 401) {
+      throw new AgentApiError("unauthorized");
+    }
     if (response.status !== 201) {
       throw new AgentApiError("create_failed");
     }
@@ -65,6 +70,9 @@ export class AgentApi {
       );
     } catch {
       throw new AgentApiError("submit_failed");
+    }
+    if (response.status === 401) {
+      throw new AgentApiError("unauthorized");
     }
     if (response.status !== 202) {
       throw new AgentApiError("submit_failed");
@@ -96,6 +104,10 @@ export class AgentApi {
     return {
       close() {
         source.close();
+      },
+      // A closed source will not reconnect by itself, e.g. after a 401.
+      isClosed() {
+        return source.readyState === EVENT_SOURCE_CLOSED;
       },
     };
   }

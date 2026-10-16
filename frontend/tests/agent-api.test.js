@@ -137,6 +137,32 @@ test("submitMessage rejects a status other than 202", async () => {
   );
 });
 
+test("a 401 from dialog requests is reported as unauthorized", async () => {
+  const api = new AgentApi({
+    fetchImpl: async () => response(401, { error: "unauthorized" }),
+    EventSourceImpl: FakeEventSource,
+  });
+
+  for (const request of [() => api.createDialog(), () => api.submitMessage("dialog-1", "Привет")]) {
+    await assert.rejects(
+      request(),
+      error => error instanceof AgentApiError && error.code === "unauthorized",
+    );
+  }
+});
+
+test("an event connection reports whether the browser closed it", () => {
+  FakeEventSource.instances = [];
+  const api = new AgentApi({ fetchImpl: async () => response(201), EventSourceImpl: FakeEventSource });
+  const connection = api.connectEvents("dialog-1");
+  const [source] = FakeEventSource.instances;
+
+  source.readyState = 0;
+  assert.equal(connection.isClosed(), false);
+  source.readyState = 2;
+  assert.equal(connection.isClosed(), true);
+});
+
 test("connectEvents parses and dispatches every named SSE event", () => {
   FakeEventSource.instances = [];
   const received = [];
