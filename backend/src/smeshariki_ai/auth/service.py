@@ -16,6 +16,7 @@ from smeshariki_ai.auth.models import (
 from smeshariki_ai.auth.passwords import Argon2PasswordHasher
 from smeshariki_ai.auth.stores import RefreshSessionStore, TokenBlacklist, UserStore
 from smeshariki_ai.auth.tokens import TokenCodec, hash_refresh_token, new_refresh_token
+from smeshariki_ai.auth.users import create_user
 from smeshariki_ai.observability import log_event
 
 logger = logging.getLogger(__name__)
@@ -49,9 +50,8 @@ class AuthService:
         self._refresh_ttl = timedelta(seconds=config.refresh_ttl_seconds)
 
     async def register(self, login: str, password: str) -> User:
-        password_hash = await self._hasher.hash(password)
-        user = await self._users.create(
-            uuid4(), login, password_hash, Role.USER, self._clock()
+        user = await create_user(
+            self._users, self._hasher, login, password, Role.USER, self._clock()
         )
         log_event(logger, logging.INFO, "auth.user.registered", user_id=str(user.id))
         return user

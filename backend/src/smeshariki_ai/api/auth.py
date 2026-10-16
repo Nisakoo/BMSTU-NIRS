@@ -8,7 +8,7 @@ import math
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Cookie, FastAPI, Request, Response, status
+from fastapi import APIRouter, Cookie, Depends, FastAPI, Request, Response, status
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
@@ -19,6 +19,7 @@ from smeshariki_ai.auth import (
     InvalidCredentialsError,
     IssuedTokens,
     LoginTakenError,
+    Role,
     UnauthorizedError,
     User,
 )
@@ -44,7 +45,7 @@ def _unauthorized() -> AuthHTTPError:
     return AuthHTTPError(status.HTTP_401_UNAUTHORIZED, "unauthorized")
 
 
-def _unavailable() -> AuthHTTPError:
+def unavailable() -> AuthHTTPError:
     return AuthHTTPError(status.HTTP_503_SERVICE_UNAVAILABLE, "unavailable")
 
 
@@ -55,8 +56,13 @@ def install_auth(
     cookie_secure: bool,
 ) -> None:
     app.state.auth_service = auth_service
-    app.add_exception_handler(AuthHTTPError, _handle_auth_error)  # type: ignore[arg-type]
     app.include_router(_create_router(auth_service, cookie_secure=cookie_secure))
+
+
+def install_auth_errors(app: FastAPI) -> None:
+    """Render ``AuthHTTPError`` even when no auth service is configured."""
+
+    app.add_exception_handler(AuthHTTPError, _handle_auth_error)  # type: ignore[arg-type]
 
 
 async def current_user(
@@ -65,7 +71,9 @@ async def current_user(
 ) -> User:
     """FastAPI dependency that resolves the authenticated user or fails closed."""
 
-    auth_service: AuthService = request.app.state.auth_service
+    auth_service: AuthService | None = getattr(request.app.state, "auth_service", None)
+    if auth_service is None:
+        raise unavailable()
     if not access_token:
         raise _unauthorized()
     try:
@@ -73,7 +81,15 @@ async def current_user(
     except UnauthorizedError as error:
         raise _unauthorized() from error
     except AuthUnavailableError as error:
-        raise _unavailable() from error
+        raise unavailable() from error
+
+
+async def current_admin(user: Annotated[User, Depends(current_user)]) -> User:
+    """FastAPI dependency that additionally requires the ``admin`` role."""
+
+    if user.role is not Role.ADMIN:
+        raise AuthHTTPError(status.HTTP_403_FORBIDDEN, "forbidden")
+    return user
 
 
 def _create_router(auth_service: AuthService, *, cookie_secure: bool) -> APIRouter:
@@ -122,7 +138,7 @@ def _create_router(auth_service: AuthService, *, cookie_secure: bool) -> APIRout
         except LoginTakenError as error:
             raise AuthHTTPError(status.HTTP_409_CONFLICT, "login_taken") from error
         except AuthUnavailableError as error:
-            raise _unavailable() from error
+            raise unavailable() from error
         return JSONResponse(_user_body(user), status_code=status.HTTP_201_CREATED)
 
     @router.post("/auth/login")
@@ -135,7 +151,7 @@ def _create_router(auth_service: AuthService, *, cookie_secure: bool) -> APIRout
                 status.HTTP_401_UNAUTHORIZED, "invalid_credentials"
             ) from error
         except AuthUnavailableError as error:
-            raise _unavailable() from error
+            raise unavailable() from error
         response = JSONResponse(_user_body(result.user))
         set_tokens(response, result.tokens)
         return response
@@ -155,7 +171,7 @@ def _create_router(auth_service: AuthService, *, cookie_secure: bool) -> APIRout
             clear_tokens(response)
             return response
         except AuthUnavailableError as error:
-            raise _unavailable() from error
+            raise unavailable() from error
         response = JSONResponse(_user_body(result.user))
         set_tokens(response, result.tokens)
         return response
@@ -168,7 +184,7 @@ def _create_router(auth_service: AuthService, *, cookie_secure: bool) -> APIRout
         try:
             await auth_service.logout(access_token, refresh_token)
         except AuthUnavailableError as error:
-            raise _unavailable() from error
+            raise unavailable() from error
         response = Response(status_code=status.HTTP_204_NO_CONTENT)
         clear_tokens(response)
         return response

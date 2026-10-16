@@ -8,8 +8,6 @@ import {
 } from "../src/admin/demo-data.js";
 
 const METRIC_KEYS = [
-  "usersTotal",
-  "activeUsers",
   "dialogs",
   "messages",
   "successRate",
@@ -47,14 +45,8 @@ test("dashboard provides deterministic valid data for every supported period", (
       `${period}: activity total must match dialogs`,
     );
 
-    assert.ok(first.recentUsers.length >= 4);
-    for (const user of first.recentUsers) {
-      assert.match(user.id, /^demo-/);
-      assert.equal(typeof user.name, "string");
-      assert.equal(typeof user.lastActive, "string");
-      assert.ok(Number.isInteger(user.dialogs));
-      assert.ok(["active", "new", "inactive"].includes(user.status));
-    }
+    assert.equal("recentUsers" in first, false, "user data comes from the backend");
+    assert.equal("usersTotal" in first.metrics, false);
   }
 });
 
@@ -68,7 +60,6 @@ test("unknown periods and malformed data are rejected safely", () => {
     periodLabel: "7 дней",
     metrics: {},
     activity: [],
-    recentUsers: [],
   }), false);
 
   const valid = getDashboardData("7");

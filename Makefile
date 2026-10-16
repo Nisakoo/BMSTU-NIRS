@@ -3,12 +3,13 @@ SHELL := /bin/sh
 COMPOSE_FILE := docker/compose.yaml
 ENV_FILE := docker/.env
 
-.PHONY: help run migrate frontend test lint format
+.PHONY: help run migrate create-admin frontend test lint format
 
 help:
 	@echo "Available commands:"
 	@echo "  make run     Build and run the full application with Docker Compose"
 	@echo "  make migrate Apply database migrations with Docker Compose"
+	@echo "  make create-admin LOGIN=<login> Create an administrator account"
 	@echo "  make frontend Run the Vite frontend development server"
 	@echo "  make test    Run all configured project tests"
 	@echo "  make lint    Check backend code with Ruff"
@@ -30,6 +31,20 @@ migrate:
 		docker compose --env-file "$(ENV_FILE)" -f "$(COMPOSE_FILE)" run --rm --build migrate; \
 	else \
 		docker compose -f "$(COMPOSE_FILE)" run --rm --build migrate; \
+	fi
+
+create-admin:
+	@test -n "$(LOGIN)" || { \
+		echo "Usage: make create-admin LOGIN=<login>" >&2; \
+		exit 2; \
+	}
+	@$(MAKE) --no-print-directory migrate
+	@if [ -f "$(ENV_FILE)" ]; then \
+		docker compose --env-file "$(ENV_FILE)" -f "$(COMPOSE_FILE)" run --rm migrate \
+			python -m smeshariki_ai.create_admin --login "$(LOGIN)"; \
+	else \
+		docker compose -f "$(COMPOSE_FILE)" run --rm migrate \
+			python -m smeshariki_ai.create_admin --login "$(LOGIN)"; \
 	fi
 
 frontend:

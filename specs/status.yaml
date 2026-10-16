@@ -49,3 +49,9 @@ specs:
       status: done
     - name: backend-auth-jwt
       status: done
+    - name: auth-route-guard
+      status: done
+    - name: logout-button
+      status: done
+    - name: admin-user-stats
+      status: done

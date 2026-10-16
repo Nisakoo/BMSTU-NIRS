@@ -59,6 +59,16 @@ curl -i -c cookies.txt http://localhost:8080/api/v1/auth/login \
 curl -i -b cookies.txt http://localhost:8080/api/v1/users/me
 ```
 
+Ручки диалогов требуют ту же cookie: добавляйте `-b cookies.txt` к запросам
+`/api/v1/dialogs/...`.
+
+Создание администратора (миграции применяются автоматически, пароль
+запрашивается дважды без отображения):
+
+```sh
+make create-admin LOGIN=sovunya
+```
+
 Полный контракт, включая `refresh` и `logout`, — в
 [`docs/auth.md`](../docs/auth.md).
 

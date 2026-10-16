@@ -115,9 +115,79 @@ environment. Production-адаптеры — `PostgresUserStore`,
 детерминированные in-memory реализации в `auth/memory.py`. Ошибки
 инфраструктуры адаптеры превращают в `AuthUnavailableError`.
 
-Для защиты будущих ручек `api/auth.py` предоставляет FastAPI-зависимость
-`current_user`: она возвращает `User` либо отвечает `401`/`503` в формате
-`{"error": ...}`. Существующие ручки диалогов её пока не используют.
+`api/auth.py` предоставляет FastAPI-зависимость `current_user`: она
+возвращает `User` либо отвечает `401`/`503` в формате `{"error": ...}`.
+Обработчик этого формата регистрируется в `create_app` всегда; без
+`auth_service` зависимость отвечает `503` (fail closed).
+
+## Защищённые ручки
+
+Роутер диалогов подключает `current_user` как зависимость, поэтому
+`POST /api/v1/dialogs`, `POST /api/v1/dialogs/{dialog_id}/messages` и
+`GET /api/v1/dialogs/{dialog_id}/events` без действительного access-токена
+отвечают `401` `{"error":"unauthorized"}`, а при недоступности PostgreSQL или
+Redis — `503` `{"error":"unavailable"}`. Проверка выполняется раньше валидации
+UUID и тела: тело `messages` разбирается в обработчике, потому что FastAPI
+отклоняет синтаксически некорректный JSON ещё до зависимостей. С действительным
+токеном ручки сохраняют прежние ответы и формат ошибок FastAPI. Ручки
+аутентификации и `/agent_test` открыты; диалоги пока не привязаны к
+пользователю.
+
+## Создание администратора
+
+Роль `admin` нельзя получить через HTTP API. Администратор создаётся командой
+backend из корня репозитория:
+
+```sh
+make create-admin LOGIN=sovunya
+```
+
+Цель применяет миграции и запускает
+`python -m smeshariki_ai.create_admin --login <login>` в одноразовом
+Compose-контейнере `migrate`. Пароль вводится дважды без отображения и не
+принимается аргументом или environment. Логин и пароль проверяются моделью
+`Credentials`, пароль хешируется `Argon2PasswordHasher` через общую функцию
+`create_user` (`auth/users.py`), которую использует и `AuthService.register`.
+Занятый логин, неверные поля, несовпадение паролей и недоступность базы дают
+код выхода `1` без записи.
+
+## Проверка сессии во frontend
+
+[`auth-session.js`](../frontend/src/auth-session.js) — общий DOM-независимый
+модуль для `/`, `/admin/` и `/login/`. `checkSession` вызывает
+`GET /users/me`, а при `401` — один раз `POST /auth/refresh` и берёт
+пользователя из его ответа. Итог — `user`, `anonymous` (оба `401`) или
+`unavailable` (сеть, `503`, некорректный ответ): сбой backend не считается
+выходом из системы.
+
+| Страница | `anonymous` | `user` | `admin` | `unavailable` |
+| --- | --- | --- | --- | --- |
+| `/` | `location.replace("/login/")` без создания диалога | чат | чат | статус ошибки, повтор через 3 с |
+| `/admin/` | `/login/` | `/` | панель | сообщение без demo-данных |
+| `/login/` | форма | `/` | `/admin/` | форма |
+
+После входа или регистрации `/login/` также переходит по роли. Адрес перехода
+не берётся из URL. Проверка роли на `/admin/` скрывает demo-данные, но не
+защищает данные; данные панели отдаёт
+[административный API](./admin.md), который проверяет роль на backend.
+
+В чате `401` у создания диалога или отправки сообщения вызывает один
+`refresh` и один повтор операции; повторный отказ ведёт на `/login/`. Повтор
+отправки безопасен, потому что `401` означает, что запрос не принят. При
+ошибке SSE (`EventSource` не сообщает HTTP-статус) выполняется
+`checkSession`: `anonymous` — переход на `/login/`; если сессия действительна,
+а браузер закрыл поток, открывается новое соединение к тому же диалогу — не
+более одного раза до следующего `ready`.
+
+## Выход
+
+В шапке чата и в нижней части боковой панели `/admin/` есть кнопка «Выйти».
+Она блокируется на время `POST /api/v1/auth/logout`; после `204` чат закрывает
+`EventSource` и отменяет повтор создания диалога, затем страница выполняет
+`location.replace("/login/")`. При ошибке backend cookie не сбрасываются,
+поэтому страница остаётся на месте, показывает «Не удалось выйти. Попробуйте
+ещё раз» и снова разблокирует кнопку. В админке обработчик подключается только
+после успешной проверки роли `admin`.
 
 ## Поведение страницы `/login/`
 
@@ -126,10 +196,10 @@ sequenceDiagram
     participant Browser as Страница /login/
     participant API as Backend /api/v1
 
-    Browser->>API: GET /users/me
+    Browser->>API: GET /users/me (при 401 — POST /auth/refresh)
     alt 200
         API-->>Browser: пользователь
-        Browser->>Browser: переход на /
+        Browser->>Browser: переход по роли: / или /admin/
     else 401 или backend недоступен
         API-->>Browser: ошибка
         Browser->>Browser: форма остаётся доступной
@@ -138,7 +208,7 @@ sequenceDiagram
     API-->>Browser: 201
     Browser->>API: POST /auth/login
     API-->>Browser: 200 + Set-Cookie
-    Browser->>Browser: переход на /
+    Browser->>Browser: переход по роли: / или /admin/
 ```
 
 `AuthApi` переводит ответы в стабильные коды ошибок: `login_taken` (`409`),
@@ -150,12 +220,9 @@ sequenceDiagram
 
 ## Что пока не реализовано
 
-- автоматический вызов `refresh` во frontend: без него после истечения
-  access-токена `/users/me` отвечает `401`, и пользователь снова видит форму
-  входа;
-- ограничение доступа к чату для гостей и привязка диалогов к пользователю;
-- кнопка выхода в чате и проверка роли для административной панели;
-- создание администратора и rate limiting попыток входа.
+- привязка диалогов к пользователю;
+- смена роли существующего пользователя;
+- rate limiting попыток входа.
 
 ## SDD-артефакты
 
@@ -165,3 +232,11 @@ sequenceDiagram
 - frontend: [спецификация](../specs/changes/auth-frontend-contract/spec.md),
   [план](../specs/changes/auth-frontend-contract/plan.md),
   [результат проверки](../specs/changes/auth-frontend-contract/verification.md).
+- защита ручек, проверка сессии и создание администратора:
+  [спецификация](../specs/changes/auth-route-guard/spec.md),
+  [план](../specs/changes/auth-route-guard/plan.md),
+  [результат проверки](../specs/changes/auth-route-guard/verification.md);
+- кнопки выхода:
+  [спецификация](../specs/changes/logout-button/spec.md),
+  [план](../specs/changes/logout-button/plan.md),
+  [результат проверки](../specs/changes/logout-button/verification.md).

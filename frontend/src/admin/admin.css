@@ -219,35 +219,9 @@ body {
   margin-top: auto;
 }
 
-.adm-demo-note {
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
-  padding: 13px;
-  border: 1px solid rgba(255, 216, 106, .14);
-  border-radius: 16px;
-  background: rgba(255, 216, 106, .055);
-}
 
-.adm-demo-note > span {
-  color: var(--adm-yellow);
-  font-size: 8px;
-  line-height: 18px;
-}
 
-.adm-demo-note p {
-  margin: 0;
-  color: var(--adm-muted);
-  font-size: 10px;
-  line-height: 1.45;
-}
 
-.adm-demo-note strong {
-  display: block;
-  margin-bottom: 2px;
-  color: #ffe7a1;
-  font-size: 11px;
-}
 
 .adm-chat-link {
   display: flex;
@@ -262,6 +236,43 @@ body {
 
 .adm-chat-link:hover {
   color: var(--adm-blue-soft);
+}
+
+.adm-logout {
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--adm-line-bright);
+  border-radius: 14px;
+  background: rgba(98, 201, 255, .06);
+  color: var(--adm-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: color .18s ease, border-color .18s ease, background .18s ease;
+}
+
+.adm-logout:hover {
+  border-color: var(--adm-blue);
+  background: rgba(98, 201, 255, .12);
+  color: var(--adm-blue-soft);
+}
+
+.adm-logout:focus-visible {
+  outline: 2px solid var(--adm-blue);
+  outline-offset: 2px;
+}
+
+.adm-logout:disabled {
+  opacity: .55;
+  cursor: default;
+}
+
+.adm-logout-error {
+  margin: 0;
+  color: var(--adm-danger);
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .adm-main {
@@ -302,9 +313,6 @@ body {
   line-height: 1.55;
 }
 
-.adm-demo-badge,
-.adm-live-label,
-.adm-health,
 .adm-comparison,
 .adm-caption {
   display: inline-flex;
@@ -313,24 +321,7 @@ body {
   white-space: nowrap;
 }
 
-.adm-demo-badge {
-  padding: 10px 13px;
-  border: 1px solid rgba(255, 216, 106, .2);
-  border-radius: 999px;
-  color: #ffe7a1;
-  background: rgba(255, 216, 106, .07);
-  font-size: 11px;
-  font-weight: 750;
-}
 
-.adm-demo-badge i,
-.adm-live-label i {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: currentColor;
-  box-shadow: 0 0 10px currentColor;
-}
 
 .adm-toolbar {
   display: flex;
@@ -524,25 +515,43 @@ body {
   padding: 22px;
 }
 
-.adm-live-label,
 .adm-caption {
   color: var(--adm-muted);
   font-size: 9px;
   font-weight: 650;
 }
 
-.adm-live-label {
-  color: var(--adm-green);
-}
 
-.adm-health {
-  padding: 6px 9px;
-  border: 1px solid rgba(101, 223, 162, .18);
+
+.adm-agent-demo {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 9px;
+  border: 1px solid rgba(255, 216, 106, .22);
   border-radius: 999px;
-  color: var(--adm-green);
-  background: rgba(101, 223, 162, .07);
+  color: #ffe7a1;
+  background: rgba(255, 216, 106, .08);
   font-size: 9px;
   font-weight: 800;
+  white-space: nowrap;
+}
+
+.adm-metric .adm-agent-demo {
+  margin-top: 10px;
+}
+
+.adm-demo-hint {
+  margin: 12px 4px 0;
+  color: var(--adm-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.adm-users-empty {
+  margin: 0;
+  padding: 18px 4px;
+  color: var(--adm-muted);
+  font-size: 12px;
 }
 
 .adm-chart {
@@ -871,20 +880,26 @@ button:focus-visible {
     position: absolute;
     top: 18px;
     right: 16px;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 8px;
+    max-width: 60%;
     margin: 0;
   }
 
-  .adm-demo-note {
-    padding: 8px 10px;
+  .adm-logout {
+    min-height: 32px;
   }
 
-  .adm-demo-note p {
-    display: none;
+  .adm-logout-error {
+    flex-basis: 100%;
+    text-align: right;
   }
 
-  .adm-demo-note > span {
-    line-height: 10px;
-  }
+
+
 
   .adm-chat-link {
     display: none;
@@ -917,10 +932,6 @@ button:focus-visible {
     font-size: clamp(29px, 10vw, 38px);
   }
 
-  .adm-demo-badge {
-    justify-self: start;
-    order: -1;
-  }
 
   .adm-toolbar {
     display: grid;
@@ -945,8 +956,7 @@ button:focus-visible {
   }
 
   .adm-comparison,
-  .adm-caption,
-  .adm-live-label {
+  .adm-caption {
     white-space: normal;
     text-align: right;
   }
@@ -1040,8 +1050,9 @@ button:focus-visible {
 
 @media (max-width: 390px) {
   .adm-brand small,
-  .adm-sidebar-foot {
-    display: none;
+
+  .adm-sidebar {
+    position: relative;
   }
 
   .adm-sidebar {

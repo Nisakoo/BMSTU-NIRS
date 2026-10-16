@@ -25,11 +25,9 @@
       </nav>
 
       <div class="adm-sidebar-foot">
-        <div class="adm-demo-note">
-          <span aria-hidden="true">●</span>
-          <p><strong>Demo mode</strong>Макет не подключён к backend</p>
-        </div>
         <a class="adm-chat-link" href="/">Открыть пользовательский чат <span aria-hidden="true">↗</span></a>
+        <button class="adm-logout" id="adminLogout" type="button">Выйти</button>
+        <p class="adm-logout-error" id="adminLogoutError" role="alert" hidden></p>
       </div>
     </aside>
 
@@ -40,7 +38,6 @@
           <h1>Добрый вечер, администратор</h1>
           <p class="adm-lead">Следите за активностью аудитории и качеством работы агента.</p>
         </div>
-        <span class="adm-demo-badge"><i aria-hidden="true"></i>Демонстрационные данные</span>
       </header>
 
       <section class="adm-toolbar" aria-label="Настройки отчёта">
@@ -76,7 +73,7 @@
                 <p class="adm-section-kicker">Динамика</p>
                 <h2 id="activityTitle">Активность диалогов</h2>
               </div>
-              <span class="adm-live-label"><i aria-hidden="true"></i>обновлено сейчас</span>
+              <span class="adm-agent-demo" title="Статистика агента пока не сохраняется">демо-данные</span>
             </div>
             <div class="adm-chart" id="adminActivity" aria-hidden="true"></div>
             <p class="adm-sr-only" id="adminChartDescription"></p>
@@ -88,11 +85,12 @@
                 <p class="adm-section-kicker">Состояние агента</p>
                 <h2 id="qualityTitle">Качество ответов</h2>
               </div>
-              <span class="adm-health" aria-label="Система работает штатно">стабильно</span>
+              <span class="adm-agent-demo" title="Статистика агента пока не сохраняется">демо-данные</span>
             </div>
             <div class="adm-quality" id="adminQuality"></div>
           </section>
         </div>
+        <p class="adm-demo-hint">Диалоги, сообщения, активность и качество ответов показаны на демо-данных: статистика агента пока не сохраняется.</p>
 
         <section class="adm-panel adm-users-panel" id="users" aria-labelledby="usersTitle">
           <div class="adm-panel-heading">
@@ -100,7 +98,7 @@
               <p class="adm-section-kicker">Аудитория</p>
               <h2 id="usersTitle">Последние пользователи</h2>
             </div>
-            <span class="adm-caption">Локальная демонстрационная выборка</span>
+            <span class="adm-caption">по последней активности</span>
           </div>
           <div class="adm-user-head" aria-hidden="true">
             <span>Пользователь</span><span>Активность</span><span>Диалоги</span><span>Статус</span>
@@ -110,7 +108,7 @@
       </div>
 
       <noscript>
-        <p class="adm-error">Для отображения макета панели необходим JavaScript.</p>
+        <p class="adm-error">Для отображения панели необходим JavaScript.</p>
       </noscript>
     </main>
   </div>

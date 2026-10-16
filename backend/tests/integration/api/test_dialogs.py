@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 
 import httpx
 import pytest
+from api_auth_support import AUTH_COOKIES, static_auth_service
 
 from smeshariki_ai.agent import (
     AgentResponse,
@@ -57,12 +58,12 @@ def make_client(
     *,
     cookies: dict[str, str] | None = None,
 ) -> httpx.AsyncClient:
-    app = create_app(service)
+    app = create_app(service, auth_service=static_auth_service())
     transport = httpx.ASGITransport(app=app)
     return httpx.AsyncClient(
         transport=transport,
         base_url="http://test",
-        cookies=cookies,
+        cookies={**AUTH_COOKIES, **(cookies or {})},
     )
 
 

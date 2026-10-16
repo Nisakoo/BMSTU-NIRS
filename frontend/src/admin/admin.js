@@ -1,3 +1,6 @@
+import { AuthApi } from "../auth-api.js";
+import { CHAT_PATH, LOGIN_PATH, SESSION, checkSession } from "../auth-session.js";
+import { AdminApi } from "./admin-api.js";
 import { getDashboardData } from "./demo-data.js";
 
 const INTEGER_FORMATTER = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 });
@@ -6,12 +9,32 @@ const DECIMAL_FORMATTER = new Intl.NumberFormat("ru-RU", {
   maximumFractionDigits: 1,
 });
 
+// User figures come from the backend; agent figures stay demonstrational until
+// dialogs and agent runs are persisted.
 const METRICS = Object.freeze([
-  { key: "usersTotal", label: "Всего пользователей", hint: "в демонстрационной базе", icon: "◎", tone: "blue" },
-  { key: "activeUsers", label: "Активные пользователи", hint: "за выбранный период", icon: "↗", tone: "green" },
-  { key: "dialogs", label: "Диалоги", hint: "запущено с агентом", icon: "⌁", tone: "violet" },
-  { key: "messages", label: "Сообщения", hint: "пользовательских и AI", icon: "✦", tone: "pink" },
+  { key: "usersTotal", label: "Всего пользователей", hint: "зарегистрировано", icon: "◎", tone: "blue" },
+  { key: "activeUsers", label: "Активные пользователи", hint: "входили за период", icon: "↗", tone: "green" },
+  { key: "dialogs", label: "Диалоги", hint: "запущено с агентом", icon: "⌁", tone: "violet", demo: true },
+  { key: "messages", label: "Сообщения", hint: "пользовательских и AI", icon: "✦", tone: "pink", demo: true },
 ]);
+
+const DEMO_LABEL = "демо-данные";
+const DEMO_TITLE = "Статистика агента пока не сохраняется";
+const STATS_ERROR = "Не удалось загрузить статистику. Попробуйте обновить страницу";
+const DEMO_ERROR = "Не удалось загрузить демонстрационные данные. Попробуйте выбрать другой период.";
+
+const ROLE_LABELS = Object.freeze({
+  admin: "администратор",
+  user: "пользователь",
+});
+
+const TIME_FORMATTER = new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit" });
+const DATE_FORMATTER = new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "short" });
+const DATE_YEAR_FORMATTER = new Intl.DateTimeFormat("ru-RU", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+});
 
 const STATUS_LABELS = Object.freeze({
   active: "Активен",
@@ -36,6 +59,26 @@ function createElement(documentRef, tagName, className, text) {
   return element;
 }
 
+function startOfDay(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+}
+
+export function formatActivity(timestamp, now = new Date()) {
+  const date = new Date(timestamp);
+  const time = TIME_FORMATTER.format(date);
+  const days = Math.round((startOfDay(now) - startOfDay(date)) / 86_400_000);
+  if (days === 0) return `сегодня, ${time}`;
+  if (days === 1) return `вчера, ${time}`;
+  const formatter = date.getFullYear() === now.getFullYear() ? DATE_FORMATTER : DATE_YEAR_FORMATTER;
+  return `${formatter.format(date)}, ${time}`;
+}
+
+function demoBadge(documentRef) {
+  const badge = createElement(documentRef, "span", "adm-agent-demo", DEMO_LABEL);
+  badge.setAttribute("title", DEMO_TITLE);
+  return badge;
+}
+
 function initials(name) {
   return name
     .split(/\s+/)
@@ -46,10 +89,11 @@ function initials(name) {
     .toUpperCase();
 }
 
-function renderMetrics(documentRef, container, data) {
+function renderMetrics(documentRef, container, stats, demo) {
   const cards = METRICS.map(metric => {
     const card = createElement(documentRef, "article", `adm-metric adm-metric-${metric.tone}`);
     card.dataset.metric = metric.key;
+    card.dataset.source = metric.demo ? "demo" : "backend";
 
     const head = createElement(documentRef, "div", "adm-metric-head");
     head.append(
@@ -61,10 +105,11 @@ function renderMetrics(documentRef, container, data) {
       documentRef,
       "strong",
       "adm-metric-value",
-      formatInteger(data.metrics[metric.key]),
+      formatInteger(metric.demo ? demo.metrics[metric.key] : stats[metric.key]),
     );
     const hint = createElement(documentRef, "span", "adm-metric-hint", metric.hint);
     card.append(head, value, hint);
+    if (metric.demo) card.append(demoBadge(documentRef));
     return card;
   });
   container.replaceChildren(...cards);
@@ -115,24 +160,38 @@ function renderQuality(documentRef, container, data) {
   container.replaceChildren(success, latency, meter);
 }
 
-function renderUsers(documentRef, container, data) {
-  const rows = data.recentUsers.map(user => {
+function renderUsers(documentRef, container, stats, now) {
+  if (stats.recentUsers.length === 0) {
+    const empty = createElement(documentRef, "p", "adm-users-empty", "Пользователей пока нет");
+    empty.setAttribute("role", "listitem");
+    container.replaceChildren(empty);
+    return;
+  }
+
+  const rows = stats.recentUsers.map(user => {
     const row = createElement(documentRef, "article", "adm-user-row");
     row.setAttribute("role", "listitem");
 
     const identity = createElement(documentRef, "div", "adm-user-identity");
-    const avatar = createElement(documentRef, "span", "adm-user-avatar", initials(user.name));
+    const avatar = createElement(documentRef, "span", "adm-user-avatar", initials(user.login));
     const details = createElement(documentRef, "span", "adm-user-details");
     details.append(
-      createElement(documentRef, "strong", "", user.name),
-      createElement(documentRef, "small", "", user.id),
+      createElement(documentRef, "strong", "", user.login),
+      createElement(documentRef, "small", "", ROLE_LABELS[user.role]),
     );
     identity.append(avatar, details);
 
-    const activity = createElement(documentRef, "span", "adm-user-cell", user.lastActive);
+    const activity = createElement(
+      documentRef,
+      "span",
+      "adm-user-cell",
+      user.lastActiveAt ? formatActivity(user.lastActiveAt, now) : "ещё не входил",
+    );
     activity.dataset.label = "Активность";
-    const dialogs = createElement(documentRef, "span", "adm-user-cell", formatInteger(user.dialogs));
+    // Dialogs are not linked to users yet.
+    const dialogs = createElement(documentRef, "span", "adm-user-cell", "—");
     dialogs.dataset.label = "Диалоги";
+    dialogs.setAttribute("title", "Диалоги пока не связаны с пользователями");
     const status = createElement(
       documentRef,
       "span",
@@ -187,9 +246,15 @@ export function mountAdminNavigation(
   return true;
 }
 
-export function mountDashboard(
+export async function mountDashboard(
   documentRef,
-  { getData = getDashboardData, initialPeriod = "30" } = {},
+  {
+    loadStats,
+    onAuthError = () => {},
+    getData = getDashboardData,
+    initialPeriod = "30",
+    now = () => new Date(),
+  } = {},
 ) {
   const elements = {
     content: documentRef.querySelector("#adminContent"),
@@ -204,42 +269,135 @@ export function mountDashboard(
   };
   const periodButtons = [...documentRef.querySelectorAll("[data-period]")];
 
-  if (Object.values(elements).some(element => !element)) return false;
+  if (typeof loadStats !== "function" || Object.values(elements).some(element => !element)) {
+    return false;
+  }
 
-  const render = period => {
-    const data = getData(period);
-    if (!data) {
-      clearDynamicContent(elements);
-      elements.content.hidden = true;
-      elements.error.hidden = false;
-      elements.error.textContent = "Не удалось загрузить демонстрационные данные. Попробуйте выбрать другой период.";
-      return false;
+  let busy = false;
+  const setBusy = value => {
+    busy = value;
+    for (const button of periodButtons) button.disabled = value;
+  };
+
+  const showError = message => {
+    clearDynamicContent(elements);
+    elements.content.hidden = true;
+    elements.error.hidden = false;
+    elements.error.textContent = message;
+    return false;
+  };
+
+  const render = async period => {
+    const demo = getData(period);
+    if (!demo) return showError(DEMO_ERROR);
+
+    setBusy(true);
+    let stats;
+    try {
+      stats = await loadStats(period);
+    } catch (error) {
+      setBusy(false);
+      if (error?.code === "unauthorized" || error?.code === "forbidden") {
+        onAuthError(error.code);
+        return false;
+      }
+      return showError(STATS_ERROR);
     }
+    setBusy(false);
 
     elements.error.hidden = true;
     elements.error.textContent = "";
     elements.content.hidden = false;
-    elements.periodLabel.textContent = data.periodLabel;
-    elements.comparison.textContent = data.comparison;
+    elements.periodLabel.textContent = demo.periodLabel;
+    elements.comparison.textContent = `Новых пользователей: ${formatInteger(stats.newUsers)}`;
     for (const button of periodButtons) {
-      button.setAttribute("aria-pressed", String(button.dataset.period === data.period));
+      button.setAttribute("aria-pressed", String(button.dataset.period === demo.period));
     }
-    renderMetrics(documentRef, elements.metrics, data);
-    renderActivity(documentRef, elements.activity, elements.chartDescription, data);
-    renderQuality(documentRef, elements.quality, data);
-    renderUsers(documentRef, elements.users, data);
+    renderMetrics(documentRef, elements.metrics, stats, demo);
+    renderActivity(documentRef, elements.activity, elements.chartDescription, demo);
+    renderQuality(documentRef, elements.quality, demo);
+    renderUsers(documentRef, elements.users, stats, now());
     return true;
   };
 
   for (const button of periodButtons) {
-    button.addEventListener("click", () => render(button.dataset.period));
+    button.addEventListener("click", () => {
+      if (!busy) void render(button.dataset.period);
+    });
   }
 
-  render(initialPeriod);
-  return true;
+  return render(initialPeriod);
+}
+
+function mountLogout(documentRef, { api, redirect }) {
+  const button = documentRef.querySelector("#adminLogout");
+  const error = documentRef.querySelector("#adminLogoutError");
+  if (!button) return;
+  let pending = false;
+
+  // Cookies are cleared by the backend only on success, so a failed logout stays.
+  button.addEventListener("click", async () => {
+    if (pending) return;
+    pending = true;
+    button.disabled = true;
+    if (error) {
+      error.hidden = true;
+      error.textContent = "";
+    }
+    try {
+      await api.logout();
+    } catch {
+      pending = false;
+      button.disabled = false;
+      if (error) {
+        error.hidden = false;
+        error.textContent = "Не удалось выйти. Попробуйте ещё раз";
+      }
+      return;
+    }
+    redirect(LOGIN_PATH);
+  });
+}
+
+// Hides demo data from non-administrators; a future admin API must still
+// check the role on the backend.
+export async function mountAdminPage(
+  documentRef,
+  { api, adminApi, redirect, windowRef, ...dashboardOptions },
+) {
+  const session = await checkSession(api);
+  if (session.status === SESSION.ANONYMOUS) {
+    redirect(LOGIN_PATH);
+    return false;
+  }
+  if (session.status === SESSION.UNAVAILABLE) {
+    const content = documentRef.querySelector("#adminContent");
+    const error = documentRef.querySelector("#adminError");
+    if (content) content.hidden = true;
+    if (error) {
+      error.hidden = false;
+      error.textContent = "Сервис временно недоступен. Обновите страницу позже.";
+    }
+    return false;
+  }
+  if (session.user.role !== "admin") {
+    redirect(CHAT_PATH);
+    return false;
+  }
+  mountLogout(documentRef, { api, redirect });
+  mountAdminNavigation(documentRef, windowRef);
+  return mountDashboard(documentRef, {
+    loadStats: period => adminApi.stats(period),
+    onAuthError: code => redirect(code === "forbidden" ? CHAT_PATH : LOGIN_PATH),
+    ...dashboardOptions,
+  });
 }
 
 if (typeof document !== "undefined") {
-  mountAdminNavigation(document);
-  mountDashboard(document);
+  void mountAdminPage(document, {
+    api: new AuthApi(),
+    adminApi: new AdminApi(),
+    redirect: url => window.location.replace(url),
+    windowRef: window,
+  });
 }

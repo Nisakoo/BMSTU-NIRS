@@ -80,16 +80,19 @@ function createDocument() {
 }
 
 const USER = { id: "user-1", login: "krosh", role: "user" };
+const ADMIN = { id: "admin-1", login: "sovunya", role: "admin" };
 
 function fakeApi({
   me = () => Promise.reject(new AuthApiError("unauthorized")),
   register = () => Promise.resolve(USER),
   login = () => Promise.resolve(USER),
+  refresh = () => Promise.reject(new AuthApiError("unauthorized")),
 } = {}) {
   const calls = [];
   return {
     calls,
     me: (...args) => (calls.push(["me", ...args]), me(...args)),
+    refresh: (...args) => (calls.push(["refresh", ...args]), refresh(...args)),
     register: (...args) => (calls.push(["register", ...args]), register(...args)),
     login: (...args) => (calls.push(["login", ...args]), login(...args)),
   };
@@ -117,7 +120,7 @@ function submit(elements) {
 test("page starts in login mode and stays for a guest", async () => {
   const { elements, navigations, api } = await mount();
 
-  assert.deepEqual(api.calls, [["me"]]);
+  assert.deepEqual(api.calls, [["me"], ["refresh"]]);
   assert.deepEqual(navigations, []);
   assert.equal(elements.authTabLogin.getAttribute("aria-selected"), "true");
   assert.equal(elements.authTabRegister.getAttribute("aria-selected"), "false");
@@ -129,6 +132,19 @@ test("page starts in login mode and stays for a guest", async () => {
 test("an existing session redirects to the chat", async () => {
   const { navigations } = await mount({ me: () => Promise.resolve(USER) });
 
+  assert.deepEqual(navigations, ["/"]);
+});
+
+test("an existing administrator session redirects to the admin panel", async () => {
+  const { navigations } = await mount({ me: () => Promise.resolve(ADMIN) });
+
+  assert.deepEqual(navigations, ["/admin/"]);
+});
+
+test("an expired access token is renewed with refresh before redirecting", async () => {
+  const { api, navigations } = await mount({ refresh: () => Promise.resolve(USER) });
+
+  assert.deepEqual(api.calls, [["me"], ["refresh"]]);
   assert.deepEqual(navigations, ["/"]);
 });
 
@@ -164,7 +180,7 @@ test("invalid fields are reported without a request", async () => {
   fill(elements, { login: "kr", password: "short" });
   await submit(elements);
 
-  assert.deepEqual(api.calls, [["me"]]);
+  assert.deepEqual(api.calls, [["me"], ["refresh"]]);
   assert.match(elements.authLoginError.textContent, /от 3 до 32/i);
   assert.match(elements.authPasswordError.textContent, /от 8 до 128/);
   assert.equal(elements.authLogin.getAttribute("aria-invalid"), "true");
@@ -172,7 +188,7 @@ test("invalid fields are reported without a request", async () => {
 
   fill(elements, { login: "крош", password: "carrot123" });
   await submit(elements);
-  assert.deepEqual(api.calls, [["me"]]);
+  assert.deepEqual(api.calls, [["me"], ["refresh"]]);
   assert.match(elements.authLoginError.textContent, /латинские/);
   assert.equal(elements.authPasswordError.textContent, "");
 });
@@ -184,7 +200,7 @@ test("registration requires a matching confirmation", async () => {
   fill(elements, { confirm: "carrot124" });
   await submit(elements);
 
-  assert.deepEqual(api.calls, [["me"]]);
+  assert.deepEqual(api.calls, [["me"], ["refresh"]]);
   assert.equal(elements.authConfirmError.textContent, "Пароли не совпадают");
 });
 
@@ -206,8 +222,17 @@ test("successful registration logs in and redirects to the chat", async () => {
   await submit(elements);
 
   const credentials = { login: "krosh", password: "carrot123" };
-  assert.deepEqual(api.calls.slice(1), [["register", credentials], ["login", credentials]]);
+  assert.deepEqual(api.calls.slice(2), [["register", credentials], ["login", credentials]]);
   assert.deepEqual(navigations, ["/"]);
+});
+
+test("successful administrator login redirects to the admin panel", async () => {
+  const { elements, navigations } = await mount({ login: () => Promise.resolve(ADMIN) });
+
+  fill(elements, { login: "sovunya" });
+  await submit(elements);
+
+  assert.deepEqual(navigations, ["/admin/"]);
 });
 
 test("API errors show a message, keep the login and clear passwords", async () => {

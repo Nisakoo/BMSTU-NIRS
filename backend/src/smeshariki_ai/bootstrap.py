@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from smeshariki_ai.admin import AdminStatsService
 from smeshariki_ai.agent import (
     Agent,
     LiteLLMProvider,
@@ -13,6 +14,7 @@ from smeshariki_ai.auth import AuthService
 from smeshariki_ai.cache import RedisTokenBlacklist, create_redis
 from smeshariki_ai.config import Config
 from smeshariki_ai.db import (
+    PostgresAdminStatsStore,
     PostgresRefreshSessionStore,
     PostgresUserStore,
     create_engine,
@@ -54,6 +56,7 @@ def create_application(
         llm_provider=llm_provider,
     )
     on_shutdown = []
+    admin_stats = None
     if auth_service is None:
         # Both clients are lazy: no connection is opened until the first request.
         engine = create_engine(config.database)
@@ -64,10 +67,12 @@ def create_application(
             blacklist=RedisTokenBlacklist(redis),
             config=config.auth,
         )
+        admin_stats = AdminStatsService(PostgresAdminStatsStore(engine))
         on_shutdown = [engine.dispose, redis.aclose]
     return create_app(
         agent_service,
         auth_service=auth_service,
         auth_cookie_secure=config.auth.cookie_secure,
+        admin_stats=admin_stats,
         on_shutdown=on_shutdown,
     )

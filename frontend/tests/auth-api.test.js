@@ -76,6 +76,13 @@ test("me reads the current user with the session cookie", async () => {
   assert.deepEqual(calls, [["/api/v1/users/me", { method: "GET", credentials: "same-origin" }]]);
 });
 
+test("refresh posts without a body and returns the renewed user", async () => {
+  const { api, calls } = recordingApi(response(200, USER));
+
+  assert.deepEqual(await api.refresh(), USER);
+  assert.deepEqual(calls, [["/api/v1/auth/refresh", { method: "POST", credentials: "same-origin" }]]);
+});
+
 test("only contract fields of the user are returned", async () => {
   const { api } = recordingApi(response(200, { ...USER, password_hash: "secret" }));
 
@@ -93,6 +100,8 @@ test("HTTP statuses map to stable error codes", async () => {
     ["logout", 500, "unavailable"],
     ["me", 401, "unauthorized"],
     ["me", 404, "unavailable"],
+    ["refresh", 401, "unauthorized"],
+    ["refresh", 503, "unavailable"],
   ];
 
   for (const [method, status, code] of cases) {
@@ -102,7 +111,7 @@ test("HTTP statuses map to stable error codes", async () => {
 });
 
 test("network failures map to unavailable", async () => {
-  for (const method of ["register", "login", "logout", "me"]) {
+  for (const method of ["register", "login", "logout", "me", "refresh"]) {
     const { api } = recordingApi(new TypeError("Failed to fetch"));
     await assertAuthError(api[method]({ login: "krosh", password: "carrot123" }), "unavailable");
   }

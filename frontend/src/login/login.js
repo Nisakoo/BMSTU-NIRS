@@ -1,4 +1,5 @@
 import { AuthApi } from "../auth-api.js";
+import { SESSION, checkSession, homeFor } from "../auth-session.js";
 
 const LOGIN_PATTERN = /^[A-Za-z0-9_.-]{3,32}$/;
 const UNAVAILABLE_MESSAGE = "Сервис временно недоступен. Попробуйте позже";
@@ -113,8 +114,8 @@ export function mountLogin(documentRef, { api, navigate }) {
     setBusy(true);
     try {
       if (mode === "register") await api.register(credentials);
-      await api.login(credentials);
-      navigate("/");
+      const user = await api.login(credentials);
+      navigate(homeFor(user));
     } catch (error) {
       message.textContent = ERROR_MESSAGES[error?.code] ?? UNAVAILABLE_MESSAGE;
       clearPasswords();
@@ -131,10 +132,9 @@ export function mountLogin(documentRef, { api, navigate }) {
   form.addEventListener("submit", handleSubmit);
   setMode("login");
 
-  const ready = api.me().then(
-    () => navigate("/"),
-    () => {},
-  );
+  const ready = checkSession(api).then(session => {
+    if (session.status === SESSION.USER) navigate(homeFor(session.user));
+  });
   return { ready };
 }
 
