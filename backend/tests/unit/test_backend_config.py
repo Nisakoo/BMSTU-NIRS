@@ -10,7 +10,19 @@ from smeshariki_ai.agent.prompts import (
     SystemPromptResourceError,
     load_system_prompt,
 )
+from smeshariki_ai.auth import AuthConfig
+from smeshariki_ai.cache import RedisConfig
 from smeshariki_ai.config import Config, load_config
+from smeshariki_ai.db import DatabaseConfig
+
+JWT_SECRET = "test-secret-with-at-least-32-bytes!!"
+DATABASE_URL = "postgresql+asyncpg://app:db-password@postgres:5432/app"
+REDIS_URL = "redis://:redis-password@redis:6379/0"
+BASE_ENV = {
+    "AUTH_JWT_SECRET": JWT_SECRET,
+    "DATABASE_URL": DATABASE_URL,
+    "REDIS_URL": REDIS_URL,
+}
 
 
 class EnvironmentAccessForbidden(Mapping[str, str]):
@@ -25,16 +37,23 @@ class EnvironmentAccessForbidden(Mapping[str, str]):
 
 
 def test_config_has_component_owned_nested_configs() -> None:
-    config = load_config({"LLM_MODEL": "test/model"})
+    config = load_config({**BASE_ENV, "LLM_MODEL": "test/model"})
 
-    assert set(Config.model_fields) == {"agent", "llm", "logging"}
+    assert set(Config.model_fields) == {
+        "agent",
+        "llm",
+        "logging",
+        "auth",
+        "database",
+        "redis",
+    }
     assert isinstance(config.agent, AgentConfig)
     assert isinstance(config.llm, LiteLLMProviderConfig)
     assert not hasattr(config_module, "ApplicationConfig")
 
 
 def test_load_config_uses_agent_and_provider_defaults() -> None:
-    config = load_config({"LLM_MODEL": "test/model"})
+    config = load_config({**BASE_ENV, "LLM_MODEL": "test/model"})
 
     assert config == Config(
         agent=AgentConfig(
@@ -42,6 +61,9 @@ def test_load_config_uses_agent_and_provider_defaults() -> None:
             max_iterations=4,
         ),
         llm=LiteLLMProviderConfig(model="test/model"),
+        auth=AuthConfig(jwt_secret=JWT_SECRET),
+        database=DatabaseConfig(url=DATABASE_URL),
+        redis=RedisConfig(url=REDIS_URL),
     )
     assert config.logging.level == "INFO"
     assert config.logging.format == "human"
@@ -49,7 +71,12 @@ def test_load_config_uses_agent_and_provider_defaults() -> None:
 
 def test_load_config_reads_logging_options() -> None:
     config = load_config(
-        {"LLM_MODEL": "test/model", "LOG_LEVEL": "DEBUG", "LOG_FORMAT": "json"}
+        {
+            **BASE_ENV,
+            "LLM_MODEL": "test/model",
+            "LOG_LEVEL": "DEBUG",
+            "LOG_FORMAT": "json",
+        }
     )
 
     assert config.logging.level == "DEBUG"
@@ -59,12 +86,13 @@ def test_load_config_reads_logging_options() -> None:
 @pytest.mark.parametrize("name,value", [("LOG_LEVEL", "TRACE"), ("LOG_FORMAT", "xml")])
 def test_load_config_rejects_invalid_logging_options(name: str, value: str) -> None:
     with pytest.raises(ValidationError):
-        load_config({"LLM_MODEL": "test/model", name: value})
+        load_config({**BASE_ENV, "LLM_MODEL": "test/model", name: value})
 
 
 def test_load_config_reads_all_supported_values() -> None:
     config = load_config(
         {
+            **BASE_ENV,
             "AGENT_MAX_ITERATIONS": "2",
             "LLM_MODEL": "openai/test-model",
             "LLM_API_KEY": "private-api-key",
@@ -93,7 +121,7 @@ def test_load_config_uses_versioned_system_prompt(
         lambda: "Versioned prompt",
     )
 
-    config = load_config({"LLM_MODEL": "test/model"})
+    config = load_config({**BASE_ENV, "LLM_MODEL": "test/model"})
 
     assert config.agent.system_prompt == "Versioned prompt"
 
@@ -101,6 +129,7 @@ def test_load_config_uses_versioned_system_prompt(
 def test_load_config_does_not_override_system_prompt_from_environment() -> None:
     config = load_config(
         {
+            **BASE_ENV,
             "AGENT_SYSTEM_PROMPT": "Untracked deployment prompt",
             "LLM_MODEL": "test/model",
         }
@@ -118,12 +147,13 @@ def test_load_config_propagates_system_prompt_resource_error(
     monkeypatch.setattr(config_module, "load_system_prompt", fail_to_load_prompt)
 
     with pytest.raises(SystemPromptResourceError):
-        load_config({"LLM_MODEL": "test/model"})
+        load_config({**BASE_ENV, "LLM_MODEL": "test/model"})
 
 
 def test_load_config_normalizes_blank_optional_provider_values() -> None:
     config = load_config(
         {
+            **BASE_ENV,
             "LLM_MODEL": "test/model",
             "LLM_API_KEY": "   ",
             "LLM_BASE_URL": "",
@@ -138,10 +168,10 @@ def test_load_config_normalizes_blank_optional_provider_values() -> None:
     "environ",
     [
         {},
-        {"LLM_MODEL": "test/model", "AGENT_MAX_ITERATIONS": "0"},
-        {"LLM_MODEL": "test/model", "LLM_BASE_URL": "not-a-url"},
-        {"LLM_MODEL": "test/model", "LLM_TIMEOUT_SECONDS": "0"},
-        {"LLM_MODEL": "test/model", "LLM_NUM_RETRIES": "-1"},
+        {**BASE_ENV, "LLM_MODEL": "test/model", "AGENT_MAX_ITERATIONS": "0"},
+        {**BASE_ENV, "LLM_MODEL": "test/model", "LLM_BASE_URL": "not-a-url"},
+        {**BASE_ENV, "LLM_MODEL": "test/model", "LLM_TIMEOUT_SECONDS": "0"},
+        {**BASE_ENV, "LLM_MODEL": "test/model", "LLM_NUM_RETRIES": "-1"},
     ],
     ids=[
         "missing-model",
@@ -159,7 +189,7 @@ def test_load_config_rejects_invalid_environment(
 
 
 def test_config_and_nested_configs_are_frozen_and_forbid_extra_fields() -> None:
-    config = load_config({"LLM_MODEL": "test/model"})
+    config = load_config({**BASE_ENV, "LLM_MODEL": "test/model"})
 
     with pytest.raises(ValidationError):
         setattr(config, "agent", config.agent)
@@ -180,7 +210,9 @@ def test_config_and_nested_configs_are_frozen_and_forbid_extra_fields() -> None:
 def test_config_representation_does_not_reveal_api_key() -> None:
     api_key = "secret-config-marker"
 
-    config = load_config({"LLM_MODEL": "test/model", "LLM_API_KEY": api_key})
+    config = load_config(
+        {**BASE_ENV, "LLM_MODEL": "test/model", "LLM_API_KEY": api_key}
+    )
 
     assert api_key not in repr(config)
     assert api_key not in str(config)
@@ -192,6 +224,7 @@ def test_config_validation_error_does_not_reveal_api_key() -> None:
     with pytest.raises(ValidationError) as exc_info:
         load_config(
             {
+                **BASE_ENV,
                 "LLM_MODEL": "test/model",
                 "LLM_API_KEY": api_key,
                 "LLM_TIMEOUT_SECONDS": "0",
@@ -210,14 +243,14 @@ def test_explicit_mapping_does_not_read_process_environment(
         SimpleNamespace(environ=EnvironmentAccessForbidden()),
     )
 
-    config = load_config({"LLM_MODEL": "explicit/model"})
+    config = load_config({**BASE_ENV, "LLM_MODEL": "explicit/model"})
 
     assert config.llm.model == "explicit/model"
 
 
 def test_repeated_loads_create_independent_configs() -> None:
-    first = load_config({"LLM_MODEL": "first/model"})
-    second = load_config({"LLM_MODEL": "second/model"})
+    first = load_config({**BASE_ENV, "LLM_MODEL": "first/model"})
+    second = load_config({**BASE_ENV, "LLM_MODEL": "second/model"})
     expected_prompt = load_system_prompt()
 
     assert first is not second
@@ -227,3 +260,64 @@ def test_repeated_loads_create_independent_configs() -> None:
     assert first.llm.model == "first/model"
     assert second.agent.system_prompt == expected_prompt
     assert second.llm.model == "second/model"
+
+
+def test_load_config_reads_auth_database_and_redis_values() -> None:
+    config = load_config(
+        {
+            **BASE_ENV,
+            "LLM_MODEL": "test/model",
+            "AUTH_ACCESS_TTL_SECONDS": "60",
+            "AUTH_REFRESH_TTL_SECONDS": "3600",
+            "AUTH_COOKIE_SECURE": "true",
+        }
+    )
+
+    assert config.auth.jwt_secret.get_secret_value() == JWT_SECRET
+    assert config.auth.access_ttl_seconds == 60
+    assert config.auth.refresh_ttl_seconds == 3600
+    assert config.auth.cookie_secure is True
+    assert config.database.url.get_secret_value() == DATABASE_URL
+    assert config.redis.url.get_secret_value() == REDIS_URL
+
+
+def test_load_config_uses_auth_defaults() -> None:
+    config = load_config({**BASE_ENV, "LLM_MODEL": "test/model"})
+
+    assert config.auth.access_ttl_seconds == 900
+    assert config.auth.refresh_ttl_seconds == 30 * 24 * 60 * 60
+    assert config.auth.cookie_secure is False
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"AUTH_JWT_SECRET": None},
+        {"AUTH_JWT_SECRET": "short-secret-marker"},
+        {"DATABASE_URL": None},
+        {"DATABASE_URL": "mysql://user:secret-db-marker@db/app"},
+        {"REDIS_URL": None},
+        {"REDIS_URL": "http://:secret-redis-marker@redis"},
+        {"AUTH_ACCESS_TTL_SECONDS": "0"},
+        {"AUTH_REFRESH_TTL_SECONDS": "abc"},
+        {"AUTH_COOKIE_SECURE": "maybe"},
+    ],
+)
+def test_load_config_rejects_invalid_auth_environment(
+    change: dict[str, str | None],
+) -> None:
+    environ = {**BASE_ENV, "LLM_MODEL": "test/model", **change}
+    environ = {name: value for name, value in environ.items() if value is not None}
+
+    with pytest.raises(ValidationError) as error:
+        load_config(environ)
+
+    for marker in ("short-secret-marker", "secret-db-marker", "secret-redis-marker"):
+        assert marker not in str(error.value)
+
+
+def test_config_representation_does_not_reveal_auth_secrets() -> None:
+    text = repr(load_config({**BASE_ENV, "LLM_MODEL": "test/model"}))
+
+    for secret in (JWT_SECRET, "db-password", "redis-password"):
+        assert secret not in text

@@ -1,17 +1,67 @@
+# An explicit name keeps this project apart from other compose files in `docker/` dirs.
+name: smeshariki-ai
+
+x-backend-environment: &backend-environment
+  AGENT_MAX_ITERATIONS: ${AGENT_MAX_ITERATIONS:-4}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  LOG_FORMAT: ${LOG_FORMAT:-human}
+  LLM_MODEL: ${LLM_MODEL:?Set LLM_MODEL in docker/.env}
+  LLM_API_KEY: ${LLM_API_KEY:-}
+  LLM_BASE_URL: ${LLM_BASE_URL:-}
+  LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-60}
+  LLM_NUM_RETRIES: ${LLM_NUM_RETRIES:-0}
+  AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?Set AUTH_JWT_SECRET in docker/.env}
+  AUTH_ACCESS_TTL_SECONDS: ${AUTH_ACCESS_TTL_SECONDS:-900}
+  AUTH_REFRESH_TTL_SECONDS: ${AUTH_REFRESH_TTL_SECONDS:-2592000}
+  AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+  DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-smeshariki}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in docker/.env}@postgres:5432/${POSTGRES_DB:-smeshariki}
+  REDIS_URL: redis://redis:6379/0
+
 services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-smeshariki}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in docker/.env}
+      POSTGRES_DB: ${POSTGRES_DB:-smeshariki}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  migrate:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command: ["python", "-m", "smeshariki_ai.db.migrate"]
+    environment: *backend-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   backend:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    environment:
-      AGENT_MAX_ITERATIONS: ${AGENT_MAX_ITERATIONS:-4}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      LOG_FORMAT: ${LOG_FORMAT:-human}
-      LLM_MODEL: ${LLM_MODEL:?Set LLM_MODEL in docker/.env}
-      LLM_API_KEY: ${LLM_API_KEY:-}
-      LLM_BASE_URL: ${LLM_BASE_URL:-}
-      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-60}
-      LLM_NUM_RETRIES: ${LLM_NUM_RETRIES:-0}
+    environment: *backend-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     init: true
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/openapi.json', timeout=2)"]
@@ -42,3 +92,6 @@ services:
         condition: service_healthy
     ports:
       - "127.0.0.1:${APP_PORT:-8080}:80"
+
+volumes:
+  postgres-data:

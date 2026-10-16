@@ -47,3 +47,5 @@ specs:
       status: done
     - name: login-page-redesign
       status: done
+    - name: backend-auth-jwt
+      status: done

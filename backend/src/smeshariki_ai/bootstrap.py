@@ -9,7 +9,14 @@ from smeshariki_ai.agent import (
 from smeshariki_ai.agent.get_context import GetContextTool
 from smeshariki_ai.api import create_app
 from smeshariki_ai.application import AgentService, InMemoryDialogEventBroker
+from smeshariki_ai.auth import AuthService
+from smeshariki_ai.cache import RedisTokenBlacklist, create_redis
 from smeshariki_ai.config import Config
+from smeshariki_ai.db import (
+    PostgresRefreshSessionStore,
+    PostgresUserStore,
+    create_engine,
+)
 from smeshariki_ai.dialogs import InMemoryHistoryStore
 from smeshariki_ai.observability import configure_logging
 
@@ -39,10 +46,28 @@ def create_application(
     config: Config,
     *,
     llm_provider: LLMProvider | None = None,
+    auth_service: AuthService | None = None,
 ) -> FastAPI:
     configure_logging(config.logging)
     agent_service = build_agent_service(
         config,
         llm_provider=llm_provider,
     )
-    return create_app(agent_service)
+    on_shutdown = []
+    if auth_service is None:
+        # Both clients are lazy: no connection is opened until the first request.
+        engine = create_engine(config.database)
+        redis = create_redis(config.redis)
+        auth_service = AuthService(
+            users=PostgresUserStore(engine),
+            sessions=PostgresRefreshSessionStore(engine),
+            blacklist=RedisTokenBlacklist(redis),
+            config=config.auth,
+        )
+        on_shutdown = [engine.dispose, redis.aclose]
+    return create_app(
+        agent_service,
+        auth_service=auth_service,
+        auth_cookie_secure=config.auth.cookie_secure,
+        on_shutdown=on_shutdown,
+    )

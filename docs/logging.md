@@ -37,6 +37,17 @@ SSE-подключение имеет собственный `request_id`; св�
 вызов инструмента — `tool_call_id` из ответа модели. Идентификаторы служат
 для поиска событий, а не для аутентификации.
 
+## События аутентификации
+
+`smeshariki_ai.auth.service` пишет `auth.user.registered`,
+`auth.login.succeeded`, `auth.login.rejected`, `auth.refresh.succeeded`,
+`auth.refresh.rejected`, `auth.refresh.reuse_detected` (уровень `WARNING`,
+`outcome=family_revoked`) и `auth.logout.completed`. Из пользовательских
+данных записывается только `user_id`, когда он известен. Логины, пароли,
+хеши, токены, `jti`, cookie и тела запросов в журнал не попадают; отказ из-за
+недоступного PostgreSQL или Redis виден как `http.request.failed` со статусом
+`503`.
+
 ## Метрики модели
 
 `llm.request.completed` содержит длительность вызова, а при текстовом ответе

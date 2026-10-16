@@ -2,7 +2,10 @@
 
 Этот каталог содержит единый контейнерный запуск приложения: Caddy принимает
 запросы с хоста, Nginx раздаёт собранный frontend, backend обслуживает API и
-SSE. Все три сервиса запускаются одним Docker Compose проектом.
+SSE, PostgreSQL хранит пользователей, Redis — blacklist access-токенов. Все
+сервисы запускаются одним Docker Compose проектом с явным именем
+`smeshariki-ai`, чтобы не пересекаться с другими проектами, чьи compose-файлы
+тоже лежат в каталоге `docker/`.
 
 ## Запуск
 
@@ -14,7 +17,8 @@ make run
 
 Перед первым запуском скопируйте `docker/.env.example` в `docker/.env`, выберите
 поддерживаемую LiteLLM модель в `LLM_MODEL` и при необходимости задайте
-`LLM_API_KEY` и `LLM_BASE_URL`. Локальный `docker/.env` не отслеживается Git;
+`LLM_API_KEY` и `LLM_BASE_URL`. Также обязательны `AUTH_JWT_SECRET` (не короче
+32 байт, например `openssl rand -base64 48`) и `POSTGRES_PASSWORD`. Локальный `docker/.env` не отслеживается Git;
 реальные секреты не должны попадать в `.env.example`.
 
 После запуска frontend доступен на `http://localhost:8080/`, demo-макет панели
@@ -35,6 +39,28 @@ LiteLLM Proxy не запускается.
 По умолчанию используются `INFO` и `human`. Логи доступны через
 `docker compose -f docker/compose.yaml logs backend`; поля и границы метрик
 описаны в [каталоге логирования](../docs/logging.md).
+
+Перед стартом backend одноразовый сервис `migrate` (тот же образ) выполняет
+`python -m smeshariki_ai.db.migrate`; backend запускается только после его
+успешного завершения и готовности Redis. Применить миграции отдельно, без
+запуска всего приложения, можно командой `make migrate`. Данные PostgreSQL хранятся в томе
+`smeshariki-ai_postgres-data`; Redis работает без персистентности, так как
+записи blacklist живут не дольше access-токена. Пароль PostgreSQL применяется
+только при первой инициализации тома: после его смены удалите том командой
+`docker compose -f docker/compose.yaml down -v` (данные будут потеряны).
+
+Регистрация, вход и текущий пользователь:
+
+```sh
+curl -i http://localhost:8080/api/v1/users \
+  -H 'Content-Type: application/json' -d '{"login":"krosh","password":"password123"}'
+curl -i -c cookies.txt http://localhost:8080/api/v1/auth/login \
+  -H 'Content-Type: application/json' -d '{"login":"krosh","password":"password123"}'
+curl -i -b cookies.txt http://localhost:8080/api/v1/users/me
+```
+
+Полный контракт, включая `refresh` и `logout`, — в
+[`docs/auth.md`](../docs/auth.md).
 
 Создание диалога:
 
@@ -58,11 +84,13 @@ curl -i -X POST http://localhost:8080/api/v1/dialogs/<dialog_id>/messages \
 
 ## Состав
 
-- `compose.yaml` — сервисы backend, frontend/Nginx и Caddy;
+- `compose.yaml` — сервисы backend, migrate, PostgreSQL, Redis, frontend/Nginx и
+  Caddy;
 - `Dockerfile` — Python 3.12 образ backend с зависимостями из `backend/uv.lock`;
 - `frontend.Dockerfile` — Node.js 22 build frontend и runtime Nginx;
 - `Caddyfile` — маршруты `/api` к backend и остальных запросов к Nginx;
-- `.env.example` — несекретный шаблон порта, агента, LiteLLM-провайдера и логов.
+- `.env.example` — несекретный шаблон порта, агента, LiteLLM-провайдера, логов,
+  аутентификации и PostgreSQL.
 
 `make frontend` по-прежнему запускает отдельный Vite dev server при разработке;
 для основного запуска он не нужен.

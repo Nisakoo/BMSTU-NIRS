@@ -33,6 +33,8 @@
 3. Код и тесты должны соответствовать согласованной спецификации. При изменении поведения сначала обновлять спецификацию, затем реализацию и тесты в порядке, заданном SDD skill.
 4. `Makefile` является единой точкой входа для стандартных команд проекта:
    - `make run` — запуск проекта;
+   - `make migrate` — применение миграций базы данных через Compose-сервис
+     `migrate`;
    - `make test` — запуск полного набора автоматических тестов продукта;
    - `make lint` — проверка Python-кода backend через Ruff;
    - `make format` — автоматическое исправление и форматирование Python-кода
@@ -252,6 +254,25 @@
    выполняются отдельными изменениями; до тех пор чат по `/` от авторизации не
    зависит.
 
+## Реализованная аутентификация backend
+
+1. Пакет `smeshariki_ai.auth` содержит транспортно-независимый `AuthService` и
+   контракты `UserStore`, `RefreshSessionStore`, `TokenBlacklist`; сервис не
+   зависит от FastAPI, SQLAlchemy и redis-py и не читает environment.
+   `api/auth.py` реализует HTTP-контракт из `docs/auth.md` и зависимость
+   `current_user`.
+2. Access JWT (HS256, 15 минут) и одноразовый refresh-токен (30 дней, в БД
+   только SHA-256) передаются только `HttpOnly` cookie. Повторное
+   использование refresh-токена отзывает всё семейство; `logout` заносит `jti`
+   в Redis с TTL до `exp`. Сбой PostgreSQL или Redis даёт `503` (fail closed).
+3. Пользователи и refresh-сессии хранятся в PostgreSQL (`smeshariki_ai.db`,
+   SQLAlchemy Core + asyncpg); схема, включая запланированные `dialogs` и
+   `messages`, описана в `docs/database.md`. Миграции Alembic применяются
+   командой `python -m smeshariki_ai.db.migrate` одноразовым Compose-сервисом
+   `migrate`.
+4. Ручки диалогов пока не требуют аутентификации; автоматический refresh во
+   frontend выполняется отдельным изменением.
+
 ## Согласованные технологии
 
 - Python 3.12 — runtime backend.
@@ -266,6 +287,10 @@
 - LiteLLM Python SDK — асинхронная интеграция backend с LLM через внутренний
   адаптер; отдельный LiteLLM Proxy не используется.
 - Qdrant — векторное хранилище и поиск для RAG.
+- PostgreSQL 17, SQLAlchemy (async Core) с asyncpg и Alembic — постоянное
+  хранилище пользователей и будущей истории диалогов и его миграции.
+- Redis — blacklist отозванных access-токенов.
+- PyJWT и argon2-cffi — подпись access JWT и хеширование паролей.
 - Pytest — модульные и интеграционные тесты backend.
 - Ruff — линтинг, проверка форматирования и автоформатирование Python-кода.
 - Docker Compose — локальный запуск всего приложения и инфраструктурных зависимостей.

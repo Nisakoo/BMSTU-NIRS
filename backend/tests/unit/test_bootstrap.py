@@ -3,6 +3,7 @@ import logging
 import sys
 from typing import Any
 
+import httpx
 import pytest
 from fastapi import FastAPI
 
@@ -14,12 +15,21 @@ from smeshariki_ai.agent import (
     LiteLLMProviderConfig,
 )
 from smeshariki_ai.application import AgentService, InMemoryDialogEventBroker
+from smeshariki_ai.auth import (
+    AuthConfig,
+    AuthService,
+    InMemoryRefreshSessionStore,
+    InMemoryTokenBlacklist,
+    InMemoryUserStore,
+)
 from smeshariki_ai.bootstrap import (
     build_agent_service,
     configure_logging,
     create_application,
 )
+from smeshariki_ai.cache import RedisConfig
 from smeshariki_ai.config import Config
+from smeshariki_ai.db import DatabaseConfig
 from smeshariki_ai.observability import LoggingConfig
 
 
@@ -27,6 +37,9 @@ def make_config() -> Config:
     return Config(
         agent=AgentConfig(system_prompt="Test prompt", max_iterations=2),
         llm=LiteLLMProviderConfig(model="test/model"),
+        auth=AuthConfig(jwt_secret="test-secret-with-at-least-32-bytes!!"),
+        database=DatabaseConfig(url="postgresql+asyncpg://app:app@127.0.0.1:1/app"),
+        redis=RedisConfig(url="redis://127.0.0.1:1/0"),
     )
 
 
@@ -150,3 +163,67 @@ def test_main_loads_config_once_and_passes_it_to_application(
     assert load_calls == 1
     assert received_configs == [config]
     assert received_configs[0] is config
+
+
+async def test_create_application_wires_auth_and_closes_infrastructure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = make_config()
+    closed: list[str] = []
+    received: dict[str, object] = {}
+
+    class FakeEngine:
+        async def dispose(self) -> None:
+            closed.append("engine")
+
+    class FakeRedis:
+        async def aclose(self) -> None:
+            closed.append("redis")
+
+    def fake_engine(value: DatabaseConfig) -> FakeEngine:
+        received["database"] = value
+        return FakeEngine()
+
+    def fake_redis(value: RedisConfig) -> FakeRedis:
+        received["redis"] = value
+        return FakeRedis()
+
+    monkeypatch.setattr(bootstrap_module, "create_engine", fake_engine)
+    monkeypatch.setattr(bootstrap_module, "create_redis", fake_redis)
+
+    app = create_application(config, llm_provider=FakeLLMProvider())
+
+    assert received == {"database": config.database, "redis": config.redis}
+    assert isinstance(app.state.auth_service, AuthService)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+    ) as client:
+        response = await client.get("/api/v1/users/me")
+    assert response.json() == {"error": "unauthorized"}
+    async with app.router.lifespan_context(app):
+        assert closed == []
+    assert closed == ["engine", "redis"]
+
+
+def test_create_application_accepts_explicit_auth_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = make_config()
+    auth_service = AuthService(
+        users=InMemoryUserStore(),
+        sessions=InMemoryRefreshSessionStore(),
+        blacklist=InMemoryTokenBlacklist(),
+        config=config.auth,
+    )
+
+    def reject(value: object) -> None:
+        pytest.fail("Infrastructure must not be created for an explicit service")
+
+    monkeypatch.setattr(bootstrap_module, "create_engine", reject)
+    monkeypatch.setattr(bootstrap_module, "create_redis", reject)
+
+    app = create_application(
+        config, llm_provider=FakeLLMProvider(), auth_service=auth_service
+    )
+
+    assert app.state.auth_service is auth_service
