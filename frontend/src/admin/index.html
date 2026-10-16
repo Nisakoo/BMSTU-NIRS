@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>Панель администратора — Смешарики AI</title>
+  <link rel="stylesheet" href="./admin.css" />
+</head>
+<body class="adm-body">
+  <div class="adm-ambient adm-ambient-one" aria-hidden="true"></div>
+  <div class="adm-ambient adm-ambient-two" aria-hidden="true"></div>
+
+  <div class="adm-shell">
+    <aside class="adm-sidebar">
+      <a class="adm-brand" href="/admin/" aria-label="Смешарики AI — панель администратора">
+        <span class="adm-brand-mark" aria-hidden="true">✦</span>
+        <span><strong>Смешарики AI</strong><small>панель администратора</small></span>
+      </a>
+
+      <nav class="adm-nav" aria-label="Разделы панели">
+        <a href="#overview" data-admin-nav aria-current="location"><span aria-hidden="true">◈</span>Обзор</a>
+        <a href="#activity" data-admin-nav><span aria-hidden="true">⌁</span>Активность</a>
+        <a href="#users" data-admin-nav><span aria-hidden="true">◎</span>Пользователи</a>
+      </nav>
+
+      <div class="adm-sidebar-foot">
+        <div class="adm-demo-note">
+          <span aria-hidden="true">●</span>
+          <p><strong>Demo mode</strong>Макет не подключён к backend</p>
+        </div>
+        <a class="adm-chat-link" href="/">Открыть пользовательский чат <span aria-hidden="true">↗</span></a>
+      </div>
+    </aside>
+
+    <main class="adm-main" id="adminDashboard">
+      <header class="adm-topbar">
+        <div>
+          <p class="adm-eyebrow">Центр управления</p>
+          <h1>Добрый вечер, администратор</h1>
+          <p class="adm-lead">Следите за активностью аудитории и качеством работы агента.</p>
+        </div>
+        <span class="adm-demo-badge"><i aria-hidden="true"></i>Демонстрационные данные</span>
+      </header>
+
+      <section class="adm-toolbar" aria-label="Настройки отчёта">
+        <div>
+          <span class="adm-toolbar-label">Период отчёта</span>
+          <strong id="adminPeriodLabel">30 дней</strong>
+        </div>
+        <div class="adm-periods" role="group" aria-label="Выберите период">
+          <button type="button" data-period="7" aria-pressed="false">7 дней</button>
+          <button type="button" data-period="30" aria-pressed="true">30 дней</button>
+          <button type="button" data-period="90" aria-pressed="false">90 дней</button>
+        </div>
+      </section>
+
+      <section class="adm-error" id="adminError" role="alert" aria-live="assertive" hidden></section>
+
+      <div id="adminContent" hidden>
+        <section id="overview" aria-labelledby="overviewTitle">
+          <div class="adm-section-heading">
+            <div>
+              <p class="adm-section-kicker">Общая картина</p>
+              <h2 id="overviewTitle">Ключевые показатели</h2>
+            </div>
+            <span class="adm-comparison" id="adminComparison"></span>
+          </div>
+          <div class="adm-metrics" id="adminMetrics"></div>
+        </section>
+
+        <div class="adm-analysis-grid">
+          <section class="adm-panel adm-activity-panel" id="activity" aria-labelledby="activityTitle">
+            <div class="adm-panel-heading">
+              <div>
+                <p class="adm-section-kicker">Динамика</p>
+                <h2 id="activityTitle">Активность диалогов</h2>
+              </div>
+              <span class="adm-live-label"><i aria-hidden="true"></i>обновлено сейчас</span>
+            </div>
+            <div class="adm-chart" id="adminActivity" aria-hidden="true"></div>
+            <p class="adm-sr-only" id="adminChartDescription"></p>
+          </section>
+
+          <section class="adm-panel adm-quality-panel" aria-labelledby="qualityTitle">
+            <div class="adm-panel-heading">
+              <div>
+                <p class="adm-section-kicker">Состояние агента</p>
+                <h2 id="qualityTitle">Качество ответов</h2>
+              </div>
+              <span class="adm-health" aria-label="Система работает штатно">стабильно</span>
+            </div>
+            <div class="adm-quality" id="adminQuality"></div>
+          </section>
+        </div>
+
+        <section class="adm-panel adm-users-panel" id="users" aria-labelledby="usersTitle">
+          <div class="adm-panel-heading">
+            <div>
+              <p class="adm-section-kicker">Аудитория</p>
+              <h2 id="usersTitle">Последние пользователи</h2>
+            </div>
+            <span class="adm-caption">Локальная демонстрационная выборка</span>
+          </div>
+          <div class="adm-user-head" aria-hidden="true">
+            <span>Пользователь</span><span>Активность</span><span>Диалоги</span><span>Статус</span>
+          </div>
+          <div class="adm-users" id="adminUsers" role="list"></div>
+        </section>
+      </div>
+
+      <noscript>
+        <p class="adm-error">Для отображения макета панели необходим JavaScript.</p>
+      </noscript>
+    </main>
+  </div>
+
+  <script type="module" src="./admin.js"></script>
+</body>
+</html>
