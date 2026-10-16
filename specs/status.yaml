@@ -43,3 +43,7 @@ specs:
       status: done
     - name: admin-active-navigation
       status: done
+    - name: auth-frontend-contract
+      status: done
+    - name: login-page-redesign
+      status: done

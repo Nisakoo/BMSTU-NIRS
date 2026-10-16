@@ -49,10 +49,11 @@ Docker Compose проектом. Агент и RAG входят в состав 
 - `make format` — автоматическое исправление и форматирование Python-кода.
 
 После настройки `docker/.env` приложение доступно на
-[`http://localhost:8080/`](http://localhost:8080/), а demo-макет панели
-администратора — на [`http://localhost:8080/admin/`](http://localhost:8080/admin/).
-Настройки и примеры HTTP-
-запросов описаны в [`docker/README.md`](docker/README.md). Backend использует
+[`http://localhost:8080/`](http://localhost:8080/), демо-макет панели
+администратора — на [`http://localhost:8080/admin/`](http://localhost:8080/admin/), а
+страница входа и регистрации — на [`http://localhost:8080/login/`](http://localhost:8080/login/).
+Настройки и примеры HTTP-запросов описаны в
+[`docker/README.md`](docker/README.md). Backend использует
 настраиваемый LiteLLM-провайдер и in-memory историю; RAG и постоянное хранилище
 пока не реализованы.
 

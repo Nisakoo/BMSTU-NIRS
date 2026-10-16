@@ -13,7 +13,7 @@
 
 | Часть | Назначение | Где смотреть |
 | --- | --- | --- |
-| `frontend/` | Vanilla JavaScript чат по `/` и demo-макет панели администратора по `/admin/`: общий Vite build для Nginx и отдельный dev server | [Frontend](../frontend/) |
+| `frontend/` | Vanilla JavaScript чат по `/`, demo-макет панели администратора по `/admin/` и страница входа и регистрации по `/login/`: общий Vite build для Nginx и отдельный dev server | [Frontend](../frontend/) |
 | `backend/` | Единое приложение с HTTP API, application-слоем и runtime агента | [Backend](../backend/) |
 | `docker/` | Единый Compose запуск Caddy, Nginx/frontend и backend | [Запуск и конфигурация](../docker/README.md) |
 | `docs/` | Глобальная карта и тематические страницы архитектуры и контрактов | [Текущий каталог](./README.md) |
@@ -27,6 +27,8 @@
   хранение истории, очередь запросов, SSE, HTTP и наблюдаемость.
 - [Конфигурация backend](./configuration.md) — корневой `Config`, загрузка
   environment и передача component-owned подконфигов.
+- [Аутентификация](./auth.md) — HTTP-контракт регистрации, входа, выхода и
+  текущего пользователя, сессионная cookie и страница `/login/`.
 - [Логирование backend](./logging.md) — форматы, общие поля, идентификаторы
   операций и метрики вызовов модели.
 - [Запуск приложения](../docker/README.md) — Docker Compose, настройки и примеры
@@ -108,6 +110,7 @@ flowchart LR
 | Контейнерный запуск | Caddy как единая точка входа, Nginx/frontend и backend в одном Compose проекте | Проверено | [`docker/`](../docker/) | [spec](../specs/changes/compose-caddy-nginx-stack/spec.md), [plan](../specs/changes/compose-caddy-nginx-stack/plan.md), [verification](../specs/changes/compose-caddy-nginx-stack/verification.md) |
 | Frontend-чат | Исходный масштаб на ноутбуках, плавное увеличение на широких экранах, мобильный режим без декоративной сцены, подсказка Кроша до нажатия на textarea или выбора типа истории, создание диалога с повтором, отправка запроса и потоковое отображение SSE-ответа | Проверено | [`frontend/src/`](../frontend/src/) | [описание](../frontend/README.md), [hint spec](../specs/changes/frontend-krosh-hint-input-dismiss/spec.md), [hint plan](../specs/changes/frontend-krosh-hint-input-dismiss/plan.md), [hint verification](../specs/changes/frontend-krosh-hint-input-dismiss/verification.md), [laptop/mobile spec](../specs/changes/frontend-laptop-baseline-mobile-chat/spec.md), [laptop/mobile verification](../specs/changes/frontend-laptop-baseline-mobile-chat/verification.md), [responsive spec](../specs/changes/frontend-responsive-layout/spec.md), [responsive verification](../specs/changes/frontend-responsive-layout/verification.md), [integration spec](../specs/changes/frontend-agent-integration/spec.md), [integration verification](../specs/changes/frontend-agent-integration/verification.md), [retry spec](../specs/changes/frontend-dialog-retry/spec.md), [retry verification](../specs/changes/frontend-dialog-retry/verification.md), [fetch spec](../specs/changes/frontend-fetch-binding/spec.md), [fetch verification](../specs/changes/frontend-fetch-binding/verification.md) |
 | Admin dashboard | Адаптивный макет `/admin/` с KPI, графиком активности, показателями агента и списком пользователей на локальных demo-данных; без авторизации и backend API | Проверено | [`frontend/src/admin/`](../frontend/src/admin/) | [описание](../frontend/README.md), [spec](../specs/changes/admin-dashboard-frontend/spec.md), [plan](../specs/changes/admin-dashboard-frontend/plan.md), [verification](../specs/changes/admin-dashboard-frontend/verification.md), [navigation spec](../specs/changes/admin-active-navigation/spec.md), [navigation verification](../specs/changes/admin-active-navigation/verification.md) |
+| Страница авторизации | Страница `/login/` со входом и регистрацией и клиент контракта аутентификации; backend-реализация контракта выполняется отдельно | Проверено | [`frontend/src/login/`](../frontend/src/login/), [`auth-api.js`](../frontend/src/auth-api.js) | [страница компонента](./auth.md), [spec](../specs/changes/auth-frontend-contract/spec.md), [plan](../specs/changes/auth-frontend-contract/plan.md), [verification](../specs/changes/auth-frontend-contract/verification.md), [redesign spec](../specs/changes/login-page-redesign/spec.md), [redesign verification](../specs/changes/login-page-redesign/verification.md) |
 | Agent runtime | Собственный ограниченный tool-calling loop и независимые контракты LLM и инструментов | Проверено | [`smeshariki_ai/agent`](../backend/src/smeshariki_ai/agent/) | [страница компонента](./agent.md), [spec](../specs/changes/agent-runtime/spec.md), [plan](../specs/changes/agent-runtime/plan.md), [verification](../specs/changes/agent-runtime/verification.md) |
 | Инструмент `get_context` | Возвращает агенту фиксированный демонстрационный текст через `ToolRegistry` | Проверено | [`get_context.py`](../backend/src/smeshariki_ai/agent/get_context.py) | [страница компонента](./agent.md), [spec](../specs/changes/get-context-example/spec.md), [plan](../specs/changes/get-context-example/plan.md), [verification](../specs/changes/get-context-example/verification.md) |
 | LiteLLM-провайдер | Асинхронный production-адаптер Chat Completions и отдельная provider-конфигурация | Проверено | [`agent/providers`](../backend/src/smeshariki_ai/agent/providers/) | [страница компонента](./agent.md), [spec](../specs/changes/litellm-provider/spec.md), [plan](../specs/changes/litellm-provider/plan.md), [verification](../specs/changes/litellm-provider/verification.md) |
@@ -123,6 +126,7 @@ flowchart LR
 ## Что пока не реализовано
 
 Публичный HTTPS deployment, RAG и инструмент `search_knowledge`, CORS,
-постоянное хранилище истории, replay SSE-событий и авторизация относятся к
+постоянное хранилище истории, replay SSE-событий и backend-реализация
+[контракта аутентификации](./auth.md) относятся к
 будущим изменениям. Текущий Compose stack предоставляет локальный HTTP-вход;
 Vite proxy остаётся отдельным dev-режимом.
