@@ -11,6 +11,9 @@ class Config(BaseModel):
     agent: AgentConfig
     llm: LiteLLMProviderConfig
     logging: LoggingConfig
+    auth: AuthConfig
+    database: DatabaseConfig
+    redis: RedisConfig
 
 def load_config(environ: Mapping[str, str] | None = None) -> Config: ...
 ```
@@ -86,6 +89,12 @@ resource завершает старт контролируемой ошибко
 | `LLM_NUM_RETRIES` | `llm.num_retries` | `0`, целое число не меньше нуля |
 | `LOG_LEVEL` | `logging.level` | `INFO`; `DEBUG`, `INFO`, `WARNING` или `ERROR` |
 | `LOG_FORMAT` | `logging.format` | `human`; `human` или `json` |
+| `AUTH_JWT_SECRET` | `auth.jwt_secret` | Обязательный секрет HS256 не короче 32 байт |
+| `AUTH_ACCESS_TTL_SECONDS` | `auth.access_ttl_seconds` | `900`, целое число больше нуля |
+| `AUTH_REFRESH_TTL_SECONDS` | `auth.refresh_ttl_seconds` | `2592000` (30 дней), целое число больше нуля |
+| `AUTH_COOKIE_SECURE` | `auth.cookie_secure` | `false`; включать вместе с HTTPS |
+| `DATABASE_URL` | `database.url` | Обязательный URL `postgresql+asyncpg://...` |
+| `REDIS_URL` | `redis.url` | Обязательный URL `redis://` или `rediss://` |
 
 Docker Compose загружает локальный `docker/.env` и передаёт значения процессу
 backend. Python-код не читает `.env` как файл и не использует
@@ -101,10 +110,14 @@ backend. Python-код не читает `.env` как файл и не испо
   настройки адаптера LiteLLM.
 - `LoggingConfig` принадлежит модулю `observability`; формат и поля описаны
   на [странице логирования](./logging.md).
+- `AuthConfig` принадлежит пакету [`auth`](./auth.md), `DatabaseConfig` —
+  [`db`](./database.md), `RedisConfig` — `cache`. Bootstrap передаёт
+  `AuthService` только `config.auth`, engine — только `config.database`,
+  Redis-клиенту — только `config.redis`.
 - Корневой `Config` агрегирует эти модели, но не дублирует их поля.
 - Все модели запрещают неизвестные поля и изменение после создания.
-- API key хранится как `SecretStr` и не раскрывается в строковом представлении
-  конфигурации.
+- API key, JWT-секрет, `DATABASE_URL` и `REDIS_URL` хранятся как `SecretStr` и
+  не раскрываются в строковом представлении конфигурации и ошибках валидации.
 - Невалидная или неполная конфигурация завершает старт до создания
   FastAPI-приложения; production fallback на fake-провайдер отсутствует.
 
@@ -113,6 +126,10 @@ backend. Python-код не читает `.env` как файл и не испо
 `load_config` собирает его из согласованного внешнего источника, а bootstrap
 передаёт компоненту только этот подконфиг. Новые источники, форматы файлов и
 reload во время работы требуют отдельного SDD-изменения.
+
+Команда миграций `python -m smeshariki_ai.db.migrate` также получает
+`DATABASE_URL` через `load_config`, поэтому ей нужен полный environment
+backend.
 
 ## Связанные SDD-артефакты
 

@@ -1,6 +1,6 @@
 import asyncio
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import asynccontextmanager
 from importlib.resources import files
 from uuid import UUID
@@ -9,6 +9,7 @@ from fastapi import APIRouter, FastAPI, HTTPException, Response, status
 from fastapi.responses import HTMLResponse, StreamingResponse
 
 from smeshariki_ai.agent import UserRequest
+from smeshariki_ai.api.auth import install_auth
 from smeshariki_ai.api.schemas import StartDialogResponse, SubmitMessageRequest
 from smeshariki_ai.application import (
     AgentService,
@@ -16,6 +17,7 @@ from smeshariki_ai.application import (
     DialogEvent,
     DialogEventType,
 )
+from smeshariki_ai.auth import AuthService
 from smeshariki_ai.dialogs import DialogNotFoundError
 from smeshariki_ai.observability import RequestLogMiddleware
 
@@ -28,6 +30,9 @@ def create_app(
     agent_service: AgentService,
     *,
     heartbeat_seconds: float = 15.0,
+    auth_service: AuthService | None = None,
+    auth_cookie_secure: bool = False,
+    on_shutdown: Sequence[Callable[[], Awaitable[None]]] = (),
 ) -> FastAPI:
     if heartbeat_seconds <= 0:
         raise ValueError("heartbeat_seconds must be positive")
@@ -35,7 +40,11 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         yield
-        await agent_service.shutdown()
+        try:
+            await agent_service.shutdown()
+        finally:
+            for close in on_shutdown:
+                await close()
 
     app = FastAPI(title="smeshariki-ai", lifespan=lifespan)
     app.add_middleware(RequestLogMiddleware)
@@ -138,6 +147,8 @@ def create_app(
         )
 
     app.include_router(router)
+    if auth_service is not None:
+        install_auth(app, auth_service, cookie_secure=auth_cookie_secure)
     return app
 
 
