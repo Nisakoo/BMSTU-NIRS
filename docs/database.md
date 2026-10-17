@@ -6,16 +6,16 @@ Backend хранит постоянные данные в PostgreSQL 17. Баз�
 зависимость backend: она работает в отдельном Compose-контейнере `postgres`, но
 подключение, схема и миграции принадлежат пакету `smeshariki_ai.db`.
 
-Схема сразу спроектирована с учётом постоянной истории диалогов. Сейчас
-созданы только таблицы аутентификации; `dialogs` и `messages` описаны как
-согласованный план и появятся миграцией отдельного изменения.
+Схема включает таблицы аутентификации (миграция `0001`) и постоянную историю
+диалогов пользователя (миграция `0002`).
 
 | Таблица | Назначение | Состояние |
 | --- | --- | --- |
 | `users` | Учётные записи и роли | Реализовано, миграция `0001` |
 | `refresh_sessions` | Refresh-токены и их ротация | Реализовано, миграция `0001` |
-| `dialogs` | Диалоги пользователя | Запланировано |
-| `messages` | Сообщения диалога | Запланировано |
+| `dialogs` | Диалоги пользователя | Реализовано, миграция `0002` |
+| `messages` | Сообщения диалога | Реализовано, миграция `0002` |
+| `message_feedback` | Оценки ответов ассистента (1–5) | Реализовано, миграции `0003`, `0004` |
 
 ## Где находится реализация
 
@@ -23,6 +23,8 @@ Backend хранит постоянные данные в PostgreSQL 17. Баз�
   таблиц в SQLAlchemy Core;
 - [`db/stores.py`](../backend/src/smeshariki_ai/db/stores.py) —
   `PostgresUserStore` и `PostgresRefreshSessionStore`;
+- [`db/history.py`](../backend/src/smeshariki_ai/db/history.py) —
+  `PostgresHistoryStore` (контракт `HistoryStore` из [диалогов](./dialogs.md));
 - [`db/engine.py`](../backend/src/smeshariki_ai/db/engine.py) — ленивый async
   engine (`asyncpg`);
 - [`db/migrations/`](../backend/src/smeshariki_ai/db/migrations/) — Alembic
@@ -35,8 +37,8 @@ Backend хранит постоянные данные в PostgreSQL 17. Баз�
 ```mermaid
 erDiagram
     users ||--o{ refresh_sessions : "владеет"
-    users ||--o{ dialogs : "владеет (план)"
-    dialogs ||--o{ messages : "содержит (план)"
+    users ||--o{ dialogs : "владеет"
+    dialogs ||--o{ messages : "содержит"
     refresh_sessions |o--o| refresh_sessions : "replaced_by"
 
     users {
@@ -104,7 +106,7 @@ erDiagram
 параллельным запросом, транзакция откатывается и сервис считает это повторным
 использованием токена. Сам refresh-токен в базе не хранится.
 
-### `dialogs` (запланировано)
+### `dialogs`
 
 | Столбец | Тип | Ограничения |
 | --- | --- | --- |
@@ -113,10 +115,12 @@ erDiagram
 | `title` | `text` | `NULL` |
 | `created_at`, `updated_at` | `timestamptz` | `NOT NULL DEFAULT now()` |
 
-Индекс `(user_id, updated_at DESC)` — список диалогов пользователя от новых к
-старым.
+Индекс `ix_dialogs_user_id_updated_at` — `(user_id, updated_at DESC)` для
+списка диалогов пользователя от новых к старым. `title` задаётся из первого
+запроса при первом сохранении сообщений и затем не меняется; `updated_at`
+обновляется при каждом добавлении сообщений.
 
-### `messages` (запланировано)
+### `messages`
 
 | Столбец | Тип | Ограничения |
 | --- | --- | --- |
@@ -128,8 +132,27 @@ erDiagram
 | `created_at` | `timestamptz` | `NOT NULL DEFAULT now()` |
 
 `position` задаёт порядок и делает атомарное добавление пары «пользователь —
-ассистент» проверяемым на конфликт. Как и в текущем `HistoryStore`, tool calls
-и tool results не хранятся.
+ассистент» проверяемым на конфликт (`messages_dialog_id_position_key`).
+Добавление выполняется одной транзакцией: `SELECT ... FOR UPDATE` строки
+диалога сериализует параллельные добавления, новые позиции продолжают
+максимальную, а `updated_at` и `title` диалога обновляются в той же
+транзакции. Tool calls и tool results не хранятся.
+
+### `message_feedback`
+
+| Столбец | Тип | Ограничения |
+| --- | --- | --- |
+| `message_id` | `bigint` | PK, FK `messages(id) ON DELETE CASCADE` |
+| `score` | `smallint` | `NOT NULL`, `CHECK score BETWEEN 1 AND 5` |
+| `created_at`, `updated_at` | `timestamptz` | `NOT NULL DEFAULT now()` |
+
+Балл 1–5 соответствует мордашкам от грустного Ёжика до Кроша в восторге.
+Миграция `0004` заменила столбец `value` (`like`/`dislike`) на `score`,
+перенеся `like` → 5 и `dislike` → 1; её downgrade возвращает `value`
+(3–5 → `like`, 1–2 → `dislike`). Оценка одна на ответ: её ставит владелец диалога, повторная оценка
+заменяет прежнюю (`INSERT ... ON CONFLICT DO UPDATE`), снятие удаляет строку.
+Перед записью хранилище проверяет, что сообщение — ответ ассистента в
+диалоге этого пользователя. Удаление пользователя каскадно удаляет и оценки.
 
 ## Решения
 
@@ -137,9 +160,10 @@ erDiagram
   миграцией ограничения без `ALTER TYPE`.
 - UUID генерирует приложение, поэтому идентификаторы известны до вставки и
   совпадают с уже опубликованным форматом API.
-- Удаление пользователя каскадно удаляет его refresh-сессии, а в будущем —
-  диалоги и сообщения.
-- Ошибки подключения и SQL адаптеры превращают в `AuthUnavailableError`;
+- Удаление пользователя каскадно удаляет его refresh-сессии, диалоги и
+  сообщения.
+- Ошибки подключения и SQL адаптеры аутентификации превращают в
+  `AuthUnavailableError`, адаптер истории — в `DialogStoreUnavailableError`;
   engine создаётся с `hide_parameters=True`, чтобы хеши не попадали в текст
   исключений.
 
@@ -164,5 +188,7 @@ environment, что и backend; Compose передаёт его общим YAML-
 ## SDD-артефакты
 
 - [спецификация](../specs/changes/backend-auth-jwt/spec.md);
+- [спецификация постоянной истории](../specs/changes/user-dialog-history/spec.md),
+  [план](../specs/changes/user-dialog-history/plan.md);
 - [план](../specs/changes/backend-auth-jwt/plan.md),
   [результат проверки](../specs/changes/backend-auth-jwt/verification.md).

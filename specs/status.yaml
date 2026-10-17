@@ -55,3 +55,19 @@ specs:
       status: done
     - name: admin-user-stats
       status: done
+    - name: user-dialog-history
+      status: done
+    - name: login-fullbleed-scene
+      status: done
+    - name: chat-sidebar-layout
+      status: done
+    - name: chat-krosh-empty-state
+      status: done
+    - name: story-length-option
+      status: done
+    - name: answer-feedback
+      status: done
+    - name: answer-rating-faces
+      status: done
+    - name: story-length-picker-style
+      status: done

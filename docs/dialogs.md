@@ -16,7 +16,11 @@ FastAPI-маршруты только валидируют HTTP-ввод и пр
 - [`application/events.py`](../backend/src/smeshariki_ai/application/events.py)
   — типы событий и потребительский контракт подписки;
 - [`dialogs/history.py`](../backend/src/smeshariki_ai/dialogs/history.py) —
-  контракт истории и in-memory реализация;
+  контракт истории и in-memory реализация для тестов;
+- [`dialogs/models.py`](../backend/src/smeshariki_ai/dialogs/models.py) —
+  сводка диалога, сохранённое сообщение и правило названия;
+- [`db/history.py`](../backend/src/smeshariki_ai/db/history.py) —
+  production-реализация `PostgresHistoryStore`;
 - [`api/app.py`](../backend/src/smeshariki_ai/api/app.py) — HTTP-маршруты и
   shutdown lifecycle;
 - [`api/schemas.py`](../backend/src/smeshariki_ai/api/schemas.py) — схемы HTTP-
@@ -42,9 +46,13 @@ AgentService(
     history_store: HistoryStore,
     event_broker: DialogEventBroker,
 )
-await AgentService.start_dialog() -> UUID
-await AgentService.submit(dialog_id: UUID, request: UserRequest) -> None
-await AgentService.subscribe(dialog_id: UUID) -> DialogSubscription
+await AgentService.start_dialog(user_id: UUID) -> UUID
+await AgentService.list_dialogs(user_id: UUID) -> tuple[DialogSummary, ...]
+await AgentService.transcript(user_id: UUID, dialog_id: UUID) -> DialogTranscript
+await AgentService.submit(
+    user_id: UUID, dialog_id: UUID, request: UserRequest
+) -> None
+await AgentService.subscribe(user_id: UUID, dialog_id: UUID) -> DialogSubscription
 await AgentService.unsubscribe(subscription: DialogSubscription) -> None
 await AgentService.shutdown() -> None
 
@@ -54,7 +62,10 @@ await DialogEventBroker.publish(dialog_id: UUID, event: DialogEvent) -> None
 await DialogEventBroker.shutdown() -> None
 ```
 
-`start_dialog` создаёт пустую историю и возвращает UUIDv4. Возврат из `submit`
+`start_dialog` создаёт пустой диалог, принадлежащий пользователю, и возвращает
+UUIDv4. Все операции конкретного диалога получают `user_id` и передают его
+хранилищу: чужой и несуществующий диалог одинаково дают
+`DialogNotFoundError`. `list_dialogs` возвращает не более 50 диалогов. Возврат из `submit`
 означает только то, что фоновая задача создана в текущем процессе; метод не ждёт
 ответа агента.
 
@@ -77,16 +88,29 @@ Production composition root создаёт один `InMemoryDialogEventBroker` 
 будущие события. Брокер не зависит от FastAPI, агента и `HistoryStore`.
 
 ```python
-await HistoryStore.create() -> UUID
-await HistoryStore.get(dialog_id: UUID) -> tuple[Message, ...]
+await HistoryStore.create(owner_id: UUID) -> UUID
+await HistoryStore.get(owner_id: UUID, dialog_id: UUID) -> tuple[Message, ...]
 await HistoryStore.append(
     dialog_id: UUID,
     messages: Sequence[Message],
 ) -> None
+await HistoryStore.list_dialogs(
+    owner_id: UUID, *, limit: int
+) -> tuple[DialogSummary, ...]
+await HistoryStore.transcript(owner_id: UUID, dialog_id: UUID) -> DialogTranscript
 ```
 
 `get` возвращает неизменяемый снимок. `append` атомарно добавляет группу
-сообщений. После успешного запуска сервис сохраняет одной операцией только
+сообщений и обновляет `updated_at`; первое сообщение пользователя задаёт
+название диалога: пробельные последовательности заменяются одним пробелом,
+длинный текст обрезается до 60 символов с `…`, позже название не меняется.
+`list_dialogs` возвращает только диалоги с сообщениями, от недавно
+обновлённых к старым. Сбой хранилища — `DialogStoreUnavailableError`.
+
+Production bootstrap использует `PostgresHistoryStore` на общем с
+аутентификацией engine (схема — в [базе данных](./database.md)); история
+переживает рестарт backend. `InMemoryHistoryStore` поддерживает тот же
+контракт и используется в тестах. После успешного запуска сервис сохраняет одной операцией только
 пользовательское и финальное сообщения ассистента. При ошибке агента история не
 меняется; tool calls и tool results в историю диалога не попадают.
 
@@ -132,7 +156,7 @@ sequenceDiagram
 
 ## HTTP-контракты
 
-Базовый префикс API — `/api/v1`. Все три ручки диалогов требуют
+Базовый префикс API — `/api/v1`. Все ручки диалогов требуют
 действительный access-токен в cookie: без него они отвечают `401`
 `{"error":"unauthorized"}`, при недоступности хранилищ аутентификации — `503`
 `{"error":"unavailable"}`, причём раньше `404` и `422`. Подробности — в
@@ -140,21 +164,28 @@ sequenceDiagram
 
 | Запрос | Успешный ответ | Ошибки |
 | --- | --- | --- |
-| `POST /api/v1/dialogs` без тела | `201 Created`, `Location: /api/v1/dialogs/<uuid>`, JSON `{"dialog_id":"<uuid>"}` | `503 Service Unavailable`, если сервис больше не принимает запросы |
-| `POST /api/v1/dialogs/{dialog_id}/messages` с JSON `{"request":"<непустой текст>"}` | Немедленный `202 Accepted` с пустым телом после создания фоновой задачи | `404 Not Found` для неизвестного диалога; `422 Unprocessable Entity` для некорректного UUID, пустого текста или лишних полей; `503 Service Unavailable`, если задачу нельзя принять |
-| `GET /api/v1/dialogs/{dialog_id}/events` | `200 OK`, `text/event-stream`, начальное `ready`, heartbeat и будущие `message_*` events | `404 Not Found` для неизвестного диалога; `422 Unprocessable Entity` для некорректного UUID; `503 Service Unavailable` после остановки сервиса |
+| `POST /api/v1/dialogs` без тела | `201 Created`, `Location: /api/v1/dialogs/<uuid>`, JSON `{"dialog_id":"<uuid>"}`; владелец — текущий пользователь | `503 Service Unavailable`, если сервис больше не принимает запросы или хранилище недоступно |
+| `POST /api/v1/dialogs/{dialog_id}/messages` с JSON `{"request":"<непустой текст>"}` и необязательным `"reading_minutes": 2\|5\|10` (длина истории в минутах чтения; в историю не сохраняется) | Немедленный `202 Accepted` с пустым телом после создания фоновой задачи | `404 Not Found` для неизвестного или чужого диалога; `422 Unprocessable Entity` для некорректного UUID, пустого текста, лишних полей или `reading_minutes` вне 2/5/10 (включая явный `null`); `503 Service Unavailable`, если задачу нельзя принять |
+| `GET /api/v1/dialogs` | `200 OK`, JSON `{"dialogs":[{"dialog_id","title","created_at","updated_at"}]}`: до 50 непустых диалогов пользователя от недавно обновлённых | `503 Service Unavailable` при сбое хранилища |
+| `GET /api/v1/dialogs/{dialog_id}/messages` | `200 OK`, JSON `{"dialog_id","title","messages":[{"id","role","content","created_at","feedback"}]}` в порядке сообщений (`id` — число, `feedback` — целый балл 1–5 или `null`); у нового диалога `title` равен `null`, `messages` пуст | `404 Not Found` для неизвестного или чужого диалога; `422` для некорректного UUID; `503` при сбое хранилища |
+| `PUT /api/v1/dialogs/{dialog_id}/messages/{message_id}/feedback` с JSON `{"score": 1–5}` (строгое целое); `DELETE` по тому же адресу | `204 No Content`: оценка поставлена, изменена или снята (снятие отсутствующей оценки тоже `204`) | `404 {"detail":"Message not found."}` для чужого или несуществующего диалога, несуществующего сообщения, сообщения другого диалога и сообщения пользователя; `422` для некорректного `message_id` или тела; `503` при сбое хранилища |
+| `GET /api/v1/dialogs/{dialog_id}/events` | `200 OK`, `text/event-stream`, начальное `ready`, heartbeat и будущие `message_*` events | `404 Not Found` для неизвестного или чужого диалога; `422 Unprocessable Entity` для некорректного UUID; `503 Service Unavailable` после остановки сервиса или при сбое хранилища |
 | `GET /agent_test` | `200 OK`, один самодостаточный HTML с тестовым чатом | Стандартная ошибка FastAPI при недоступности приложения |
 
-`dialog_id` всегда передаётся в URL и не является средством авторизации;
-диалоги пока не привязаны к пользователю. Cookie
-для выбора диалога не создаются и не читаются.
+`dialog_id` всегда передаётся в URL и не является средством авторизации:
+диалог принадлежит создавшему его пользователю, и для чужого диалога все
+ручки отвечают `404 {"detail":"Dialog not found."}`, не раскрывая его
+существование; роль `admin` доступа к чужим диалогам не даёт. При сбое
+PostgreSQL ручки диалогов отвечают `503 {"detail":"Agent service is
+unavailable."}`. Время в ответах — ISO 8601 в UTC. Cookie для выбора диалога
+не создаются и не читаются.
 
 SSE events содержат JSON: `ready` передаёт `dialog_id`, `message_delta` —
 непустой `delta`, `message_error` — безопасные `code` и `message`, а
-`message_start` и `message_end` используют пустой объект. Tool calls, tool
+`message_start` использует пустой объект, а `message_end` — `{"message_id": <id>}`
+сохранённого ответа ассистента, чтобы его можно было сразу оценить. Tool calls, tool
 results и история через поток не выдаются. `Last-Event-ID` не поддерживается:
-после переподключения replay отсутствует. API чтения истории и CORS middleware
-по-прежнему не реализованы.
+после переподключения replay отсутствует. CORS middleware не реализован.
 
 `/agent_test` открыт без входа, но его запросы к API требуют сессию из
 `/login/` на том же origin. Страница создаёт новый диалог, открывает `EventSource`, отправляет сообщения
@@ -187,7 +218,11 @@ flowchart LR
 ```
 
 При загрузке страницы frontend создаёт новый диалог, открывает один
-`EventSource` и блокирует форму до `ready`. При ошибке создания диалога
+`EventSource`, блокирует форму до `ready` и загружает список историй
+`GET /api/v1/dialogs` для боковой панели. Выбор истории загружает
+`GET /api/v1/dialogs/{dialog_id}/messages` и переключает `EventSource` на
+выбранный диалог только после успешной загрузки; после `message_end` список
+перезагружается. При ошибке создания диалога
 frontend оставляет форму заблокированной и повторяет запрос через три секунды;
 после успешного создания повтор прекращается. После успешного `202 Accepted`
 пользовательское сообщение добавляется в чат, а события `message_delta`
@@ -195,8 +230,9 @@ frontend оставляет форму заблокированной и пов�
 буферизуются, чтобы ответ агента не оказался выше сообщения пользователя.
 Одновременно допускается только один незавершённый запрос.
 
-Пользовательский текст, delta и сообщения ошибок добавляются через
-`textContent`. `dialog_id` не сохраняется в cookie или `localStorage`; полная
+Пользовательский текст, delta, названия историй и сообщения ошибок
+добавляются через `textContent`. `dialog_id` не сохраняется в cookie,
+`localStorage` или URL; полная
 перезагрузка создаёт новый диалог. Ошибка EventSource блокирует форму, пока
 браузер пытается переподключиться, но потерянные события не восстанавливаются,
 так как backend не поддерживает replay.
@@ -212,9 +248,9 @@ frontend оставляет форму заблокированной и пов�
 При штатном shutdown сервис прекращает принимать новые запросы, отменяет все
 отслеживаемые фоновые задачи и ожидает их завершения, после чего вызывает
 `DialogEventBroker.shutdown()`. Брокер закрывает подписки и разблокирует
-ожидающих потребителей. Повторные unsubscribe и shutdown безопасны. История,
-очереди и события находятся только в памяти процесса и после перезапуска
-теряются.
+ожидающих потребителей. Повторные unsubscribe и shutdown безопасны. История
+диалогов хранится в PostgreSQL, а очереди запусков и SSE-события находятся
+только в памяти процесса и после перезапуска теряются.
 
 ## Где искать подробности
 
@@ -233,4 +269,7 @@ frontend оставляет форму заблокированной и пов�
 - [спецификация frontend-интеграции](../specs/changes/frontend-agent-integration/spec.md);
 - [план frontend-интеграции](../specs/changes/frontend-agent-integration/plan.md);
 - [результат проверки frontend-интеграции](../specs/changes/frontend-agent-integration/verification.md);
+- [спецификация постоянной истории](../specs/changes/user-dialog-history/spec.md);
+- [план постоянной истории](../specs/changes/user-dialog-history/plan.md);
+- [результат проверки постоянной истории](../specs/changes/user-dialog-history/verification.md);
 - [запуск и тестовые HTTP-запросы](../docker/README.md).
