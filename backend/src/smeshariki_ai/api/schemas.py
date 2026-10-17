@@ -1,4 +1,5 @@
-from typing import Annotated
+from datetime import datetime
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, StringConstraints
@@ -16,3 +17,27 @@ class StartDialogResponse(ApiModel):
 
 class SubmitMessageRequest(ApiModel):
     request: RequestText
+
+
+class DialogSummaryResponse(ApiModel):
+    dialog_id: UUID
+    title: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class DialogListResponse(ApiModel):
+    items: list[DialogSummaryResponse]
+    next_cursor: str | None
+
+
+class StoredMessageResponse(ApiModel):
+    role: Literal["user", "assistant"]
+    content: str
+    created_at: datetime
+
+
+class DialogMessagesResponse(ApiModel):
+    dialog_id: UUID
+    title: str | None
+    messages: list[StoredMessageResponse]

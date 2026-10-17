@@ -29,7 +29,8 @@ from smeshariki_ai.bootstrap import (
 )
 from smeshariki_ai.cache import RedisAttemptLimiter, RedisConfig
 from smeshariki_ai.config import Config
-from smeshariki_ai.db import DatabaseConfig
+from smeshariki_ai.db import DatabaseConfig, PostgresHistoryStore
+from smeshariki_ai.dialogs import InMemoryHistoryStore
 from smeshariki_ai.observability import LoggingConfig
 
 
@@ -52,6 +53,7 @@ def test_bootstrap_builds_service_with_explicit_provider() -> None:
 
     assert isinstance(service, AgentService)
     assert isinstance(service._event_broker, InMemoryDialogEventBroker)
+    assert isinstance(service._history_store, InMemoryHistoryStore)
     assert isinstance(app, FastAPI)
     assert app.title == "smeshariki-ai"
     assert isinstance(app.state.agent_service, AgentService)
@@ -194,6 +196,9 @@ async def test_create_application_wires_auth_and_closes_infrastructure(
     app = create_application(config, llm_provider=FakeLLMProvider())
 
     assert received == {"database": config.database, "redis": config.redis}
+    history_store = app.state.agent_service._history_store
+    assert isinstance(history_store, PostgresHistoryStore)
+    assert history_store._engine is app.state.auth_service._users._engine
     assert isinstance(app.state.auth_service, AuthService)
     assert isinstance(app.state.auth_service._limiter, RedisAttemptLimiter)
     async with httpx.AsyncClient(
@@ -228,3 +233,4 @@ def test_create_application_accepts_explicit_auth_service(
     )
 
     assert app.state.auth_service is auth_service
+    assert isinstance(app.state.agent_service._history_store, InMemoryHistoryStore)

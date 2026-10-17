@@ -5,15 +5,19 @@ truth for the database itself.
 """
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     Column,
     DateTime,
     ForeignKey,
+    Identity,
     Index,
+    Integer,
     LargeBinary,
     MetaData,
     Table,
     Text,
+    UniqueConstraint,
     Uuid,
     func,
     text,
@@ -61,4 +65,48 @@ refresh_sessions = Table(
         ForeignKey("refresh_sessions.id", ondelete="SET NULL"),
         nullable=True,
     ),
+)
+
+dialogs = Table(
+    "dialogs",
+    metadata,
+    Column("id", Uuid, primary_key=True),
+    Column(
+        "user_id",
+        Uuid,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("title", Text, nullable=True),
+    Column(
+        "created_at", DateTime(timezone=True), nullable=False, server_default=func.now()
+    ),
+    Column(
+        "updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()
+    ),
+)
+Index(
+    "dialogs_user_id_updated_at_idx",
+    dialogs.c.user_id,
+    dialogs.c.updated_at.desc(),
+)
+
+messages = Table(
+    "messages",
+    metadata,
+    Column("id", BigInteger, Identity(always=True), primary_key=True),
+    Column(
+        "dialog_id",
+        Uuid,
+        ForeignKey("dialogs.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("position", Integer, nullable=False),
+    Column("role", Text, nullable=False),
+    Column("content", Text, nullable=False),
+    Column(
+        "created_at", DateTime(timezone=True), nullable=False, server_default=func.now()
+    ),
+    UniqueConstraint("dialog_id", "position", name="messages_dialog_id_position_key"),
+    CheckConstraint("role IN ('user', 'assistant')", name="messages_role_valid"),
 )

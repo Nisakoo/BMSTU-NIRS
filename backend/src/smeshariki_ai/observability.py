@@ -55,6 +55,7 @@ _SAFE_FIELDS = frozenset(
         "total_tokens",
         "user_id",
         "limit",
+        "draft",
     }
 )
 _BASE_FIELDS = ("timestamp", "level", "logger", "event", *_CONTEXT_NAMES)

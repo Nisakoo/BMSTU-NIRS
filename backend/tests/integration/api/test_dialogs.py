@@ -28,7 +28,11 @@ from smeshariki_ai.application import (
     AgentServiceUnavailableError,
     InMemoryDialogEventBroker,
 )
-from smeshariki_ai.dialogs import InMemoryHistoryStore
+from smeshariki_ai.dialogs import (
+    DialogDrafts,
+    DialogNotFoundError,
+    InMemoryHistoryStore,
+)
 from smeshariki_ai.observability import EventFormatter
 
 
@@ -80,7 +84,11 @@ async def wait_for_history_size(
 ) -> tuple[Message, ...]:
     async def wait() -> tuple[Message, ...]:
         while True:
-            history = await store.get(dialog_id)
+            try:
+                history = await store.get(dialog_id)
+            except DialogNotFoundError:
+                # A draft is not stored until its first answer.
+                history = ()
             if len(history) == expected_size:
                 return history
             await asyncio.sleep(0)
@@ -105,7 +113,7 @@ async def test_create_dialog_returns_201_uuid4_and_location() -> None:
     assert UUID(response.headers["x-request-id"]).version == 4
     assert "set-cookie" not in response.headers
     assert "access-control-allow-origin" not in response.headers
-    assert await store.get(dialog_id) == ()
+    assert await store.list(TEST_USER.id, 10, None) == ()
     await service.shutdown()
 
 
@@ -132,7 +140,7 @@ async def test_message_returns_empty_202_before_agent_finishes() -> None:
     assert response.content == b""
     assert "content-type" not in response.headers
     assert not agent.release.is_set()
-    assert await store.get(dialog_id) == ()
+    assert await store.list(TEST_USER.id, 10, None) == ()
 
     agent.release.set()
     history = await wait_for_history_size(store, dialog_id, 2)
@@ -200,8 +208,8 @@ async def test_json_logs_link_http_request_and_background_run() -> None:
 async def test_unhandled_api_error_returns_request_id_without_private_exception() -> (
     None
 ):
-    class FailingStore(InMemoryHistoryStore):
-        async def create(self, owner_id: UUID) -> UUID:
+    class FailingDrafts(DialogDrafts):
+        def create(self, owner_id: UUID) -> UUID:
             raise RuntimeError("private failure detail")
 
     logger = logging.getLogger("smeshariki_ai")
@@ -211,7 +219,12 @@ async def test_unhandled_api_error_returns_request_id_without_private_exception(
     handler.setFormatter(EventFormatter("json"))
     logger.addHandler(handler)
     logger.setLevel(logging.INFO)
-    service = AgentService(BlockingAgent(), FailingStore(), InMemoryDialogEventBroker())
+    service = AgentService(
+        BlockingAgent(),
+        InMemoryHistoryStore(),
+        InMemoryDialogEventBroker(),
+        drafts=FailingDrafts(),
+    )
     client = make_client(service)
     try:
         async with client:
@@ -372,7 +385,10 @@ async def test_created_dialog_belongs_to_authenticated_user() -> None:
     async with client:
         response = await client.post("/api/v1/dialogs")
 
-    assert await store.owner(UUID(response.json()["dialog_id"])) == TEST_USER.id
+    dialog_id = UUID(response.json()["dialog_id"])
+    assert (await service.get_dialog(dialog_id, TEST_USER.id)).messages == ()
+    with pytest.raises(DialogNotFoundError):
+        await service.get_dialog(dialog_id, UUID(int=2))
     await service.shutdown()
 
 
@@ -405,7 +421,7 @@ async def test_foreign_dialog_is_indistinguishable_from_missing(
         assert response.status_code == 404
         assert response.json() == {"detail": "Dialog not found."}
     assert agent.calls == []
-    assert await store.get(dialog_id) == ()
+    assert await store.list(TEST_USER.id, 10, None) == ()
     denied = [
         record
         for record in caplog.records

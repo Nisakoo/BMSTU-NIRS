@@ -165,3 +165,66 @@ async def test_concurrent_operations_keep_subscribers_consistent() -> None:
     )
     assert all(subscription.closed for subscription in subscriptions)
     await broker.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_close_dialog_delivers_queued_events_then_closes_only_that_dialog() -> (
+    None
+):
+    broker = InMemoryDialogEventBroker()
+    dialog_id = uuid4()
+    other_dialog_id = uuid4()
+    first = await broker.subscribe(dialog_id)
+    second = await broker.subscribe(dialog_id)
+    other = await broker.subscribe(other_dialog_id)
+    error = DialogEvent(
+        type=DialogEventType.MESSAGE_ERROR, code="agent_error", message="failed"
+    )
+    after = DialogEvent(type=DialogEventType.MESSAGE_END)
+
+    await broker.publish(dialog_id, error)
+    await broker.close_dialog(dialog_id)
+    await broker.publish(dialog_id, after)
+    await broker.publish(other_dialog_id, after)
+
+    for subscription in (first, second):
+        assert await subscription.receive() == error
+        assert await subscription.receive() is None
+        assert subscription.closed
+    assert not other.closed
+    assert await other.receive() == after
+    await broker.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_close_dialog_is_idempotent_and_safe_after_shutdown() -> None:
+    broker = InMemoryDialogEventBroker()
+    dialog_id = uuid4()
+    subscription = await broker.subscribe(dialog_id)
+
+    await broker.close_dialog(dialog_id)
+    await broker.close_dialog(dialog_id)
+    await broker.close_dialog(uuid4())
+    await broker.unsubscribe(subscription)
+    await broker.shutdown()
+    await broker.close_dialog(dialog_id)
+
+    assert subscription.closed
+
+
+@pytest.mark.asyncio
+async def test_close_dialog_logs_without_event_content(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="smeshariki_ai.application.event_broker")
+    broker = InMemoryDialogEventBroker()
+    dialog_id = uuid4()
+    await broker.subscribe(dialog_id)
+
+    await broker.close_dialog(dialog_id)
+
+    (record,) = caplog.records
+    assert record.getMessage().startswith("dialog.subscription.closed ")
+    assert record.reason == "dialog_closed"
+    assert record.dialog_id == str(dialog_id)
+    await broker.shutdown()
