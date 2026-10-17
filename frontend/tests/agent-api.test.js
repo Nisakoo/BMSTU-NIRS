@@ -200,3 +200,143 @@ test("connectEvents parses and dispatches every named SSE event", () => {
   connection.close();
   assert.equal(source.closed, true);
 });
+
+function apiWith(handler) {
+  const calls = [];
+  const api = new AgentApi({
+    fetchImpl: async (...args) => {
+      calls.push(args);
+      return handler(...args);
+    },
+    EventSourceImpl: FakeEventSource,
+  });
+  return { api, calls };
+}
+
+async function rejectsWith(promise, code) {
+  await assert.rejects(promise, error => error instanceof AgentApiError && error.code === code);
+}
+
+test("listDialogs reads the dialog collection into summaries", async () => {
+  const { api, calls } = apiWith(() => response(200, {
+    dialogs: [
+      { dialog_id: "d-2", title: "Ракета", created_at: "2026-10-17T10:00:00Z", updated_at: "2026-10-17T11:00:00Z" },
+      { dialog_id: "d-1", title: null, created_at: "2026-10-16T10:00:00Z", updated_at: "2026-10-16T10:00:00Z" },
+    ],
+  }));
+
+  assert.deepEqual(await api.listDialogs(), [
+    { dialogId: "d-2", title: "Ракета", updatedAt: "2026-10-17T11:00:00Z" },
+    { dialogId: "d-1", title: null, updatedAt: "2026-10-16T10:00:00Z" },
+  ]);
+  assert.deepEqual(calls, [["/api/v1/dialogs"]]);
+});
+
+test("getMessages reads an encoded dialog history", async () => {
+  const { api, calls } = apiWith(() => response(200, {
+    dialog_id: "a/b",
+    title: "Ракета",
+    messages: [
+      { id: 1, role: "user", content: "Крош", created_at: "2026-10-17T10:00:00Z", feedback: null },
+      { id: 2, role: "assistant", content: "Однажды…", created_at: "2026-10-17T10:00:01Z", feedback: 5 },
+    ],
+  }));
+
+  assert.deepEqual(await api.getMessages("a/b"), {
+    title: "Ракета",
+    messages: [
+      { id: 1, role: "user", content: "Крош", feedback: null },
+      { id: 2, role: "assistant", content: "Однажды…", feedback: 5 },
+    ],
+  });
+  assert.deepEqual(calls, [["/api/v1/dialogs/a%2Fb/messages"]]);
+});
+
+test("history requests map statuses to error codes", async () => {
+  const cases = [[401, "unauthorized"], [404, "not_found"], [503, "load_failed"], [500, "load_failed"]];
+  for (const [status, code] of cases) {
+    const { api } = apiWith(() => response(status, { detail: "private" }));
+    await rejectsWith(api.listDialogs(), status === 404 ? "load_failed" : code);
+    await rejectsWith(api.getMessages("d-1"), code);
+  }
+  const offline = apiWith(() => { throw new TypeError("offline"); }).api;
+  await rejectsWith(offline.listDialogs(), "load_failed");
+  await rejectsWith(offline.getMessages("d-1"), "load_failed");
+});
+
+test("history requests reject malformed bodies", async () => {
+  const bodies = [
+    null,
+    { dialogs: "nope" },
+    { dialogs: [{ dialog_id: "", title: null, updated_at: "x" }] },
+    { dialogs: [{ dialog_id: "d", title: 5, updated_at: "x" }] },
+  ];
+  for (const body of bodies) {
+    await rejectsWith(apiWith(() => response(200, body)).api.listDialogs(), "invalid_response");
+  }
+  const transcripts = [
+    null,
+    { title: null, messages: "nope" },
+    { title: null, messages: [{ id: 1, role: "tool", content: "x", feedback: null }] },
+    { title: null, messages: [{ id: 1, role: "user", content: 5, feedback: null }] },
+    { title: null, messages: [{ id: "1", role: "user", content: "x", feedback: null }] },
+    { title: null, messages: [{ id: 1.5, role: "user", content: "x", feedback: null }] },
+    { title: null, messages: [{ id: 1, role: "assistant", content: "x", feedback: "like" }] },
+    { title: null, messages: [{ id: 1, role: "assistant", content: "x", feedback: 0 }] },
+    { title: null, messages: [{ id: 1, role: "assistant", content: "x", feedback: 6 }] },
+    { title: null, messages: [{ id: 1, role: "assistant", content: "x", feedback: 2.5 }] },
+    { title: null, messages: [{ id: 1, role: "assistant", content: "x", feedback: true }] },
+    { title: 7, messages: [] },
+  ];
+  for (const body of transcripts) {
+    await rejectsWith(apiWith(() => response(200, body)).api.getMessages("d"), "invalid_response");
+  }
+  const broken = apiWith(() => ({ status: 200, async json() { throw new SyntaxError("bad"); } })).api;
+  await rejectsWith(broken.listDialogs(), "invalid_response");
+});
+
+test("submitMessage adds the reading time only when it is chosen", async () => {
+  const { api, calls } = apiWith(() => response(202));
+
+  await api.submitMessage("d-1", "Крош", { readingMinutes: 5 });
+  await api.submitMessage("d-1", "Крош", { readingMinutes: null });
+  await api.submitMessage("d-1", "Крош");
+
+  assert.deepEqual(calls.map(([, init]) => JSON.parse(init.body)), [
+    { request: "Крош", reading_minutes: 5 },
+    { request: "Крош" },
+    { request: "Крош" },
+  ]);
+});
+
+test("feedback is put or deleted for an encoded answer", async () => {
+  const { api, calls } = apiWith(() => response(204));
+
+  await api.setFeedback("a/b", 7, 5);
+  await api.setFeedback("a/b", 7, 1);
+  await api.clearFeedback("a/b", 7);
+
+  assert.deepEqual(calls, [
+    ["/api/v1/dialogs/a%2Fb/messages/7/feedback", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ score: 5 }),
+    }],
+    ["/api/v1/dialogs/a%2Fb/messages/7/feedback", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ score: 1 }),
+    }],
+    ["/api/v1/dialogs/a%2Fb/messages/7/feedback", { method: "DELETE" }],
+  ]);
+});
+
+test("feedback requests map statuses to error codes", async () => {
+  for (const [status, code] of [[401, "unauthorized"], [404, "not_found"], [503, "feedback_failed"], [200, "feedback_failed"]]) {
+    const { api } = apiWith(() => response(status));
+    await rejectsWith(api.setFeedback("d", 1, 3), code);
+    await rejectsWith(api.clearFeedback("d", 1), code);
+  }
+  const offline = apiWith(() => { throw new TypeError("offline"); }).api;
+  await rejectsWith(offline.setFeedback("d", 1, 3), "feedback_failed");
+});
