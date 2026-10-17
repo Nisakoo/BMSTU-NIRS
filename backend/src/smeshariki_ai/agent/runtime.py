@@ -51,9 +51,11 @@ class Agent:
             "agent.run.started",
             history_size=len(history),
             max_iterations=self._config.max_iterations,
+            reading_minutes=request.reading_minutes,
         )
         context = [
             Message(role=MessageRole.SYSTEM, content=self._config.system_prompt),
+            *_length_instruction(request),
             *history,
             Message(role=MessageRole.USER, content=request.content),
         ]
@@ -222,3 +224,23 @@ class Agent:
         if not has_content and tool_call_count == 1:
             return LLMResultType.TOOL_CALL
         return LLMResultType.INVALID
+
+
+WORDS_PER_MINUTE = 150
+
+
+def _length_instruction(request: UserRequest) -> tuple[Message, ...]:
+    """A per-request system note on story length; never stored in history."""
+
+    if request.reading_minutes is None:
+        return ()
+    minutes = request.reading_minutes
+    return (
+        Message(
+            role=MessageRole.SYSTEM,
+            content=(
+                f"Объём ответа: история примерно на {minutes} минут чтения — "
+                f"около {minutes * WORDS_PER_MINUTE} слов."
+            ),
+        ),
+    )

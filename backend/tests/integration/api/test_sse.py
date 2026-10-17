@@ -4,7 +4,7 @@ from uuid import uuid4
 
 import httpx
 import pytest
-from api_auth_support import AUTH_COOKIES, static_auth_service
+from api_auth_support import AUTH_COOKIES, TEST_USER, static_auth_service
 
 from smeshariki_ai.agent import (
     AgentResponse,
@@ -51,13 +51,13 @@ def make_client(
 async def test_sse_stream_returns_ready_and_ordered_message_events() -> None:
     store = InMemoryHistoryStore()
     service = AgentService(StreamingAgent(), store, InMemoryDialogEventBroker())
-    dialog_id = await service.start_dialog()
+    dialog_id = await service.start_dialog(TEST_USER.id)
     client = make_client(service)
 
     async def drive_dialog() -> None:
         await asyncio.sleep(0)
-        await service.submit(dialog_id, UserRequest(content="question"))
-        while len(await store.get(dialog_id)) != 2:
+        await service.submit(TEST_USER.id, dialog_id, UserRequest(content="question"))
+        while len(await store.get(TEST_USER.id, dialog_id)) != 2:
             await asyncio.sleep(0)
         await service.shutdown()
 
@@ -74,7 +74,7 @@ async def test_sse_stream_returns_ready_and_ordered_message_events() -> None:
         "event: message_start\ndata: {}",
         'event: message_delta\ndata: {"delta":"Привет"}',
         'event: message_delta\ndata: {"delta":", Крош!"}',
-        "event: message_end\ndata: {}",
+        'event: message_end\ndata: {"message_id":2}',
     ]
 
 
@@ -85,7 +85,7 @@ async def test_sse_sends_heartbeat_while_dialog_is_idle() -> None:
         InMemoryHistoryStore(),
         InMemoryDialogEventBroker(),
     )
-    dialog_id = await service.start_dialog()
+    dialog_id = await service.start_dialog(TEST_USER.id)
     client = make_client(service, heartbeat_seconds=0.001)
 
     async def stop_service() -> None:
@@ -133,7 +133,7 @@ async def test_sse_rejects_subscription_after_shutdown() -> None:
         InMemoryHistoryStore(),
         InMemoryDialogEventBroker(),
     )
-    dialog_id = await service.start_dialog()
+    dialog_id = await service.start_dialog(TEST_USER.id)
     await service.shutdown()
     client = make_client(service)
 

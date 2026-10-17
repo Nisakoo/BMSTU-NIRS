@@ -1,5 +1,6 @@
 from smeshariki_ai.admin.models import (
     AdminStatsUnavailableError,
+    FeedbackStats,
     RecentUser,
     RecentUserStats,
     StatsPeriod,
@@ -14,6 +15,7 @@ __all__ = [
     "AdminStatsService",
     "AdminStatsStore",
     "AdminStatsUnavailableError",
+    "FeedbackStats",
     "RecentUser",
     "RecentUserStats",
     "StatsPeriod",

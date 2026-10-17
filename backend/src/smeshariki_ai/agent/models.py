@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
@@ -32,8 +32,13 @@ class ToolCall(AgentModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
 
 
+ReadingMinutes = Literal[2, 5, 10]
+
+
 class UserRequest(AgentModel):
     content: NonEmptyString
+    # Desired story length in minutes of reading; None leaves it to the model.
+    reading_minutes: ReadingMinutes | None = None
 
 
 class AgentConfig(AgentModel):

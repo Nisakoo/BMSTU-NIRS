@@ -29,7 +29,8 @@ from smeshariki_ai.bootstrap import (
 )
 from smeshariki_ai.cache import RedisConfig
 from smeshariki_ai.config import Config
-from smeshariki_ai.db import DatabaseConfig
+from smeshariki_ai.db import DatabaseConfig, PostgresHistoryStore
+from smeshariki_ai.dialogs import InMemoryHistoryStore
 from smeshariki_ai.observability import LoggingConfig
 
 
@@ -58,6 +59,30 @@ def test_bootstrap_builds_service_with_explicit_provider() -> None:
     assert [
         definition.name for definition in service._agent._tool_registry.definitions
     ] == ["get_context"]
+
+
+def test_production_application_keeps_history_in_postgres() -> None:
+    config = make_config()
+    provider = FakeLLMProvider()
+
+    production = create_application(config, llm_provider=provider)
+    with_auth = create_application(
+        config,
+        llm_provider=provider,
+        auth_service=AuthService(
+            users=InMemoryUserStore(),
+            sessions=InMemoryRefreshSessionStore(),
+            blacklist=InMemoryTokenBlacklist(),
+            config=config.auth,
+        ),
+    )
+
+    assert isinstance(
+        production.state.agent_service._history_store, PostgresHistoryStore
+    )
+    assert isinstance(
+        with_auth.state.agent_service._history_store, InMemoryHistoryStore
+    )
 
 
 def test_bootstrap_passes_exact_component_configs(

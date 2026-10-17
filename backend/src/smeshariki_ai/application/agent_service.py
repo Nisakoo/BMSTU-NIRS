@@ -20,10 +20,16 @@ from smeshariki_ai.application.events import (
     DialogEventType,
     DialogSubscription,
 )
-from smeshariki_ai.dialogs import HistoryStore
+from smeshariki_ai.dialogs import (
+    DialogSummary,
+    DialogTranscript,
+    HistoryStore,
+)
 from smeshariki_ai.observability import bind_context, log_event, utc_now
 
 logger = logging.getLogger(__name__)
+
+DIALOG_LIST_LIMIT = 50
 
 
 class AgentRunner(Protocol):
@@ -49,23 +55,60 @@ class AgentService:
         self._dialog_tails: dict[UUID, asyncio.Task[None]] = {}
         self._tasks: set[asyncio.Task[None]] = set()
 
-    async def start_dialog(self) -> UUID:
+    async def start_dialog(self, user_id: UUID) -> UUID:
         async with self._state_lock:
             self._ensure_accepting()
-            dialog_id = await self._history_store.create()
+            dialog_id = await self._history_store.create(user_id)
 
         log_event(logger, logging.INFO, "dialog.created", dialog_id=str(dialog_id))
         return dialog_id
 
-    async def submit(self, dialog_id: UUID, request: UserRequest) -> None:
-        await self._history_store.get(dialog_id)
+    async def list_dialogs(self, user_id: UUID) -> tuple[DialogSummary, ...]:
+        return await self._history_store.list_dialogs(user_id, limit=DIALOG_LIST_LIMIT)
+
+    async def transcript(self, user_id: UUID, dialog_id: UUID) -> DialogTranscript:
+        return await self._history_store.transcript(user_id, dialog_id)
+
+    async def set_feedback(
+        self,
+        user_id: UUID,
+        dialog_id: UUID,
+        message_id: int,
+        score: int,
+    ) -> None:
+        await self._history_store.set_feedback(user_id, dialog_id, message_id, score)
+        log_event(
+            logger,
+            logging.INFO,
+            "dialog.feedback.set",
+            dialog_id=str(dialog_id),
+            message_id=message_id,
+            score=score,
+        )
+
+    async def clear_feedback(
+        self, user_id: UUID, dialog_id: UUID, message_id: int
+    ) -> None:
+        await self._history_store.clear_feedback(user_id, dialog_id, message_id)
+        log_event(
+            logger,
+            logging.INFO,
+            "dialog.feedback.cleared",
+            dialog_id=str(dialog_id),
+            message_id=message_id,
+        )
+
+    async def submit(
+        self, user_id: UUID, dialog_id: UUID, request: UserRequest
+    ) -> None:
+        await self._history_store.get(user_id, dialog_id)
 
         async with self._state_lock:
             self._ensure_accepting()
             previous_task = self._dialog_tails.get(dialog_id)
             with bind_context(dialog_id=str(dialog_id)):
                 task = asyncio.create_task(
-                    self._run_after(previous_task, dialog_id, request),
+                    self._run_after(previous_task, user_id, dialog_id, request),
                     name=f"agent-dialog-{dialog_id}",
                 )
             self._dialog_tails[dialog_id] = task
@@ -81,8 +124,8 @@ class AgentService:
             logger, logging.INFO, "dialog.request.accepted", dialog_id=str(dialog_id)
         )
 
-    async def subscribe(self, dialog_id: UUID) -> DialogSubscription:
-        await self._history_store.get(dialog_id)
+    async def subscribe(self, user_id: UUID, dialog_id: UUID) -> DialogSubscription:
+        await self._history_store.get(user_id, dialog_id)
         async with self._state_lock:
             self._ensure_accepting()
             subscription = await self._event_broker.subscribe(dialog_id)
@@ -117,6 +160,7 @@ class AgentService:
     async def _run_after(
         self,
         previous_task: asyncio.Task[None] | None,
+        user_id: UUID,
         dialog_id: UUID,
         request: UserRequest,
     ) -> None:
@@ -133,7 +177,7 @@ class AgentService:
                 dialog_id,
                 DialogEvent(type=DialogEventType.MESSAGE_START),
             )
-            history = await self._history_store.get(dialog_id)
+            history = await self._history_store.get(user_id, dialog_id)
             response: AgentResponse | None = None
             async for event in self._agent.run(history, request):
                 if isinstance(event, AgentTextDelta):
@@ -149,7 +193,7 @@ class AgentService:
 
             if response is None:
                 raise RuntimeError("Agent stream ended without a response.")
-            await self._history_store.append(
+            message_ids = await self._history_store.append(
                 dialog_id,
                 (
                     Message(role=MessageRole.USER, content=request.content),
@@ -164,7 +208,9 @@ class AgentService:
             )
             await self._event_broker.publish(
                 dialog_id,
-                DialogEvent(type=DialogEventType.MESSAGE_END),
+                DialogEvent(
+                    type=DialogEventType.MESSAGE_END, message_id=message_ids[-1]
+                ),
             )
             log_event(
                 logger,

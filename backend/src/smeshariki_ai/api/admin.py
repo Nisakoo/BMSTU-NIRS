@@ -53,6 +53,11 @@ def _stats_body(stats: UserStats) -> dict[str, Any]:
             }
             for entry in stats.recent_users
         ],
+        "feedback": {
+            "answers_total": stats.feedback.answers_total,
+            "rated_answers": stats.feedback.rated_answers,
+            "counts": list(stats.feedback.counts),
+        },
     }
 
 

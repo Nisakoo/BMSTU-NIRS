@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 
 import httpx
 import pytest
-from api_auth_support import AUTH_COOKIES, static_auth_service
+from api_auth_support import AUTH_COOKIES, TEST_USER, static_auth_service
 
 from smeshariki_ai.agent import (
     AgentResponse,
@@ -74,7 +74,7 @@ async def wait_for_history_size(
 ) -> tuple[Message, ...]:
     async def wait() -> tuple[Message, ...]:
         while True:
-            history = await store.get(dialog_id)
+            history = await store.get(TEST_USER.id, dialog_id)
             if len(history) == expected_size:
                 return history
             await asyncio.sleep(0)
@@ -99,7 +99,7 @@ async def test_create_dialog_returns_201_uuid4_and_location() -> None:
     assert UUID(response.headers["x-request-id"]).version == 4
     assert "set-cookie" not in response.headers
     assert "access-control-allow-origin" not in response.headers
-    assert await store.get(dialog_id) == ()
+    assert await store.get(TEST_USER.id, dialog_id) == ()
     await service.shutdown()
 
 
@@ -108,7 +108,7 @@ async def test_message_returns_empty_202_before_agent_finishes() -> None:
     agent = BlockingAgent(response="")
     store = InMemoryHistoryStore()
     service = make_service(agent, store)
-    dialog_id = await service.start_dialog()
+    dialog_id = await service.start_dialog(TEST_USER.id)
     client = make_client(service)
 
     async with client:
@@ -126,7 +126,7 @@ async def test_message_returns_empty_202_before_agent_finishes() -> None:
     assert response.content == b""
     assert "content-type" not in response.headers
     assert not agent.release.is_set()
-    assert await store.get(dialog_id) == ()
+    assert await store.get(TEST_USER.id, dialog_id) == ()
 
     agent.release.set()
     history = await wait_for_history_size(store, dialog_id, 2)
@@ -146,7 +146,7 @@ async def test_json_logs_link_http_request_and_background_run() -> None:
     agent = BlockingAgent(response="private answer")
     store = InMemoryHistoryStore()
     service = make_service(agent, store)
-    dialog_id = await service.start_dialog()
+    dialog_id = await service.start_dialog(TEST_USER.id)
     client = make_client(service)
     try:
         async with client:
@@ -195,7 +195,7 @@ async def test_unhandled_api_error_returns_request_id_without_private_exception(
     None
 ):
     class FailingStore(InMemoryHistoryStore):
-        async def create(self) -> UUID:
+        async def create(self, owner_id: UUID) -> UUID:
             raise RuntimeError("private failure detail")
 
     logger = logging.getLogger("smeshariki_ai")
@@ -301,7 +301,7 @@ async def test_closed_service_returns_safe_503() -> None:
     agent = BlockingAgent()
     store = InMemoryHistoryStore()
     service = make_service(agent, store)
-    dialog_id = await service.start_dialog()
+    dialog_id = await service.start_dialog(TEST_USER.id)
     await service.shutdown()
     client = make_client(service)
 
@@ -322,7 +322,7 @@ async def test_cookie_does_not_select_or_modify_dialog() -> None:
     agent = BlockingAgent()
     store = InMemoryHistoryStore()
     service = make_service(agent, store)
-    dialog_id = await service.start_dialog()
+    dialog_id = await service.start_dialog(TEST_USER.id)
     client = make_client(
         service,
         cookies={"dialog_id": str(uuid4())},
@@ -347,11 +347,53 @@ async def test_application_lifespan_shuts_service_down() -> None:
     agent = BlockingAgent()
     store = InMemoryHistoryStore()
     service = make_service(agent, store)
-    dialog_id = await service.start_dialog()
+    dialog_id = await service.start_dialog(TEST_USER.id)
     app = create_app(service)
 
     async with app.router.lifespan_context(app):
         pass
 
     with pytest.raises(AgentServiceUnavailableError):
-        await service.submit(dialog_id, UserRequest(content="question"))
+        await service.submit(TEST_USER.id, dialog_id, UserRequest(content="question"))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("minutes", [None, 2, 5, 10])
+async def test_reading_time_is_optional_and_reaches_the_agent(
+    minutes: int | None,
+) -> None:
+    agent = BlockingAgent(response="ok")
+    agent.release.set()
+    store = InMemoryHistoryStore()
+    service = make_service(agent, store)
+    dialog_id = await service.start_dialog(TEST_USER.id)
+    body: dict[str, object] = {"request": "question"}
+    if minutes is not None:
+        body["reading_minutes"] = minutes
+
+    async with make_client(service) as client:
+        response = await client.post(f"/api/v1/dialogs/{dialog_id}/messages", json=body)
+    history = await wait_for_history_size(store, dialog_id, 2)
+
+    assert response.status_code == 202
+    assert agent.calls[0][1].reading_minutes == minutes
+    assert history[0].content == "question"
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("minutes", [0, 3, 7, "5", 5.5, None, True])
+async def test_unsupported_reading_time_returns_422(minutes: object) -> None:
+    agent = BlockingAgent()
+    service = make_service(agent, InMemoryHistoryStore())
+    dialog_id = await service.start_dialog(TEST_USER.id)
+
+    async with make_client(service) as client:
+        response = await client.post(
+            f"/api/v1/dialogs/{dialog_id}/messages",
+            json={"request": "question", "reading_minutes": minutes},
+        )
+
+    assert response.status_code == 422
+    assert agent.calls == []
+    await service.shutdown()

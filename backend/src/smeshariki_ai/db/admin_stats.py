@@ -8,11 +8,16 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from smeshariki_ai.admin import (
     AdminStatsStore,
     AdminStatsUnavailableError,
+    FeedbackStats,
     RecentUser,
     UserStatsSnapshot,
 )
+from smeshariki_ai.agent import MessageRole
 from smeshariki_ai.auth import Role
-from smeshariki_ai.db.tables import refresh_sessions, users
+from smeshariki_ai.db.tables import message_feedback, messages, refresh_sessions, users
+from smeshariki_ai.dialogs import MAX_SCORE, MIN_SCORE
+
+SCORES = range(MIN_SCORE, MAX_SCORE + 1)
 
 
 class PostgresAdminStatsStore(AdminStatsStore):
@@ -57,12 +62,40 @@ class PostgresAdminStatsStore(AdminStatsStore):
             )
             .limit(limit)
         )
+        # Ratings count against answers created in the window.
+        answers_in_window = (
+            messages.c.role == MessageRole.ASSISTANT.value,
+            messages.c.created_at >= since,
+        )
+        feedback = select(
+            select(func.count())
+            .select_from(messages)
+            .where(*answers_in_window)
+            .scalar_subquery(),
+            select(
+                func.count(),
+                *(
+                    func.count().filter(message_feedback.c.score == score)
+                    for score in SCORES
+                ),
+            )
+            .select_from(
+                message_feedback.join(
+                    messages, messages.c.id == message_feedback.c.message_id
+                )
+            )
+            .where(*answers_in_window)
+            .subquery(),
+        )
         try:
             async with self._engine.connect() as connection:
                 users_total, new_users, active_users = (
                     await connection.execute(counts)
                 ).one()
                 rows = (await connection.execute(recent)).all()
+                answers_total, rated, *counts = (
+                    await connection.execute(feedback)
+                ).one()
         except (SQLAlchemyError, PostgresError, OSError, TimeoutError) as error:
             raise AdminStatsUnavailableError from error
 
@@ -79,5 +112,10 @@ class PostgresAdminStatsStore(AdminStatsStore):
                     last_active_at=row.last_active_at,
                 )
                 for row in rows
+            ),
+            feedback=FeedbackStats(
+                answers_total=answers_total,
+                rated_answers=rated,
+                counts=tuple(counts),
             ),
         )

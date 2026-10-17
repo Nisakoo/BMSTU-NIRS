@@ -8,11 +8,13 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from smeshariki_ai.admin import AdminStatsUnavailableError
+from smeshariki_ai.admin import AdminStatsUnavailableError, FeedbackStats
+from smeshariki_ai.agent import Message, MessageRole
 from smeshariki_ai.auth import RefreshSession, Role
 from smeshariki_ai.db import (
     DatabaseConfig,
     PostgresAdminStatsStore,
+    PostgresHistoryStore,
     PostgresRefreshSessionStore,
     PostgresUserStore,
     create_engine,
@@ -137,3 +139,48 @@ async def test_unreachable_database_is_unavailable() -> None:
             await PostgresAdminStatsStore(engine).user_stats(SINCE, 5)
     finally:
         await engine.dispose()
+
+
+async def add_answers(
+    engine: AsyncEngine, user_id: UUID, ratings: list[int | None], *, days_ago: float
+) -> None:
+    store = PostgresHistoryStore(engine)
+    dialog_id = await store.create(user_id)
+    for rating in ratings:
+        _, answer_id = await store.append(
+            dialog_id,
+            (
+                Message(role=MessageRole.USER, content="q"),
+                Message(role=MessageRole.ASSISTANT, content="a"),
+            ),
+        )
+        async with engine.begin() as connection:
+            await connection.execute(
+                text("UPDATE messages SET created_at = :at WHERE dialog_id = :id"),
+                {"at": NOW - timedelta(days=days_ago), "id": dialog_id},
+            )
+        if rating is not None:
+            await store.set_feedback(user_id, dialog_id, answer_id, rating)
+
+
+async def test_feedback_counts_answers_and_ratings_in_the_window(
+    engine: AsyncEngine,
+) -> None:
+    krosh = await add_user(engine, "Krosh", days_ago=100)
+    nyusha = await add_user(engine, "Nyusha", days_ago=100)
+    await add_answers(engine, krosh, [5, 5, None, 1], days_ago=1)
+    await add_answers(engine, nyusha, [4, None], days_ago=3)
+    # Answers older than the window are not counted, even when rated.
+    await add_answers(engine, nyusha, [2, 3], days_ago=30)
+
+    snapshot = await PostgresAdminStatsStore(engine).user_stats(SINCE, 5)
+
+    assert snapshot.feedback == FeedbackStats(
+        answers_total=6, rated_answers=4, counts=(1, 0, 0, 1, 2)
+    )
+
+
+async def test_feedback_is_zero_without_answers(engine: AsyncEngine) -> None:
+    snapshot = await PostgresAdminStatsStore(engine).user_stats(SINCE, 5)
+
+    assert snapshot.feedback == FeedbackStats(0, 0, (0, 0, 0, 0, 0))

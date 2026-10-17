@@ -37,6 +37,21 @@ class RecentUser:
 
 
 @dataclass(frozen=True, slots=True)
+class FeedbackStats:
+    """Ratings of assistant answers created in the window.
+
+    ``counts[i]`` is the number of answers rated ``i + 1`` out of 5.
+    """
+
+    answers_total: int
+    rated_answers: int
+    counts: tuple[int, ...]
+
+
+NO_FEEDBACK = FeedbackStats(answers_total=0, rated_answers=0, counts=(0,) * 5)
+
+
+@dataclass(frozen=True, slots=True)
 class UserStatsSnapshot:
     """Raw figures for one window, as counted by the storage."""
 
@@ -44,6 +59,7 @@ class UserStatsSnapshot:
     new_users: int
     active_users: int
     recent_users: tuple[RecentUser, ...]
+    feedback: FeedbackStats = NO_FEEDBACK
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,3 +75,4 @@ class UserStats:
     new_users: int
     active_users: int
     recent_users: tuple[RecentUserStats, ...]
+    feedback: FeedbackStats = NO_FEEDBACK

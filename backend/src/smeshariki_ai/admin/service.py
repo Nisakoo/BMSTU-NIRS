@@ -42,6 +42,7 @@ class AdminStatsService:
                 RecentUserStats(user, _status(user, since))
                 for user in snapshot.recent_users
             ),
+            feedback=snapshot.feedback,
         )
 
 

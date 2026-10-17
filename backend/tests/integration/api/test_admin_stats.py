@@ -11,6 +11,7 @@ from smeshariki_ai.admin import (
     AdminStatsService,
     AdminStatsStore,
     AdminStatsUnavailableError,
+    FeedbackStats,
     RecentUser,
     UserStatsSnapshot,
 )
@@ -52,6 +53,9 @@ class FakeStatsStore(AdminStatsStore):
             users_total=3,
             new_users=1,
             active_users=2,
+            feedback=FeedbackStats(
+                answers_total=10, rated_answers=5, counts=(1, 0, 0, 1, 3)
+            ),
             recent_users=(
                 RecentUser(
                     id=UUID(int=1),
@@ -173,6 +177,11 @@ async def test_admin_receives_user_statistics(
                 "status": "inactive",
             },
         ],
+        "feedback": {
+            "answers_total": 10,
+            "rated_answers": 5,
+            "counts": [1, 0, 0, 1, 3],
+        },
     }
 
 
