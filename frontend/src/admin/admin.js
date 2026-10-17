@@ -4,10 +4,15 @@ import { AdminApi } from "./admin-api.js";
 import { getDashboardData } from "./demo-data.js";
 
 const INTEGER_FORMATTER = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 });
-const DECIMAL_FORMATTER = new Intl.NumberFormat("ru-RU", {
-  minimumFractionDigits: 1,
-  maximumFractionDigits: 1,
-});
+const SCORE_FORMATTER = new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+// Smeshariki faces of the answer rating, from score 1 to 5.
+const FACES = Object.freeze([
+  "Ёжик грустит",
+  "Нюша недовольна",
+  "Лосяш задумался",
+  "Копатыч доволен",
+  "Крош в восторге",
+]);
 
 // User figures come from the backend; agent figures stay demonstrational until
 // dialogs and agent runs are persisted.
@@ -46,10 +51,6 @@ const DEFAULT_ADMIN_SECTION = "#overview";
 
 function formatInteger(value) {
   return INTEGER_FORMATTER.format(value).replaceAll("\u00a0", " ");
-}
-
-function formatDecimal(value) {
-  return DECIMAL_FORMATTER.format(value);
 }
 
 function createElement(documentRef, tagName, className, text) {
@@ -136,28 +137,49 @@ function renderActivity(documentRef, container, description, data) {
     .join(", ")}.`;
 }
 
-function renderQuality(documentRef, container, data) {
-  const success = createElement(documentRef, "div", "adm-quality-item");
-  success.append(
-    createElement(documentRef, "span", "adm-quality-label", "Успешные ответы"),
-    createElement(documentRef, "strong", "adm-quality-value", `${formatDecimal(data.metrics.successRate)}%`),
-    createElement(documentRef, "span", "adm-quality-note", "без ошибок агента"),
-  );
+function faceImage(template, score, className) {
+  const image = template.content.querySelector(`[data-score="${score}"]`).cloneNode(true);
+  image.className = className;
+  return image;
+}
 
-  const latency = createElement(documentRef, "div", "adm-quality-item");
-  latency.append(
-    createElement(documentRef, "span", "adm-quality-label", "Среднее время"),
-    createElement(documentRef, "strong", "adm-quality-value", `${formatDecimal(data.metrics.averageResponseSeconds)} с`),
-    createElement(documentRef, "span", "adm-quality-note", "до полного ответа"),
-  );
+// Ratings of answers created in the period: the average score and how many got each face.
+function renderQuality(documentRef, container, template, feedback) {
+  const rated = feedback.ratedAnswers;
+  const coverage = `оценено ${formatInteger(rated)} из ${formatInteger(feedback.answersTotal)} ответов`;
+  const summary = createElement(documentRef, "div", "adm-quality-summary");
 
-  const meter = createElement(documentRef, "div", "adm-quality-meter");
-  const fill = createElement(documentRef, "span", "adm-quality-meter-fill");
-  fill.style.width = `${data.metrics.successRate}%`;
-  meter.setAttribute("aria-label", `Успешные ответы: ${formatDecimal(data.metrics.successRate)}%`);
-  meter.append(fill);
+  if (rated === 0) {
+    summary.append(createElement(documentRef, "strong", "adm-quality-empty", "Оценок пока нет"));
+  } else {
+    const average = feedback.counts.reduce((sum, count, index) => sum + count * (index + 1), 0) / rated;
+    const value = createElement(documentRef, "div", "adm-quality-score");
+    value.append(
+      createElement(documentRef, "strong", "adm-quality-average", SCORE_FORMATTER.format(average)),
+      createElement(documentRef, "span", "adm-quality-scale", "из 5"),
+    );
+    summary.append(faceImage(template, Math.round(average), "adm-quality-face"), value);
+  }
+  summary.append(createElement(documentRef, "span", "adm-quality-note", coverage));
 
-  container.replaceChildren(success, latency, meter);
+  const rows = FACES.map((face, index) => {
+    const score = index + 1;
+    const count = feedback.counts[index];
+    const row = createElement(documentRef, "div", "adm-quality-row");
+    row.setAttribute("aria-label", `${face}, ${score} из 5: ${formatInteger(count)}`);
+    const bar = createElement(documentRef, "span", "adm-quality-bar");
+    const fill = createElement(documentRef, "span", "adm-quality-bar-fill");
+    fill.style.width = `${rated === 0 ? 0 : Math.round((count * 100) / rated)}%`;
+    bar.append(fill);
+    row.append(
+      faceImage(template, score, "adm-quality-row-face"),
+      bar,
+      createElement(documentRef, "span", "adm-quality-count", formatInteger(count)),
+    );
+    return row;
+  }).reverse();
+
+  container.replaceChildren(summary, ...rows);
 }
 
 function renderUsers(documentRef, container, stats, now) {
@@ -265,6 +287,7 @@ export async function mountDashboard(
     activity: documentRef.querySelector("#adminActivity"),
     chartDescription: documentRef.querySelector("#adminChartDescription"),
     quality: documentRef.querySelector("#adminQuality"),
+    faces: documentRef.querySelector("#adminFacesTemplate"),
     users: documentRef.querySelector("#adminUsers"),
   };
   const periodButtons = [...documentRef.querySelectorAll("[data-period]")];
@@ -315,7 +338,7 @@ export async function mountDashboard(
     }
     renderMetrics(documentRef, elements.metrics, stats, demo);
     renderActivity(documentRef, elements.activity, elements.chartDescription, demo);
-    renderQuality(documentRef, elements.quality, demo);
+    renderQuality(documentRef, elements.quality, elements.faces, stats.feedback);
     renderUsers(documentRef, elements.users, stats, now());
     return true;
   };

@@ -1,12 +1,10 @@
 export const PERIODS = Object.freeze(["7", "30", "90"]);
 
-// Agent statistics are not persisted yet, so these figures stay demonstrational;
-// user figures come from the backend.
+// Dialog and message figures stay demonstrational; user figures and answer
+// ratings come from the backend.
 const METRIC_KEYS = Object.freeze([
   "dialogs",
   "messages",
-  "successRate",
-  "averageResponseSeconds",
 ]);
 
 function deepFreeze(value) {
@@ -22,8 +20,6 @@ const DATASETS = deepFreeze({
     metrics: {
       dialogs: 836,
       messages: 4198,
-      successRate: 96.8,
-      averageResponseSeconds: 2.4,
     },
     activity: [
       { label: "Пн", value: 82 },
@@ -41,8 +37,6 @@ const DATASETS = deepFreeze({
     metrics: {
       dialogs: 3542,
       messages: 18240,
-      successRate: 97.2,
-      averageResponseSeconds: 2.2,
     },
     activity: [
       { label: "1–4", value: 284 },
@@ -61,8 +55,6 @@ const DATASETS = deepFreeze({
     metrics: {
       dialogs: 11784,
       messages: 54832,
-      successRate: 96.9,
-      averageResponseSeconds: 2.5,
     },
     activity: [
       { label: "Нед. 1", value: 682 },
@@ -89,7 +81,6 @@ export function validateDashboardData(data) {
   if (!data || typeof data !== "object") return false;
   if (!PERIODS.includes(data.period) || typeof data.periodLabel !== "string") return false;
   if (!data.metrics || !METRIC_KEYS.every(key => isMetric(data.metrics[key]))) return false;
-  if (data.metrics.successRate > 100) return false;
   if (!Array.isArray(data.activity) || data.activity.length === 0) return false;
   if (!data.activity.every(point => (
     typeof point?.label === "string"

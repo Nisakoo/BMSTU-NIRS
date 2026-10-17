@@ -7,12 +7,7 @@ import {
   validateDashboardData,
 } from "../src/admin/demo-data.js";
 
-const METRIC_KEYS = [
-  "dialogs",
-  "messages",
-  "successRate",
-  "averageResponseSeconds",
-];
+const METRIC_KEYS = ["dialogs", "messages"];
 
 test("dashboard provides deterministic valid data for every supported period", () => {
   assert.deepEqual(PERIODS, ["7", "30", "90"]);
@@ -67,4 +62,11 @@ test("unknown periods and malformed data are rejected safely", () => {
     ...valid,
     metrics: { ...valid.metrics, dialogs: valid.metrics.dialogs + 1 },
   }), false);
+});
+
+test("demo data no longer carries answer quality figures", () => {
+  for (const period of PERIODS) {
+    const data = getDashboardData(period);
+    assert.deepEqual(Object.keys(data.metrics).sort(), ["dialogs", "messages"]);
+  }
 });

@@ -117,6 +117,18 @@ function createHarness() {
     "#adminLogoutError",
   ];
   const elements = Object.fromEntries(ids.map(id => [id, new FakeElement()]));
+  // <template> with the five face images, found by their score.
+  elements["#adminFacesTemplate"] = {
+    content: {
+      querySelector: selector => ({
+        cloneNode: () => {
+          const image = new FakeElement("img");
+          image.selector = selector;
+          return image;
+        },
+      }),
+    },
+  };
   const buttons = ["7", "30", "90"].map(period => {
     const button = new FakeElement("button");
     button.dataset.period = period;
@@ -165,6 +177,7 @@ function statsFor(period, overrides = {}) {
         status: "inactive",
       },
     ],
+    feedback: { answersTotal: 10, ratedAnswers: 5, counts: [1, 0, 1, 1, 2] },
     ...overrides,
   };
 }
@@ -217,7 +230,7 @@ test("only agent figures carry the demo label", async () => {
   assert.match(cards[2].textContent, /3 542/);
   assert.match(cards[3].textContent, /демо-данные/);
   assert.equal(ui.elements["#adminActivity"].children.length, demo.activity.length);
-  assert.match(ui.elements["#adminQuality"].textContent, /97,2%/);
+  assert.doesNotMatch(ui.elements["#adminQuality"].textContent, /демо/);
   assert.doesNotMatch(ui.elements["#adminUsers"].textContent, /демо/);
 });
 
@@ -468,4 +481,76 @@ test("the admin page redirects when statistics reject the session or role", asyn
 
   assert.deepEqual(lost.redirects, ["/login/"]);
   assert.deepEqual(demoted.redirects, ["/"]);
+});
+
+const find = (element, className) => element.className === className
+  ? element
+  : element.children.map(child => find(child, className)).find(Boolean);
+const findAll = (element, className) => [
+  ...(element.className === className ? [element] : []),
+  ...element.children.flatMap(child => findAll(child, className)),
+];
+
+test("answer quality shows the average score and faces for the period", async () => {
+  const ui = await mountWithStats();
+  const quality = ui.elements["#adminQuality"];
+
+  assert.equal(find(quality, "adm-quality-average").textContent, "3,6");
+  assert.match(quality.textContent, /из 5/);
+  assert.equal(find(quality, "adm-quality-face").selector, '[data-score="4"]');
+  assert.match(quality.textContent, /оценено 5 из 10 ответов/);
+  const rows = findAll(quality, "adm-quality-row");
+  assert.deepEqual(
+    rows.map(row => [
+      row.children[0].selector,
+      find(row, "adm-quality-bar-fill").style.width,
+      find(row, "adm-quality-count").textContent,
+    ]),
+    [
+      ['[data-score="5"]', "40%", "2"],
+      ['[data-score="4"]', "20%", "1"],
+      ['[data-score="3"]', "20%", "1"],
+      ['[data-score="2"]', "0%", "0"],
+      ['[data-score="1"]', "20%", "1"],
+    ],
+  );
+  assert.equal(rows[0].getAttribute("aria-label"), "Крош в восторге, 5 из 5: 2");
+  assert.equal(rows[4].getAttribute("aria-label"), "Ёжик грустит, 1 из 5: 1");
+});
+
+test("answer quality without ratings says so", async () => {
+  const ui = await mountWithStats({
+    respond: period => Promise.resolve(statsFor(period, {
+      feedback: { answersTotal: 3, ratedAnswers: 0, counts: [0, 0, 0, 0, 0] },
+    })),
+  });
+  const quality = ui.elements["#adminQuality"];
+
+  assert.match(quality.textContent, /Оценок пока нет/);
+  assert.match(quality.textContent, /оценено 0 из 3 ответов/);
+  assert.doesNotMatch(quality.textContent, /NaN|из 5/);
+  assert.equal(find(quality, "adm-quality-face"), undefined);
+  assert.deepEqual(
+    findAll(quality, "adm-quality-bar-fill").map(fill => fill.style.width),
+    ["0%", "0%", "0%", "0%", "0%"],
+  );
+});
+
+test("changing the period reloads answer quality", async () => {
+  const ui = await mountWithStats({
+    respond: period => Promise.resolve(statsFor(period, {
+      feedback: period === "7"
+        ? { answersTotal: 4, ratedAnswers: 2, counts: [0, 0, 0, 1, 1] }
+        : { answersTotal: 10, ratedAnswers: 5, counts: [1, 0, 1, 1, 2] },
+    })),
+  });
+  const quality = ui.elements["#adminQuality"];
+  assert.equal(find(quality, "adm-quality-average").textContent, "3,6");
+
+  ui.buttons[0].click();
+  await settle();
+
+  assert.equal(find(quality, "adm-quality-average").textContent, "4,5");
+  assert.equal(find(quality, "adm-quality-face").selector, '[data-score="5"]');
+  assert.match(quality.textContent, /оценено 2 из 4 ответов/);
 });

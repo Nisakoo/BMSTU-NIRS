@@ -26,6 +26,7 @@ const BODY = {
       status: "inactive",
     },
   ],
+  feedback: { answers_total: 10, rated_answers: 5, counts: [1, 0, 1, 1, 2] },
 };
 
 function response(status, body, { invalidJson = false } = {}) {
@@ -84,6 +85,7 @@ test("stats reads the selected period with the session cookie", async () => {
         status: "inactive",
       },
     ],
+    feedback: { answersTotal: 10, ratedAnswers: 5, counts: [1, 0, 1, 1, 2] },
   });
   assert.deepEqual(calls, [["/api/v1/admin/stats?period=30", { method: "GET", credentials: "same-origin" }]]);
 });
@@ -132,4 +134,22 @@ test("unsupported periods are not sent to the backend", async () => {
 
   await assert.rejects(api.stats("365"), RangeError);
   assert.equal(calls.length, 0);
+});
+
+test("stats reject inconsistent answer feedback", async () => {
+  for (const feedback of [
+    undefined,
+    { answers_total: 10, rated_answers: 5 },
+    { answers_total: 10, rated_answers: 5, likes: 4, dislikes: 1 },
+    { answers_total: 10, rated_answers: 5, counts: [1, 1, 1, 2] },
+    { answers_total: 10, rated_answers: 5, counts: [1, 1, 1, 1, 1, 0] },
+    { answers_total: 10, rated_answers: 5, counts: [-1, 1, 1, 2, 2] },
+    { answers_total: 10, rated_answers: 5, counts: [1, 1, 1, 1, 1.5] },
+    { answers_total: 10, rated_answers: 5, counts: [1, 1, 1, 1, 2] },
+    { answers_total: 3, rated_answers: 5, counts: [1, 1, 1, 1, 1] },
+    { answers_total: 10, rated_answers: 5, counts: "11111" },
+  ]) {
+    const { api } = recordingApi(response(200, { ...BODY, feedback }));
+    await assertAdminError(api.stats("30"), "invalid_response");
+  }
 });

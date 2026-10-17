@@ -85,12 +85,19 @@
                 <p class="adm-section-kicker">Состояние агента</p>
                 <h2 id="qualityTitle">Качество ответов</h2>
               </div>
-              <span class="adm-agent-demo" title="Статистика агента пока не сохраняется">демо-данные</span>
             </div>
             <div class="adm-quality" id="adminQuality"></div>
+            <!-- Мордашки оценки ответа: 1 — грусть, 5 — восторг -->
+            <template id="adminFacesTemplate">
+              <img data-score="1" src="../static/faces/1-ezhik.png" alt="" width="52" height="52" />
+              <img data-score="2" src="../static/faces/2-nyusha.png" alt="" width="52" height="52" />
+              <img data-score="3" src="../static/faces/3-losyash.png" alt="" width="52" height="52" />
+              <img data-score="4" src="../static/faces/4-kopatych.png" alt="" width="52" height="52" />
+              <img data-score="5" src="../static/faces/5-krosh.png" alt="" width="52" height="52" />
+            </template>
           </section>
         </div>
-        <p class="adm-demo-hint">Диалоги, сообщения, активность и качество ответов показаны на демо-данных: статистика агента пока не сохраняется.</p>
+        <p class="adm-demo-hint">Диалоги, сообщения и активность показаны на демо-данных; качество ответов — по оценкам пользователей за период.</p>
 
         <section class="adm-panel adm-users-panel" id="users" aria-labelledby="usersTitle">
           <div class="adm-panel-heading">

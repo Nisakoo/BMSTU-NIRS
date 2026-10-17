@@ -11,6 +11,8 @@ export class AdminApiError extends Error {
 }
 
 const isCount = value => Number.isInteger(value) && value >= 0;
+// counts[i] is the number of answers rated i + 1 out of 5.
+const SCORE_COUNT = 5;
 const isTimestamp = value => typeof value === "string" && !Number.isNaN(Date.parse(value));
 
 function parseUser(entry) {
@@ -34,6 +36,25 @@ function parseUser(entry) {
   };
 }
 
+function parseFeedback(feedback) {
+  if (
+    !isCount(feedback?.answers_total)
+    || !isCount(feedback.rated_answers)
+    || !Array.isArray(feedback.counts)
+    || feedback.counts.length !== SCORE_COUNT
+    || !feedback.counts.every(isCount)
+    || feedback.counts.reduce((sum, count) => sum + count, 0) !== feedback.rated_answers
+    || feedback.rated_answers > feedback.answers_total
+  ) {
+    throw new AdminApiError("invalid_response");
+  }
+  return {
+    answersTotal: feedback.answers_total,
+    ratedAnswers: feedback.rated_answers,
+    counts: [...feedback.counts],
+  };
+}
+
 function parseStats(body, period) {
   if (
     body?.period !== period
@@ -50,6 +71,7 @@ function parseStats(body, period) {
     activeUsers: body.active_users,
     newUsers: body.new_users,
     recentUsers: body.recent_users.map(parseUser),
+    feedback: parseFeedback(body.feedback),
   };
 }
 
