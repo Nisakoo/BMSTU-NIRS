@@ -24,7 +24,8 @@
 - [Агент](./agent.md) — `Agent`, `LLMProvider`, инструменты, `ToolRegistry` и
   ограничения agent loop.
 - [Диалоги и HTTP API](./dialogs.md) — `AgentService`, `DialogEventBroker`,
-  хранение истории, очередь запросов, SSE, HTTP и наблюдаемость.
+  жизненный цикл диалога (черновик и сохранение), хранение истории, список,
+  чтение и удаление диалогов, очередь запросов, SSE, HTTP и наблюдаемость.
 - [Конфигурация backend](./configuration.md) — корневой `Config`, загрузка
   environment и передача component-owned подконфигов.
 - [Аутентификация](./auth.md) — HTTP-контракт регистрации, входа, refresh,
@@ -34,7 +35,7 @@
   `GET /api/v1/admin/stats` с проверкой роли и демонстрационные показатели
   агента.
 - [База данных](./database.md) — схема PostgreSQL (пользователи,
-  refresh-сессии и запланированная история диалогов) и миграции.
+  refresh-сессии, диалоги и сообщения), `PostgresHistoryStore` и миграции.
 - [Логирование backend](./logging.md) — форматы, общие поля, идентификаторы
   операций и метрики вызовов модели.
 - [Запуск приложения](../docker/README.md) — Docker Compose, настройки и примеры
@@ -62,6 +63,7 @@ flowchart LR
         Broker[DialogEventBroker / application]
         Subscription[DialogSubscription]
         History[HistoryStore / dialogs]
+        Drafts[DialogDrafts / dialogs]
         Agent[Agent runtime / agent]
         LLM[LLMProvider / LiteLLMProvider]
         Tools[ToolRegistry]
@@ -83,6 +85,8 @@ flowchart LR
         Service --> Logging
         Agent --> Logging
         Service --> History
+        Service --> Drafts
+        History --> DbStores
         Service --> Agent
         Service --> Broker
         Broker --> Subscription
@@ -140,6 +144,7 @@ flowchart LR
 | Конфигурация backend | Единая загрузка environment, корневой immutable `Config` и раздача подконфигов | Проверено | [`config.py`](../backend/src/smeshariki_ai/config.py), [`main.py`](../backend/src/smeshariki_ai/main.py), [`bootstrap.py`](../backend/src/smeshariki_ai/bootstrap.py) | [страница компонента](./configuration.md), [spec](../specs/changes/backend-config/spec.md), [plan](../specs/changes/backend-config/plan.md), [verification](../specs/changes/backend-config/verification.md) |
 | Диалоги и HTTP API | Создание диалогов, фоновая очередь сообщений, история, владелец диалога и HTTP-вход | Проверено | [`application`](../backend/src/smeshariki_ai/application/), [`dialogs`](../backend/src/smeshariki_ai/dialogs/), [`api`](../backend/src/smeshariki_ai/api/) | [страница компонента](./dialogs.md), [spec](../specs/changes/agent-dialog-api/spec.md), [plan](../specs/changes/agent-dialog-api/plan.md), [verification](../specs/changes/agent-dialog-api/verification.md), [ownership spec](../specs/changes/dialog-ownership/spec.md), [ownership plan](../specs/changes/dialog-ownership/plan.md), [ownership verification](../specs/changes/dialog-ownership/verification.md) |
 | Streaming, SSE и тестовый UI | Поток LiteLLM и агента, in-memory SSE-подписки и `/agent_test` | Проверено | [`agent`](../backend/src/smeshariki_ai/agent/), [`application`](../backend/src/smeshariki_ai/application/), [`api`](../backend/src/smeshariki_ai/api/) | [страница агента](./agent.md), [страница API](./dialogs.md), [spec](../specs/changes/agent-sse-test-ui/spec.md), [plan](../specs/changes/agent-sse-test-ui/plan.md), [verification](../specs/changes/agent-sse-test-ui/verification.md) |
+| Постоянная история диалогов | Черновик диалога в памяти, сохранение в PostgreSQL после первого ответа агента, список с keyset-курсором, чтение и удаление диалога | Проверено | [`dialogs`](../backend/src/smeshariki_ai/dialogs/), [`db/history.py`](../backend/src/smeshariki_ai/db/history.py), [`application`](../backend/src/smeshariki_ai/application/), [`api`](../backend/src/smeshariki_ai/api/) | [страница компонента](./dialogs.md), [схема БД](./database.md), [spec](../specs/changes/dialog-history/spec.md), [plan](../specs/changes/dialog-history/plan.md), [verification](../specs/changes/dialog-history/verification.md) |
 | Брокер событий диалога | Абстракция pub/sub и process-local реализация ограниченных SSE-очередей | Проверено | [`event_broker.py`](../backend/src/smeshariki_ai/application/event_broker.py) | [страница компонента](./dialogs.md), [spec](../specs/changes/dialog-event-broker/spec.md), [plan](../specs/changes/dialog-event-broker/plan.md), [verification](../specs/changes/dialog-event-broker/verification.md) |
 | Логирование backend | Настраиваемые события HTTP, фоновой обработки и LLM с безопасным контекстом | Проверено | [`observability.py`](../backend/src/smeshariki_ai/observability.py) | [страница компонента](./logging.md), [spec](../specs/changes/backend-observability-logging/spec.md), [plan](../specs/changes/backend-observability-logging/plan.md), [verification](../specs/changes/backend-observability-logging/verification.md) |
 
@@ -149,7 +154,6 @@ flowchart LR
 ## Что пока не реализовано
 
 Публичный HTTPS deployment, RAG и инструмент `search_knowledge`, CORS,
-постоянное хранилище истории в [запланированных таблицах](./database.md),
-replay SSE-событий, автоматический refresh во frontend, закрытие чата для
+replay SSE-событий, интерфейс истории диалогов во frontend, автоматический refresh во frontend, закрытие чата для
 гостей относятся к будущим изменениям. Текущий Compose stack предоставляет локальный HTTP-вход;
 Vite proxy остаётся отдельным dev-режимом.

@@ -9,3 +9,7 @@ class DialogNotFoundError(DialogError):
     def __init__(self, dialog_id: UUID) -> None:
         self.dialog_id = dialog_id
         super().__init__(f"Dialog not found: {dialog_id}")
+
+
+class HistoryUnavailableError(DialogError):
+    """Raised when the persistent history storage cannot serve a request."""

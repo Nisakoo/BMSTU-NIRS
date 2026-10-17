@@ -63,3 +63,5 @@ specs:
       status: done
     - name: frontend-nginx-config
       status: done
+    - name: dialog-history
+      status: done

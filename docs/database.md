@@ -6,16 +6,16 @@ Backend хранит постоянные данные в PostgreSQL 17. Баз�
 зависимость backend: она работает в отдельном Compose-контейнере `postgres`, но
 подключение, схема и миграции принадлежат пакету `smeshariki_ai.db`.
 
-Схема сразу спроектирована с учётом постоянной истории диалогов. Сейчас
-созданы только таблицы аутентификации; `dialogs` и `messages` описаны как
-согласованный план и появятся миграцией отдельного изменения.
+Схема сразу спроектирована с учётом постоянной истории диалогов: таблицы
+аутентификации создаёт миграция `0001`, `dialogs` и `messages` — миграция
+`0002`.
 
 | Таблица | Назначение | Состояние |
 | --- | --- | --- |
 | `users` | Учётные записи и роли | Реализовано, миграция `0001` |
 | `refresh_sessions` | Refresh-токены и их ротация | Реализовано, миграция `0001` |
-| `dialogs` | Диалоги пользователя | Запланировано |
-| `messages` | Сообщения диалога | Запланировано |
+| `dialogs` | Диалоги пользователя | Реализовано, миграция `0002` |
+| `messages` | Сообщения диалога | Реализовано, миграция `0002` |
 
 ## Где находится реализация
 
@@ -23,6 +23,8 @@ Backend хранит постоянные данные в PostgreSQL 17. Баз�
   таблиц в SQLAlchemy Core;
 - [`db/stores.py`](../backend/src/smeshariki_ai/db/stores.py) —
   `PostgresUserStore` и `PostgresRefreshSessionStore`;
+- [`db/history.py`](../backend/src/smeshariki_ai/db/history.py) —
+  `PostgresHistoryStore`;
 - [`db/engine.py`](../backend/src/smeshariki_ai/db/engine.py) — ленивый async
   engine (`asyncpg`);
 - [`db/migrations/`](../backend/src/smeshariki_ai/db/migrations/) — Alembic
@@ -35,8 +37,8 @@ Backend хранит постоянные данные в PostgreSQL 17. Баз�
 ```mermaid
 erDiagram
     users ||--o{ refresh_sessions : "владеет"
-    users ||--o{ dialogs : "владеет (план)"
-    dialogs ||--o{ messages : "содержит (план)"
+    users ||--o{ dialogs : "владеет"
+    dialogs ||--o{ messages : "содержит"
     refresh_sessions |o--o| refresh_sessions : "replaced_by"
 
     users {
@@ -104,7 +106,7 @@ erDiagram
 параллельным запросом, транзакция откатывается и сервис считает это повторным
 использованием токена. Сам refresh-токен в базе не хранится.
 
-### `dialogs` (запланировано)
+### `dialogs`
 
 | Столбец | Тип | Ограничения |
 | --- | --- | --- |
@@ -113,10 +115,13 @@ erDiagram
 | `title` | `text` | `NULL` |
 | `created_at`, `updated_at` | `timestamptz` | `NOT NULL DEFAULT now()` |
 
-Индекс `(user_id, updated_at DESC)` — список диалогов пользователя от новых к
-старым.
+Индекс `dialogs_user_id_updated_at_idx` на `(user_id, updated_at DESC)` —
+список диалогов пользователя от новых к старым. Строка `dialogs` появляется
+только вместе с первыми сообщениями, после первого успешного ответа агента:
+черновики в базу не записываются. `title` остаётся `NULL`-able, но при
+сохранении всегда заполняется (правило — в [диалогах](./dialogs.md#жизненный-цикл-диалога)).
 
-### `messages` (запланировано)
+### `messages`
 
 | Столбец | Тип | Ограничения |
 | --- | --- | --- |
@@ -137,11 +142,29 @@ erDiagram
   миграцией ограничения без `ALTER TYPE`.
 - UUID генерирует приложение, поэтому идентификаторы известны до вставки и
   совпадают с уже опубликованным форматом API.
-- Удаление пользователя каскадно удаляет его refresh-сессии, а в будущем —
-  диалоги и сообщения.
-- Ошибки подключения и SQL адаптеры превращают в `AuthUnavailableError`;
-  engine создаётся с `hide_parameters=True`, чтобы хеши не попадали в текст
-  исключений.
+- Удаление пользователя каскадно удаляет его refresh-сессии, диалоги и
+  сообщения; удаление диалога каскадно удаляет сообщения.
+- Ошибки подключения и SQL адаптеры аутентификации превращают в
+  `AuthUnavailableError`, адаптер истории — в `HistoryUnavailableError`;
+  engine создаётся с `hide_parameters=True`, чтобы хеши и тексты сообщений не
+  попадали в текст исключений.
+
+## PostgresHistoryStore
+
+`PostgresHistoryStore(engine)` реализует контракт `HistoryStore` из
+[диалогов](./dialogs.md#внутренние-контракты) на том же engine, что и
+аутентификация. Время (`created_at`, `updated_at`) передаёт `AgentService`, а не
+`now()` базы.
+
+- `create` — одна транзакция: `INSERT dialogs` и `INSERT messages` с позициями
+  0 и 1.
+- `append` — одна транзакция: `SELECT ... FOR UPDATE` строки диалога
+  (блокировка сериализует параллельные добавления), следующая
+  `position = coalesce(max(position), -1) + 1`, вставка сообщений и
+  `UPDATE dialogs SET updated_at`.
+- `list` — keyset-условие `(updated_at, id) < (:updated_at, :id)` с
+  `ORDER BY updated_at DESC, id DESC`.
+- `delete` — `DELETE ... RETURNING id`; сообщения удаляет каскад.
 
 ## Миграции
 
@@ -165,4 +188,6 @@ environment, что и backend; Compose передаёт его общим YAML-
 
 - [спецификация](../specs/changes/backend-auth-jwt/spec.md);
 - [план](../specs/changes/backend-auth-jwt/plan.md),
-  [результат проверки](../specs/changes/backend-auth-jwt/verification.md).
+  [результат проверки](../specs/changes/backend-auth-jwt/verification.md);
+- постоянная история диалогов: [спецификация](../specs/changes/dialog-history/spec.md),
+  [план](../specs/changes/dialog-history/plan.md).

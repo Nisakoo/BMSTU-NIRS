@@ -24,6 +24,10 @@ class DialogEventBroker(ABC):
         """Publish an event to active subscribers of one dialog."""
 
     @abstractmethod
+    async def close_dialog(self, dialog_id: UUID) -> None:
+        """Close all subscriptions of one dialog after delivering queued events."""
+
+    @abstractmethod
     async def shutdown(self) -> None:
         """Close the broker and all active subscriptions."""
 
@@ -127,6 +131,18 @@ class InMemoryDialogEventBroker(DialogEventBroker):
             subscribers.difference_update(closed)
             if not subscribers:
                 self._subscribers.pop(dialog_id, None)
+
+    async def close_dialog(self, dialog_id: UUID) -> None:
+        async with self._lock:
+            for subscription in self._subscribers.pop(dialog_id, ()):
+                subscription.close(discard_pending=False)
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "dialog.subscription.closed",
+                    dialog_id=str(dialog_id),
+                    reason="dialog_closed",
+                )
 
     async def shutdown(self) -> None:
         async with self._lock:

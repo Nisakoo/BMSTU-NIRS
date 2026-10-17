@@ -13,12 +13,13 @@ from fastapi import (
     Depends,
     FastAPI,
     HTTPException,
+    Query,
     Request,
     Response,
     status,
 )
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import ValidationError
 
 from smeshariki_ai.admin import AdminStatsService
@@ -30,7 +31,15 @@ from smeshariki_ai.api.auth import (
     install_auth,
     install_auth_errors,
 )
-from smeshariki_ai.api.schemas import StartDialogResponse, SubmitMessageRequest
+from smeshariki_ai.api.cursor import InvalidCursorError, decode_cursor, encode_cursor
+from smeshariki_ai.api.schemas import (
+    DialogListResponse,
+    DialogMessagesResponse,
+    DialogSummaryResponse,
+    StartDialogResponse,
+    StoredMessageResponse,
+    SubmitMessageRequest,
+)
 from smeshariki_ai.api.security import ForbiddenOriginMiddleware, has_json_body
 from smeshariki_ai.application import (
     AgentService,
@@ -44,7 +53,7 @@ from smeshariki_ai.auth import (
     UnauthorizedError,
     User,
 )
-from smeshariki_ai.dialogs import DialogNotFoundError
+from smeshariki_ai.dialogs import DialogNotFoundError, HistoryUnavailableError
 from smeshariki_ai.observability import RequestLogMiddleware, log_event
 
 logger = logging.getLogger(__name__)
@@ -81,6 +90,7 @@ def create_app(
     app.add_middleware(RequestLogMiddleware)
     app.state.agent_service = agent_service
     install_auth_errors(app)
+    app.add_exception_handler(HistoryUnavailableError, _handle_history_unavailable)  # type: ignore[arg-type]
 
     @app.get("/agent_test", response_class=HTMLResponse, include_in_schema=False)
     async def agent_test() -> HTMLResponse:
@@ -108,6 +118,85 @@ def create_app(
 
         response.headers["Location"] = f"/api/v1/dialogs/{dialog_id}"
         return StartDialogResponse(dialog_id=dialog_id)
+
+    @router.get("/dialogs", response_model=DialogListResponse)
+    async def list_dialogs(
+        user: Annotated[User, Depends(current_user)],
+        limit: Annotated[int, Query(ge=1, le=50)] = 20,
+        cursor: Annotated[str | None, Query()] = None,
+    ) -> DialogListResponse:
+        after = None
+        if cursor is not None:
+            try:
+                after = decode_cursor(cursor)
+            except InvalidCursorError as error:
+                raise RequestValidationError(
+                    [
+                        {
+                            "type": "value_error",
+                            "loc": ("query", "cursor"),
+                            "msg": "Invalid cursor.",
+                        }
+                    ]
+                ) from error
+        page = await agent_service.list_dialogs(user.id, limit, after)
+        return DialogListResponse(
+            items=[
+                DialogSummaryResponse(
+                    dialog_id=item.dialog_id,
+                    title=item.title,
+                    created_at=item.created_at,
+                    updated_at=item.updated_at,
+                )
+                for item in page.items
+            ],
+            next_cursor=(
+                None if page.next_cursor is None else encode_cursor(page.next_cursor)
+            ),
+        )
+
+    @router.get("/dialogs/{dialog_id}/messages", response_model=DialogMessagesResponse)
+    async def get_dialog_messages(
+        dialog_id: UUID,
+        user: Annotated[User, Depends(current_user)],
+    ) -> DialogMessagesResponse:
+        try:
+            transcript = await agent_service.get_dialog(dialog_id, user.id)
+        except DialogNotFoundError as error:
+            raise _dialog_not_found() from error
+        return DialogMessagesResponse(
+            dialog_id=dialog_id,
+            title=transcript.title,
+            messages=[
+                StoredMessageResponse(
+                    role=message.role.value,  # type: ignore[arg-type]
+                    content=message.content,
+                    created_at=message.created_at,
+                )
+                for message in transcript.messages
+            ],
+        )
+
+    @router.delete(
+        "/dialogs/{dialog_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+        response_class=Response,
+    )
+    async def delete_dialog(
+        dialog_id: UUID,
+        user: Annotated[User, Depends(current_user)],
+    ) -> Response:
+        try:
+            await agent_service.delete_dialog(dialog_id, user.id)
+        except DialogNotFoundError as error:
+            raise _dialog_not_found() from error
+        except AgentServiceUnavailableError as error:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Agent service is unavailable.",
+            ) from error
+
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @router.post(
         "/dialogs/{dialog_id}/messages",
@@ -202,6 +291,28 @@ def create_app(
         install_auth(app, auth_service, cookie_secure=auth_cookie_secure)
     install_admin(app, admin_stats)
     return app
+
+
+def _dialog_not_found() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Dialog not found.",
+    )
+
+
+async def _handle_history_unavailable(
+    _: Request, error: HistoryUnavailableError
+) -> JSONResponse:
+    log_event(
+        logger,
+        logging.ERROR,
+        "dialog.storage.unavailable",
+        error_type=type(error).__name__,
+    )
+    return JSONResponse(
+        {"detail": "Dialog storage is unavailable."},
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+    )
 
 
 async def _session_is_active(

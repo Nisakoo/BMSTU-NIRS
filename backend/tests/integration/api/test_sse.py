@@ -71,7 +71,7 @@ async def test_sse_stream_returns_ready_and_ordered_message_events() -> None:
     async def drive_dialog() -> None:
         await asyncio.sleep(0)
         await service.submit(dialog_id, TEST_USER.id, UserRequest(content="question"))
-        while len(await store.get(dialog_id)) != 2:
+        while len(await store.list(TEST_USER.id, 10, None)) != 1:
             await asyncio.sleep(0)
         await service.shutdown()
 

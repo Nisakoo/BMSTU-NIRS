@@ -15,11 +15,12 @@ from smeshariki_ai.cache import RedisAttemptLimiter, RedisTokenBlacklist, create
 from smeshariki_ai.config import Config
 from smeshariki_ai.db import (
     PostgresAdminStatsStore,
+    PostgresHistoryStore,
     PostgresRefreshSessionStore,
     PostgresUserStore,
     create_engine,
 )
-from smeshariki_ai.dialogs import InMemoryHistoryStore
+from smeshariki_ai.dialogs import HistoryStore, InMemoryHistoryStore
 from smeshariki_ai.observability import configure_logging
 
 
@@ -27,6 +28,7 @@ def build_agent_service(
     config: Config,
     *,
     llm_provider: LLMProvider | None = None,
+    history_store: HistoryStore | None = None,
 ) -> AgentService:
     provider = LiteLLMProvider(config.llm) if llm_provider is None else llm_provider
     tool_registry = ToolRegistry((GetContextTool(),))
@@ -35,11 +37,10 @@ def build_agent_service(
         tool_registry=tool_registry,
         config=config.agent,
     )
-    history_store = InMemoryHistoryStore()
     event_broker = InMemoryDialogEventBroker()
     return AgentService(
         agent=agent,
-        history_store=history_store,
+        history_store=history_store or InMemoryHistoryStore(),
         event_broker=event_broker,
     )
 
@@ -51,16 +52,14 @@ def create_application(
     auth_service: AuthService | None = None,
 ) -> FastAPI:
     configure_logging(config.logging)
-    agent_service = build_agent_service(
-        config,
-        llm_provider=llm_provider,
-    )
     on_shutdown = []
     admin_stats = None
+    history_store: HistoryStore | None = None
     if auth_service is None:
         # Both clients are lazy: no connection is opened until the first request.
         engine = create_engine(config.database)
         redis = create_redis(config.redis)
+        history_store = PostgresHistoryStore(engine)
         auth_service = AuthService(
             users=PostgresUserStore(engine),
             sessions=PostgresRefreshSessionStore(engine),
@@ -70,6 +69,11 @@ def create_application(
         )
         admin_stats = AdminStatsService(PostgresAdminStatsStore(engine))
         on_shutdown = [engine.dispose, redis.aclose]
+    agent_service = build_agent_service(
+        config,
+        llm_provider=llm_provider,
+        history_store=history_store,
+    )
     return create_app(
         agent_service,
         auth_service=auth_service,
