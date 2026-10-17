@@ -58,7 +58,7 @@ button,textarea{font:inherit}
 .sai-new{
   height:46px;
   margin:22px 0 18px;
-  border:0;border-radius:15px;
+  border:0;border-radius:999px;
   background:linear-gradient(145deg,#ff79b9,#dc438f);
   box-shadow:0 10px 24px rgba(222,67,143,.28),inset 0 1px 0 rgba(255,255,255,.2);
   color:#fff;font-size:15px;font-weight:850;
@@ -251,7 +251,7 @@ button,textarea{font:inherit}
 .sai-feedback-q{margin-right:8px;color:var(--sai-muted);font:600 13px Inter,system-ui,sans-serif}
 .sai-face{
   position:relative;
-  width:52px;height:52px;padding:2px;
+  width:72px;height:72px;padding:2px;
   border:2px solid transparent;border-radius:50%;
   background:none;
   opacity:.9;
@@ -259,7 +259,7 @@ button,textarea{font:inherit}
   transition:transform .15s ease,opacity .15s ease,filter .15s ease,border-color .15s ease,background .15s ease;
 }
 .sai-face img{display:block;width:100%;height:100%;pointer-events:none}
-.sai-face:hover,.sai-face:focus-visible{opacity:1;filter:none;transform:translateY(-3px) scale(1.18);z-index:1}
+.sai-face:hover,.sai-face:focus-visible{opacity:1;filter:none;transform:translateY(-3px) scale(1.08);z-index:1}
 .sai-face:focus-visible{outline:2px solid var(--sai-blue);outline-offset:1px}
 .sai-face.is-selected{opacity:1;filter:none;border-color:var(--sai-blue);background:#14324d;transform:scale(1.1)}
 .sai-feedback.is-rated .sai-face:not(.is-selected):not(:hover):not(:focus-visible){opacity:.4;filter:saturate(.4)}
@@ -363,7 +363,7 @@ button,textarea{font:inherit}
 .sai-length{
   height:48px;
   padding:0 30px 0 37px;
-  border:1px solid #2a4a64;border-radius:16px;
+  border:1px solid #2a4a64;border-radius:999px;
   background:rgba(16,42,65,.9) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238ea6be' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 12px center;
   color:#e6f1fb;
   font:750 14px Inter,system-ui,sans-serif;
@@ -374,7 +374,7 @@ button,textarea{font:inherit}
 .sai-length:focus-visible{outline:3px solid var(--sai-blue);outline-offset:2px}
 .sai-length option{background:#0f263c;color:#edf6ff}
 .sai-send{
-  width:48px;height:48px;border:0;border-radius:16px;cursor:pointer;
+  width:48px;height:48px;border:0;border-radius:50%;cursor:pointer;
   display:grid;place-items:center;color:#fff;
   background:linear-gradient(145deg,#ff79b9,#dc438f);
   box-shadow:0 8px 18px rgba(222,67,143,.3);
@@ -452,5 +452,5 @@ button,textarea{font:inherit}
   .sai-krosh{gap:10px;padding:4px 0}
   .sai-krosh-say{padding:12px 15px;font-size:14px}
   .sai-feedback-q{flex-basis:100%;margin:0 0 2px 4px}
-  .sai-face{width:48px;height:48px}
+  .sai-face{width:60px;height:60px}
 }
