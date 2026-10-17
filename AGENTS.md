@@ -193,8 +193,10 @@
    брокеру операции. Production bootstrap создаёт брокер и передаёт его сервису.
 7. `GET /api/v1/dialogs/{dialog_id}/events` предоставляет SSE-события `ready`,
    `message_start`, `message_delta`, `message_end` и `message_error`, а также
-   heartbeat. In-memory подписки передают только будущие события и не
-   поддерживают replay через `Last-Event-ID`.
+   heartbeat; на каждом heartbeat сессия перепроверяется
+   (`AuthService.verify_session`, без проверки `exp`), и при отзыве поток
+   закрывается, а agent loop не отменяется. In-memory подписки передают только
+   будущие события и не поддерживают replay через `Last-Event-ID`.
 8. Отключение или переполнение подписчика не отменяет agent loop и не блокирует
    сохранение истории. Успешный `message_end` публикуется после атомарного
    сохранения полного ответа; при ошибке после частичного текста история не
@@ -207,16 +209,26 @@
    чатом на vanilla JavaScript. Страница использует существующие API и
    `EventSource`, не требует отдельной сборки и выводит сообщения как текст.
 11. Текущая версия не предоставляет получение истории по HTTP, не добавляет
-    CORS middleware и не использует cookie для выбора диалога. Bootstrap
+    CORS middleware, отвечает `415` на `messages` с `Content-Type`, отличным от
+    `application/json`, и не использует cookie для выбора диалога. Bootstrap
     собирает приложение с настроенным `LiteLLMProvider`, пустым `ToolRegistry`
     и `InMemoryDialogEventBroker`; fake-провайдер применяется только как явная
     тестовая зависимость.
+12. Диалог принадлежит создателю: `HistoryStore.create(owner_id)` хранит
+    владельца, `AgentService.start_dialog/submit/subscribe` принимают `user_id`
+    и проверяют его в application-слое. Для чужого диалога (в том числе для
+    `admin`) `messages` и `events` отвечают `404 Dialog not found.`, как для
+    несуществующего; в журнале остаётся `dialog.access.denied` с `dialog_id`,
+    `user_id` и `outcome="foreign"` без текста запроса. Спецификация:
+    `specs/changes/dialog-ownership/`.
 
 ## Реализованный frontend
 
 1. Frontend остаётся vanilla JavaScript приложением в `frontend/src/`.
    Основной Compose запуск собирает его Vite и раздаёт отдельным Nginx
    контейнером через Caddy. Vite dev server остаётся альтернативой для разработки.
+   Nginx настраивается `docker/nginx.conf`: относительные редиректы на каталог
+   (`absolute_redirect off`), `no-cache` для HTML, `immutable` для `/assets/`.
 2. Caddy направляет `/api` в backend без изменения пути, а остальные запросы —
    в Nginx. Браузерный код не содержит cross-origin backend URL. В dev-режиме
    Vite использует `frontend/src/` как root и проксирует `/api`; default target
@@ -260,18 +272,28 @@
    повтор, при ошибке SSE проверяет сессию. Кнопка «Выйти» в шапке чата и в
    боковой панели `/admin/` вызывает `POST /auth/logout` и после `204` открывает
    `/login/`; при ошибке страница остаётся на месте с сообщением.
+10. `refresh` выполняется под блокировкой Web Locks `smeshariki-auth-refresh`:
+    вкладка, дождавшаяся её, сначала повторяет `GET /users/me` и вызывает
+    `refresh` только при `401`; без `navigator.locks` поведение прежнее.
+    `AuthApi` переводит `429` у входа и регистрации в `too_many_attempts`, а
+    `/login/` показывает «Слишком много попыток. Попробуйте позже».
+    Спецификация: `specs/changes/auth-rate-limit/`.
 
 ## Реализованная аутентификация backend
 
 1. Пакет `smeshariki_ai.auth` содержит транспортно-независимый `AuthService` и
-   контракты `UserStore`, `RefreshSessionStore`, `TokenBlacklist`; сервис не
+   контракты `UserStore`, `RefreshSessionStore`, `TokenBlacklist`,
+   `AttemptLimiter`; сервис не
    зависит от FastAPI, SQLAlchemy и redis-py и не читает environment.
    `api/auth.py` реализует HTTP-контракт из `docs/auth.md` и зависимость
    `current_user`.
 2. Access JWT (HS256, 15 минут) и одноразовый refresh-токен (30 дней, в БД
    только SHA-256) передаются только `HttpOnly` cookie. Повторное
-   использование refresh-токена отзывает всё семейство; `logout` заносит `jti`
-   в Redis с TTL до `exp`. Сбой PostgreSQL или Redis даёт `503` (fail closed).
+   использование refresh-токена и `logout` отзывают всё семейство: access JWT
+   содержит claim `fid`, а семейство помечается отозванным в Redis
+   (`auth:revoked-family:<fid>`) с TTL не меньше времени жизни access-токена;
+   `logout` также заносит `jti` в Redis. Токен без `fid` отклоняется. Сбой
+   PostgreSQL или Redis даёт `503` (fail closed).
 3. Пользователи и refresh-сессии хранятся в PostgreSQL (`smeshariki_ai.db`,
    SQLAlchemy Core + asyncpg); схема, включая запланированные `dialogs` и
    `messages`, описана в `docs/database.md`. Миграции Alembic применяются
@@ -279,7 +301,14 @@
    `migrate`.
 4. Ручки диалогов подключают `current_user` на уровне роутера и без
    действительного access-токена отвечают `401` раньше `404`/`422`; без
-   `auth_service` — `503`. Диалоги пока не привязаны к пользователю.
+   `auth_service` — `503`. Диалог принадлежит создателю
+   (`docs/dialogs.md`).
+   Регистрация и вход принимают только `application/json` (`415`), а
+   `ForbiddenOriginMiddleware` отвечает `403` на небезопасные запросы к
+   `/api/*` с `Sec-Fetch-Site: cross-site|same-site` (`Origin` с `Host` не
+   сравниваются). `AUTH_JWT_SECRET` с префиксом `replace-with-` отклоняется
+   `load_config`, а шаблон `docker/.env.example` оставляет его пустым.
+   Спецификация: `specs/changes/auth-hardening/`.
 5. Роль `admin` не выдаётся через HTTP. `make create-admin LOGIN=<login>`
    запускает `python -m smeshariki_ai.create_admin` в Compose: пароль вводится
    интерактивно, проверяется `Credentials` и хешируется через общую с
@@ -288,6 +317,16 @@
    `AdminStatsStore`; `PostgresAdminStatsStore` считает пользователей по
    `users` и `refresh_sessions`. `GET /api/v1/admin/stats` защищён зависимостью
    `current_admin` (`401`/`403`/`503` до валидации `period`).
+7. Вход и регистрация ограничены по частоте счётчиками фиксированного окна в
+   Redis (`RedisAttemptLimiter`, `auth:ratelimit:*`): 5 неудач за 15 минут для
+   пары «логин + IP», 30 входов в минуту и 10 регистраций в час с IP; порядок
+   проверок `403` → `415` → `429` → `422`, ответ `429` с `Retry-After`, при
+   недоступном Redis — `503`. Пороги задаёт `load_config`
+   (`AUTH_LOGIN_*`, `AUTH_REGISTER_*`). IP берётся из `request.client`;
+   Uvicorn доверяет `X-Forwarded-For` только от Caddy (`FORWARDED_ALLOW_IPS`,
+   фиксированный адрес в подсети Compose). `Argon2PasswordHasher`
+   выполняет не более 4 операций одновременно. Спецификация:
+   `specs/changes/auth-rate-limit/`.
 
 ## Согласованные технологии
 
@@ -305,7 +344,7 @@
 - Qdrant — векторное хранилище и поиск для RAG.
 - PostgreSQL 17, SQLAlchemy (async Core) с asyncpg и Alembic — постоянное
   хранилище пользователей и будущей истории диалогов и его миграции.
-- Redis — blacklist отозванных access-токенов.
+- Redis — blacklist отозванных access-токенов и счётчики ограничения частоты входа.
 - PyJWT и argon2-cffi — подпись access JWT и хеширование паролей.
 - Pytest — модульные и интеграционные тесты backend.
 - Ruff — линтинг, проверка форматирования и автоформатирование Python-кода.

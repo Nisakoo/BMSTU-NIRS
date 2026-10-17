@@ -12,6 +12,7 @@ from fastapi import APIRouter, Cookie, Depends, FastAPI, Request, Response, stat
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
+from smeshariki_ai.api.security import has_json_body
 from smeshariki_ai.auth import (
     AuthService,
     AuthUnavailableError,
@@ -20,6 +21,7 @@ from smeshariki_ai.auth import (
     IssuedTokens,
     LoginTakenError,
     Role,
+    TooManyAttemptsError,
     UnauthorizedError,
     User,
 )
@@ -31,10 +33,13 @@ REFRESH_COOKIE_PATH = "/api/v1/auth"
 
 
 class AuthHTTPError(Exception):
-    def __init__(self, status_code: int, code: str) -> None:
+    def __init__(
+        self, status_code: int, code: str, headers: dict[str, str] | None = None
+    ) -> None:
         super().__init__(code)
         self.status_code = status_code
         self.code = code
+        self.headers = headers
 
 
 def _invalid_fields() -> AuthHTTPError:
@@ -43,6 +48,14 @@ def _invalid_fields() -> AuthHTTPError:
 
 def _unauthorized() -> AuthHTTPError:
     return AuthHTTPError(status.HTTP_401_UNAUTHORIZED, "unauthorized")
+
+
+def _too_many_attempts(error: TooManyAttemptsError) -> AuthHTTPError:
+    return AuthHTTPError(
+        status.HTTP_429_TOO_MANY_REQUESTS,
+        "too_many_attempts",
+        {"Retry-After": str(error.retry_after)},
+    )
 
 
 def unavailable() -> AuthHTTPError:
@@ -132,9 +145,13 @@ def _create_router(auth_service: AuthService, *, cookie_secure: bool) -> APIRout
 
     @router.post("/users", status_code=status.HTTP_201_CREATED)
     async def register(request: Request) -> JSONResponse:
-        credentials = await _read_credentials(request)
+        _require_json(request)
         try:
+            await auth_service.limit_register_ip(_client_ip(request))
+            credentials = await _read_credentials(request)
             user = await auth_service.register(credentials.login, credentials.password)
+        except TooManyAttemptsError as error:
+            raise _too_many_attempts(error) from error
         except LoginTakenError as error:
             raise AuthHTTPError(status.HTTP_409_CONFLICT, "login_taken") from error
         except AuthUnavailableError as error:
@@ -143,9 +160,16 @@ def _create_router(auth_service: AuthService, *, cookie_secure: bool) -> APIRout
 
     @router.post("/auth/login")
     async def login(request: Request) -> JSONResponse:
-        credentials = await _read_credentials(request)
+        _require_json(request)
+        client_ip = _client_ip(request)
         try:
-            result = await auth_service.login(credentials.login, credentials.password)
+            await auth_service.limit_login_ip(client_ip)
+            credentials = await _read_credentials(request)
+            result = await auth_service.login(
+                credentials.login, credentials.password, client_ip
+            )
+        except TooManyAttemptsError as error:
+            raise _too_many_attempts(error) from error
         except InvalidCredentialsError as error:
             raise AuthHTTPError(
                 status.HTTP_401_UNAUTHORIZED, "invalid_credentials"
@@ -197,6 +221,18 @@ def _create_router(auth_service: AuthService, *, cookie_secure: bool) -> APIRout
     return router
 
 
+def _require_json(request: Request) -> None:
+    if not has_json_body(request):
+        raise AuthHTTPError(
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "unsupported_media_type"
+        )
+
+
+def _client_ip(request: Request) -> str:
+    # Uvicorn already applied X-Forwarded-For for trusted proxies only.
+    return "unknown" if request.client is None else request.client.host
+
+
 async def _read_credentials(request: Request) -> Credentials:
     try:
         return Credentials.model_validate_json(await request.body())
@@ -209,4 +245,8 @@ def _user_body(user: User) -> dict[str, str]:
 
 
 async def _handle_auth_error(_: Request, error: AuthHTTPError) -> JSONResponse:
-    return JSONResponse({"error": error.code}, status_code=error.status_code)
+    return JSONResponse(
+        {"error": error.code},
+        status_code=error.status_code,
+        headers=error.headers,
+    )

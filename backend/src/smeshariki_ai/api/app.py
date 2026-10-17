@@ -1,12 +1,15 @@
 import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import asynccontextmanager
 from importlib.resources import files
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import (
     APIRouter,
+    Cookie,
     Depends,
     FastAPI,
     HTTPException,
@@ -21,17 +24,30 @@ from pydantic import ValidationError
 from smeshariki_ai.admin import AdminStatsService
 from smeshariki_ai.agent import UserRequest
 from smeshariki_ai.api.admin import install_admin
-from smeshariki_ai.api.auth import current_user, install_auth, install_auth_errors
+from smeshariki_ai.api.auth import (
+    ACCESS_COOKIE,
+    current_user,
+    install_auth,
+    install_auth_errors,
+)
 from smeshariki_ai.api.schemas import StartDialogResponse, SubmitMessageRequest
+from smeshariki_ai.api.security import ForbiddenOriginMiddleware, has_json_body
 from smeshariki_ai.application import (
     AgentService,
     AgentServiceUnavailableError,
     DialogEvent,
     DialogEventType,
 )
-from smeshariki_ai.auth import AuthService
+from smeshariki_ai.auth import (
+    AuthService,
+    AuthUnavailableError,
+    UnauthorizedError,
+    User,
+)
 from smeshariki_ai.dialogs import DialogNotFoundError
-from smeshariki_ai.observability import RequestLogMiddleware
+from smeshariki_ai.observability import RequestLogMiddleware, log_event
+
+logger = logging.getLogger(__name__)
 
 AGENT_TEST_HTML = (
     files("smeshariki_ai.api").joinpath("agent_test.html").read_text(encoding="utf-8")
@@ -60,6 +76,8 @@ def create_app(
                 await close()
 
     app = FastAPI(title="smeshariki-ai", lifespan=lifespan)
+    # Added first, so it runs inside the request log and its 403 is logged.
+    app.add_middleware(ForbiddenOriginMiddleware)
     app.add_middleware(RequestLogMiddleware)
     app.state.agent_service = agent_service
     install_auth_errors(app)
@@ -76,9 +94,12 @@ def create_app(
         status_code=status.HTTP_201_CREATED,
         response_model=StartDialogResponse,
     )
-    async def start_dialog(response: Response) -> StartDialogResponse:
+    async def start_dialog(
+        response: Response,
+        user: Annotated[User, Depends(current_user)],
+    ) -> StartDialogResponse:
         try:
-            dialog_id = await agent_service.start_dialog()
+            dialog_id = await agent_service.start_dialog(user.id)
         except AgentServiceUnavailableError as error:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -96,11 +117,13 @@ def create_app(
     async def submit_message(
         dialog_id: UUID,
         request: Request,
+        user: Annotated[User, Depends(current_user)],
     ) -> Response:
         body = await _read_submit_request(request)
         try:
             await agent_service.submit(
                 dialog_id,
+                user.id,
                 UserRequest(content=body.request),
             )
         except DialogNotFoundError as error:
@@ -117,9 +140,14 @@ def create_app(
         return Response(status_code=status.HTTP_202_ACCEPTED)
 
     @router.get("/dialogs/{dialog_id}/events")
-    async def stream_dialog_events(dialog_id: UUID) -> StreamingResponse:
+    async def stream_dialog_events(
+        dialog_id: UUID,
+        request: Request,
+        user: Annotated[User, Depends(current_user)],
+        access_token: Annotated[str | None, Cookie(alias=ACCESS_COOKIE)] = None,
+    ) -> StreamingResponse:
         try:
-            subscription = await agent_service.subscribe(dialog_id)
+            subscription = await agent_service.subscribe(dialog_id, user.id)
         except DialogNotFoundError as error:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -144,6 +172,13 @@ def create_app(
                             timeout=heartbeat_seconds,
                         )
                     except TimeoutError:
+                        # The router dependency guarantees the service and token.
+                        if not await _session_is_active(
+                            request.app.state.auth_service,
+                            access_token or "",
+                            dialog_id,
+                        ):
+                            return
                         yield ": keep-alive\n\n"
                         continue
 
@@ -169,9 +204,37 @@ def create_app(
     return app
 
 
+async def _session_is_active(
+    auth_service: AuthService, access_token: str, dialog_id: UUID
+) -> bool:
+    """Re-check the session of an open stream; ``exp`` is deliberately ignored."""
+
+    try:
+        await auth_service.verify_session(access_token)
+    except UnauthorizedError:
+        outcome = "revoked"
+    except AuthUnavailableError:
+        outcome = "unavailable"
+    else:
+        return True
+    log_event(
+        logger,
+        logging.INFO,
+        "dialog.subscription.revoked",
+        dialog_id=str(dialog_id),
+        outcome=outcome,
+    )
+    return False
+
+
 async def _read_submit_request(request: Request) -> SubmitMessageRequest:
     # Parsed here rather than by FastAPI, which rejects malformed JSON before
     # running the authentication dependency.
+    if not has_json_body(request):
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Unsupported media type.",
+        )
     try:
         return SubmitMessageRequest.model_validate_json(await request.body())
     except ValidationError as error:

@@ -42,9 +42,13 @@ AgentService(
     history_store: HistoryStore,
     event_broker: DialogEventBroker,
 )
-await AgentService.start_dialog() -> UUID
-await AgentService.submit(dialog_id: UUID, request: UserRequest) -> None
-await AgentService.subscribe(dialog_id: UUID) -> DialogSubscription
+await AgentService.start_dialog(user_id: UUID) -> UUID
+await AgentService.submit(
+    dialog_id: UUID,
+    user_id: UUID,
+    request: UserRequest,
+) -> None
+await AgentService.subscribe(dialog_id: UUID, user_id: UUID) -> DialogSubscription
 await AgentService.unsubscribe(subscription: DialogSubscription) -> None
 await AgentService.shutdown() -> None
 
@@ -54,7 +58,7 @@ await DialogEventBroker.publish(dialog_id: UUID, event: DialogEvent) -> None
 await DialogEventBroker.shutdown() -> None
 ```
 
-`start_dialog` создаёт пустую историю и возвращает UUIDv4. Возврат из `submit`
+`start_dialog` создаёт пустую историю, привязанную к пользователю, и возвращает UUIDv4. Возврат из `submit`
 означает только то, что фоновая задача создана в текущем процессе; метод не ждёт
 ответа агента.
 
@@ -63,7 +67,8 @@ await DialogEventBroker.shutdown() -> None
 диалоги имеют независимые цепочки и могут выполняться параллельно. Очередь не
 ограничена по длине и не сохраняется после перезапуска.
 
-`AgentService` проверяет существование диалога и состояние lifecycle, после чего
+`AgentService` проверяет существование диалога, его владельца и состояние
+lifecycle, после чего
 делегирует открытие, закрытие и доставку событий внедрённому
 `DialogEventBroker`. Сервис не хранит подписчиков и не знает об устройстве их
 очередей.
@@ -77,7 +82,8 @@ Production composition root создаёт один `InMemoryDialogEventBroker` 
 будущие события. Брокер не зависит от FastAPI, агента и `HistoryStore`.
 
 ```python
-await HistoryStore.create() -> UUID
+await HistoryStore.create(owner_id: UUID) -> UUID
+await HistoryStore.owner(dialog_id: UUID) -> UUID
 await HistoryStore.get(dialog_id: UUID) -> tuple[Message, ...]
 await HistoryStore.append(
     dialog_id: UUID,
@@ -85,7 +91,8 @@ await HistoryStore.append(
 ) -> None
 ```
 
-`get` возвращает неизменяемый снимок. `append` атомарно добавляет группу
+`owner` бросает `DialogNotFoundError` для неизвестного диалога; владелец
+хранится вместе с историей. `get` возвращает неизменяемый снимок. `append` атомарно добавляет группу
 сообщений. После успешного запуска сервис сохраняет одной операцией только
 пользовательское и финальное сообщения ассистента. При ошибке агента история не
 меняется; tool calls и tool results в историю диалога не попадают.
@@ -103,12 +110,12 @@ sequenceDiagram
     participant History as HistoryStore
 
     Client->>API: GET /dialogs/{dialog_id}/events
-    API->>Service: subscribe(dialog_id)
+    API->>Service: subscribe(dialog_id, user_id)
     Service->>Broker: subscribe(dialog_id)
     Broker-->>API: DialogSubscription
     API-->>Client: SSE ready
     Client->>API: POST /dialogs/{dialog_id}/messages
-    API->>Service: submit(dialog_id, request)
+    API->>Service: submit(dialog_id, user_id, request)
     Service->>Task: создать задачу после хвоста диалога
     Service-->>API: постановка завершена
     API-->>Client: 202 Accepted, пустое тело
@@ -141,13 +148,26 @@ sequenceDiagram
 | Запрос | Успешный ответ | Ошибки |
 | --- | --- | --- |
 | `POST /api/v1/dialogs` без тела | `201 Created`, `Location: /api/v1/dialogs/<uuid>`, JSON `{"dialog_id":"<uuid>"}` | `503 Service Unavailable`, если сервис больше не принимает запросы |
-| `POST /api/v1/dialogs/{dialog_id}/messages` с JSON `{"request":"<непустой текст>"}` | Немедленный `202 Accepted` с пустым телом после создания фоновой задачи | `404 Not Found` для неизвестного диалога; `422 Unprocessable Entity` для некорректного UUID, пустого текста или лишних полей; `503 Service Unavailable`, если задачу нельзя принять |
-| `GET /api/v1/dialogs/{dialog_id}/events` | `200 OK`, `text/event-stream`, начальное `ready`, heartbeat и будущие `message_*` events | `404 Not Found` для неизвестного диалога; `422 Unprocessable Entity` для некорректного UUID; `503 Service Unavailable` после остановки сервиса |
+| `POST /api/v1/dialogs/{dialog_id}/messages` с JSON `{"request":"<непустой текст>"}` | Немедленный `202 Accepted` с пустым телом после создания фоновой задачи | `415 Unsupported Media Type` (`{"detail":"Unsupported media type."}`), если `Content-Type` не `application/json`; `404 Not Found` для неизвестного или чужого диалога; `422 Unprocessable Entity` для некорректного UUID, пустого текста или лишних полей; `503 Service Unavailable`, если задачу нельзя принять |
+| `GET /api/v1/dialogs/{dialog_id}/events` | `200 OK`, `text/event-stream`, начальное `ready`, heartbeat и будущие `message_*` events; на каждом heartbeat сессия перепроверяется, при отзыве поток закрывается | `404 Not Found` для неизвестного или чужого диалога; `422 Unprocessable Entity` для некорректного UUID; `503 Service Unavailable` после остановки сервиса |
 | `GET /agent_test` | `200 OK`, один самодостаточный HTML с тестовым чатом | Стандартная ошибка FastAPI при недоступности приложения |
 
-`dialog_id` всегда передаётся в URL и не является средством авторизации;
-диалоги пока не привязаны к пользователю. Cookie
-для выбора диалога не создаются и не читаются.
+`415` у `messages` возвращается после проверки токена, поэтому гость
+по-прежнему получает `401`. Поток событий перепроверяет access-токен из
+подключения на каждом heartbeat (`AuthService.verify_session`): после выхода,
+отзыва семейства, удаления пользователя или недоступности хранилищ он
+завершается без дальнейших событий, а agent loop продолжает работу;
+истечение `exp` поток не закрывает. Запросы `POST` с `Sec-Fetch-Site:
+cross-site|same-site` отклоняются `403` до этих ручек — см.
+[аутентификацию](./auth.md#защита-от-межсайтовых-запросов).
+
+`dialog_id` всегда передаётся в URL и не является средством авторизации.
+Диалог принадлежит пользователю, создавшему его через `POST /dialogs`
+(`user.id` из `current_user`). Для чужого диалога, включая запрос
+администратора, `messages` и `events` отвечают так же, как для несуществующего:
+`404` `{"detail":"Dialog not found."}`; запрос не ставится в очередь, поток не
+открывается, история не меняется. Cookie для выбора диалога не создаются и не
+читаются.
 
 SSE events содержат JSON: `ready` передаёт `dialog_id`, `message_delta` —
 непустой `delta`, `message_error` — безопасные `code` и `message`, а
@@ -203,7 +223,9 @@ frontend оставляет форму заблокированной и пов�
 
 ## Наблюдаемость и lifecycle
 
-Сервис журналирует создание диалога, принятие запроса, начало и завершение
+Сервис журналирует создание диалога, отказ в доступе к чужому диалогу
+(`dialog.access.denied` с `dialog_id`, `user_id`, `outcome="foreign"`;
+в HTTP-ответе он неотличим от отсутствующего диалога), принятие запроса, начало и завершение
 фонового запуска, сохранение истории, отмену и тип ошибки с привязкой к
 `dialog_id`. Вместе с событиями runtime это позволяет увидеть каждую итерацию и
 статус инструмента. Текст запроса, история, ответы, tool payload, секреты и текст
@@ -233,4 +255,10 @@ frontend оставляет форму заблокированной и пов�
 - [спецификация frontend-интеграции](../specs/changes/frontend-agent-integration/spec.md);
 - [план frontend-интеграции](../specs/changes/frontend-agent-integration/plan.md);
 - [результат проверки frontend-интеграции](../specs/changes/frontend-agent-integration/verification.md);
+- [усиление аутентификации: спецификация](../specs/changes/auth-hardening/spec.md),
+  [план](../specs/changes/auth-hardening/plan.md),
+  [результат проверки](../specs/changes/auth-hardening/verification.md);
+- [владение диалогами: спецификация](../specs/changes/dialog-ownership/spec.md),
+  [план](../specs/changes/dialog-ownership/plan.md),
+  [результат проверки](../specs/changes/dialog-ownership/verification.md);
 - [запуск и тестовые HTTP-запросы](../docker/README.md).

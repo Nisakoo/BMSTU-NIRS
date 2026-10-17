@@ -29,6 +29,9 @@ from smeshariki_ai.dialogs import (
 )
 from smeshariki_ai.observability import bind_context
 
+OWNER_ID = UUID(int=1)
+OTHER_ID = UUID(int=2)
+
 
 @dataclass
 class RunControl:
@@ -139,7 +142,7 @@ async def test_start_dialog_delegates_to_history_store() -> None:
     store = InMemoryHistoryStore()
     service = make_service(ControlledAgent({}), store)
 
-    dialog_id = await service.start_dialog()
+    dialog_id = await service.start_dialog(OWNER_ID)
 
     assert dialog_id.version == 4
     assert await store.get(dialog_id) == ()
@@ -156,10 +159,10 @@ async def test_subscription_and_events_are_delegated_to_broker() -> None:
         store,
         broker=broker,
     )
-    dialog_id = await service.start_dialog()
+    dialog_id = await service.start_dialog(OWNER_ID)
 
-    subscription = await service.subscribe(dialog_id)
-    await service.submit(dialog_id, UserRequest(content="question"))
+    subscription = await service.subscribe(dialog_id, OWNER_ID)
+    await service.submit(dialog_id, OWNER_ID, UserRequest(content="question"))
     await asyncio.wait_for(control.started.wait(), timeout=0.1)
     control.release.set()
     await wait_for_history_size(store, dialog_id, 2)
@@ -189,7 +192,7 @@ async def test_unknown_dialog_is_rejected_before_broker_subscription() -> None:
     )
 
     with pytest.raises(DialogNotFoundError):
-        await service.subscribe(uuid4())
+        await service.subscribe(uuid4(), OWNER_ID)
 
     assert broker.subscribed == []
     await service.shutdown()
@@ -203,10 +206,10 @@ async def test_submit_returns_while_agent_is_still_blocked_and_persists_on_succe
     agent = ControlledAgent({"private request": control})
     store = InMemoryHistoryStore()
     service = make_service(agent, store)
-    dialog_id = await service.start_dialog()
+    dialog_id = await service.start_dialog(OWNER_ID)
 
     await asyncio.wait_for(
-        service.submit(dialog_id, UserRequest(content="private request")),
+        service.submit(dialog_id, OWNER_ID, UserRequest(content="private request")),
         timeout=0.1,
     )
     await asyncio.wait_for(control.started.wait(), timeout=0.1)
@@ -231,10 +234,10 @@ async def test_subscription_receives_ordered_events_after_history_is_persisted()
     control = RunControl(response="answer")
     store = InMemoryHistoryStore()
     service = make_service(ControlledAgent({"question": control}), store)
-    dialog_id = await service.start_dialog()
-    subscription = await service.subscribe(dialog_id)
+    dialog_id = await service.start_dialog(OWNER_ID)
+    subscription = await service.subscribe(dialog_id, OWNER_ID)
 
-    await service.submit(dialog_id, UserRequest(content="question"))
+    await service.submit(dialog_id, OWNER_ID, UserRequest(content="question"))
     assert await subscription.receive() == DialogEvent(
         type=DialogEventType.MESSAGE_START
     )
@@ -256,11 +259,11 @@ async def test_events_are_broadcast_to_all_active_subscribers() -> None:
     service = make_service(
         ControlledAgent({"question": control}), InMemoryHistoryStore()
     )
-    dialog_id = await service.start_dialog()
-    first = await service.subscribe(dialog_id)
-    second = await service.subscribe(dialog_id)
+    dialog_id = await service.start_dialog(OWNER_ID)
+    first = await service.subscribe(dialog_id, OWNER_ID)
+    second = await service.subscribe(dialog_id, OWNER_ID)
 
-    await service.submit(dialog_id, UserRequest(content="question"))
+    await service.submit(dialog_id, OWNER_ID, UserRequest(content="question"))
     control.release.set()
 
     expected = [
@@ -283,10 +286,10 @@ async def test_slow_subscriber_is_closed_without_blocking_agent() -> None:
         store,
         queue_size=1,
     )
-    dialog_id = await service.start_dialog()
-    subscription = await service.subscribe(dialog_id)
+    dialog_id = await service.start_dialog(OWNER_ID)
+    subscription = await service.subscribe(dialog_id, OWNER_ID)
 
-    await service.submit(dialog_id, UserRequest(content="question"))
+    await service.submit(dialog_id, OWNER_ID, UserRequest(content="question"))
     control.release.set()
     await wait_for_history_size(store, dialog_id, 2)
 
@@ -298,10 +301,10 @@ async def test_slow_subscriber_is_closed_without_blocking_agent() -> None:
 async def test_failure_after_delta_emits_safe_error_and_keeps_history_empty() -> None:
     store = InMemoryHistoryStore()
     service = make_service(PartiallyFailingAgent(), store)
-    dialog_id = await service.start_dialog()
-    subscription = await service.subscribe(dialog_id)
+    dialog_id = await service.start_dialog(OWNER_ID)
+    subscription = await service.subscribe(dialog_id, OWNER_ID)
 
-    await service.submit(dialog_id, UserRequest(content="private request"))
+    await service.submit(dialog_id, OWNER_ID, UserRequest(content="private request"))
 
     assert await subscription.receive() == DialogEvent(
         type=DialogEventType.MESSAGE_START
@@ -324,12 +327,12 @@ async def test_late_subscription_does_not_replay_completed_events() -> None:
     control = RunControl(response="answer")
     store = InMemoryHistoryStore()
     service = make_service(ControlledAgent({"question": control}), store)
-    dialog_id = await service.start_dialog()
+    dialog_id = await service.start_dialog(OWNER_ID)
 
-    await service.submit(dialog_id, UserRequest(content="question"))
+    await service.submit(dialog_id, OWNER_ID, UserRequest(content="question"))
     control.release.set()
     await wait_for_history_size(store, dialog_id, 2)
-    subscription = await service.subscribe(dialog_id)
+    subscription = await service.subscribe(dialog_id, OWNER_ID)
     await service.shutdown()
 
     assert await subscription.receive() is None
@@ -345,12 +348,12 @@ async def test_requests_for_one_dialog_run_in_order_with_completed_history(
     agent = ControlledAgent({"first": first, "second": second})
     store = InMemoryHistoryStore()
     service = make_service(agent, store)
-    dialog_id = await service.start_dialog()
+    dialog_id = await service.start_dialog(OWNER_ID)
 
     with bind_context(request_id="request-first"):
-        await service.submit(dialog_id, UserRequest(content="first"))
+        await service.submit(dialog_id, OWNER_ID, UserRequest(content="first"))
     with bind_context(request_id="request-second"):
-        await service.submit(dialog_id, UserRequest(content="second"))
+        await service.submit(dialog_id, OWNER_ID, UserRequest(content="second"))
     await asyncio.wait_for(first.started.wait(), timeout=0.1)
     await asyncio.sleep(0)
 
@@ -387,13 +390,13 @@ async def test_different_dialogs_run_independently(
     agent = ControlledAgent({"first": first, "second": second})
     store = InMemoryHistoryStore()
     service = make_service(agent, store)
-    first_dialog_id = await service.start_dialog()
-    second_dialog_id = await service.start_dialog()
+    first_dialog_id = await service.start_dialog(OWNER_ID)
+    second_dialog_id = await service.start_dialog(OWNER_ID)
 
     with bind_context(request_id="request-first"):
-        await service.submit(first_dialog_id, UserRequest(content="first"))
+        await service.submit(first_dialog_id, OWNER_ID, UserRequest(content="first"))
     with bind_context(request_id="request-second"):
-        await service.submit(second_dialog_id, UserRequest(content="second"))
+        await service.submit(second_dialog_id, OWNER_ID, UserRequest(content="second"))
 
     await asyncio.wait_for(first.started.wait(), timeout=0.1)
     await asyncio.wait_for(second.started.wait(), timeout=0.1)
@@ -420,7 +423,9 @@ async def test_unknown_dialog_is_rejected_before_agent_task_is_created() -> None
     missing_dialog_id = uuid4()
 
     with pytest.raises(DialogNotFoundError):
-        await service.submit(missing_dialog_id, UserRequest(content="request"))
+        await service.submit(
+            missing_dialog_id, OWNER_ID, UserRequest(content="request")
+        )
 
     assert agent.calls == []
     await service.shutdown()
@@ -435,9 +440,9 @@ async def test_agent_failure_does_not_change_history(
     agent = ControlledAgent({"private request": control})
     store = InMemoryHistoryStore()
     service = make_service(agent, store)
-    dialog_id = await service.start_dialog()
+    dialog_id = await service.start_dialog(OWNER_ID)
 
-    await service.submit(dialog_id, UserRequest(content="private request"))
+    await service.submit(dialog_id, OWNER_ID, UserRequest(content="private request"))
     await asyncio.wait_for(control.started.wait(), timeout=0.1)
     control.release.set()
 
@@ -470,8 +475,8 @@ async def test_shutdown_cancels_tasks_and_rejects_new_submissions() -> None:
     store = InMemoryHistoryStore()
     broker = RecordingBroker(control.cancelled)
     service = make_service(agent, store, broker=broker)
-    dialog_id = await service.start_dialog()
-    await service.submit(dialog_id, UserRequest(content="request"))
+    dialog_id = await service.start_dialog(OWNER_ID)
+    await service.submit(dialog_id, OWNER_ID, UserRequest(content="request"))
     await asyncio.wait_for(control.started.wait(), timeout=0.1)
 
     await asyncio.wait_for(service.shutdown(), timeout=0.1)
@@ -480,7 +485,7 @@ async def test_shutdown_cancels_tasks_and_rejects_new_submissions() -> None:
     assert broker.shutdown_after_cancellation is True
     assert await store.get(dialog_id) == ()
     with pytest.raises(AgentServiceUnavailableError):
-        await service.submit(dialog_id, UserRequest(content="request"))
+        await service.submit(dialog_id, OWNER_ID, UserRequest(content="request"))
 
 
 @pytest.mark.asyncio
@@ -491,10 +496,12 @@ async def test_service_logs_lifecycle_without_message_content(
     control = RunControl(response="private response")
     store = InMemoryHistoryStore()
     service = make_service(ControlledAgent({"private request": control}), store)
-    dialog_id = await service.start_dialog()
+    dialog_id = await service.start_dialog(OWNER_ID)
 
     with bind_context(request_id="request-1"):
-        await service.submit(dialog_id, UserRequest(content="private request"))
+        await service.submit(
+            dialog_id, OWNER_ID, UserRequest(content="private request")
+        )
     await asyncio.wait_for(control.started.wait(), timeout=0.1)
     control.release.set()
     await wait_for_history_size(store, dialog_id, 2)
@@ -523,3 +530,41 @@ async def test_service_logs_lifecycle_without_message_content(
     assert run_completion.duration_ms >= 0
     assert run_completion.outcome == "completed"
     await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_foreign_dialog_is_rejected_without_task_or_subscription(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="smeshariki_ai.application.agent_service")
+    agent = ControlledAgent({})
+    broker = RecordingBroker()
+    store = InMemoryHistoryStore()
+    service = make_service(agent, store, broker=broker)
+    dialog_id = await service.start_dialog(OWNER_ID)
+
+    with pytest.raises(DialogNotFoundError):
+        await service.submit(
+            dialog_id, OTHER_ID, UserRequest(content="private request")
+        )
+    with pytest.raises(DialogNotFoundError):
+        await service.subscribe(dialog_id, OTHER_ID)
+    await service.shutdown()
+
+    assert agent.calls == []
+    assert broker.subscribed == []
+    assert broker.published == []
+    assert await store.get(dialog_id) == ()
+    denied = [
+        record
+        for record in caplog.records
+        if record.getMessage().split()[0] == "dialog.access.denied"
+    ]
+    assert len(denied) == 2
+    assert all(
+        record.dialog_id == str(dialog_id)
+        and record.user_id == str(OTHER_ID)
+        and record.outcome == "foreign"
+        for record in denied
+    )
+    assert "private request" not in caplog.text

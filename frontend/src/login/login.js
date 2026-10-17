@@ -8,6 +8,7 @@ const ERROR_MESSAGES = Object.freeze({
   login_taken: "Этот логин уже занят",
   invalid_credentials: "Неверный логин или пароль",
   invalid_fields: "Проверьте логин и пароль",
+  too_many_attempts: "Слишком много попыток. Попробуйте позже",
 });
 
 const MODES = Object.freeze({

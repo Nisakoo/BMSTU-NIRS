@@ -61,7 +61,7 @@ export class AuthApi {
       "/api/v1/users",
       { method: "POST", body: { login, password } },
       201,
-      { 409: "login_taken", 422: "invalid_fields" },
+      { 409: "login_taken", 422: "invalid_fields", 429: "too_many_attempts" },
     );
     return this.readUser(response);
   }
@@ -71,7 +71,7 @@ export class AuthApi {
       "/api/v1/auth/login",
       { method: "POST", body: { login, password } },
       200,
-      { 401: "invalid_credentials", 422: "invalid_fields" },
+      { 401: "invalid_credentials", 422: "invalid_fields", 429: "too_many_attempts" },
     );
     return this.readUser(response);
   }

@@ -14,6 +14,12 @@ x-backend-environment: &backend-environment
   AUTH_ACCESS_TTL_SECONDS: ${AUTH_ACCESS_TTL_SECONDS:-900}
   AUTH_REFRESH_TTL_SECONDS: ${AUTH_REFRESH_TTL_SECONDS:-2592000}
   AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+  AUTH_LOGIN_MAX_FAILURES: ${AUTH_LOGIN_MAX_FAILURES:-5}
+  AUTH_LOGIN_FAILURE_WINDOW_SECONDS: ${AUTH_LOGIN_FAILURE_WINDOW_SECONDS:-900}
+  AUTH_LOGIN_MAX_PER_IP: ${AUTH_LOGIN_MAX_PER_IP:-30}
+  AUTH_LOGIN_PER_IP_WINDOW_SECONDS: ${AUTH_LOGIN_PER_IP_WINDOW_SECONDS:-60}
+  AUTH_REGISTER_MAX_PER_IP: ${AUTH_REGISTER_MAX_PER_IP:-10}
+  AUTH_REGISTER_PER_IP_WINDOW_SECONDS: ${AUTH_REGISTER_PER_IP_WINDOW_SECONDS:-3600}
   DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-smeshariki}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in docker/.env}@postgres:5432/${POSTGRES_DB:-smeshariki}
   REDIS_URL: redis://redis:6379/0
 
@@ -56,7 +62,10 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    environment: *backend-environment
+    environment:
+      <<: *backend-environment
+      # Uvicorn trusts X-Forwarded-For only from Caddy's fixed address.
+      FORWARDED_ALLOW_IPS: 172.31.250.250
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -92,6 +101,17 @@ services:
         condition: service_healthy
     ports:
       - "127.0.0.1:${APP_PORT:-8080}:80"
+    networks:
+      default:
+        ipv4_address: 172.31.250.250
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.31.250.0/24
+          # Dynamic addresses stay below Caddy's fixed one.
+          ip_range: 172.31.250.0/25
 
 volumes:
   postgres-data:
