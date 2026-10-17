@@ -20,7 +20,7 @@ from smeshariki_ai.application.events import (
     DialogEventType,
     DialogSubscription,
 )
-from smeshariki_ai.dialogs import HistoryStore
+from smeshariki_ai.dialogs import DialogNotFoundError, HistoryStore
 from smeshariki_ai.observability import bind_context, log_event, utc_now
 
 logger = logging.getLogger(__name__)
@@ -49,16 +49,18 @@ class AgentService:
         self._dialog_tails: dict[UUID, asyncio.Task[None]] = {}
         self._tasks: set[asyncio.Task[None]] = set()
 
-    async def start_dialog(self) -> UUID:
+    async def start_dialog(self, user_id: UUID) -> UUID:
         async with self._state_lock:
             self._ensure_accepting()
-            dialog_id = await self._history_store.create()
+            dialog_id = await self._history_store.create(user_id)
 
         log_event(logger, logging.INFO, "dialog.created", dialog_id=str(dialog_id))
         return dialog_id
 
-    async def submit(self, dialog_id: UUID, request: UserRequest) -> None:
-        await self._history_store.get(dialog_id)
+    async def submit(
+        self, dialog_id: UUID, user_id: UUID, request: UserRequest
+    ) -> None:
+        await self._ensure_owner(dialog_id, user_id)
 
         async with self._state_lock:
             self._ensure_accepting()
@@ -81,8 +83,8 @@ class AgentService:
             logger, logging.INFO, "dialog.request.accepted", dialog_id=str(dialog_id)
         )
 
-    async def subscribe(self, dialog_id: UUID) -> DialogSubscription:
-        await self._history_store.get(dialog_id)
+    async def subscribe(self, dialog_id: UUID, user_id: UUID) -> DialogSubscription:
+        await self._ensure_owner(dialog_id, user_id)
         async with self._state_lock:
             self._ensure_accepting()
             subscription = await self._event_broker.subscribe(dialog_id)
@@ -219,6 +221,19 @@ class AgentService:
             task.exception()
         except asyncio.CancelledError:
             pass
+
+    async def _ensure_owner(self, dialog_id: UUID, user_id: UUID) -> None:
+        # A foreign dialog is reported as missing; only the log tells them apart.
+        if await self._history_store.owner(dialog_id) != user_id:
+            log_event(
+                logger,
+                logging.INFO,
+                "dialog.access.denied",
+                dialog_id=str(dialog_id),
+                user_id=str(user_id),
+                outcome="foreign",
+            )
+            raise DialogNotFoundError(dialog_id)
 
     def _ensure_accepting(self) -> None:
         if not self._accepting:

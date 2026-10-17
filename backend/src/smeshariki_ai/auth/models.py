@@ -57,6 +57,7 @@ class AccessClaims:
     role: Role
     jti: str
     session_id: UUID
+    family_id: UUID
     issued_at: datetime
     expires_at: datetime
 
@@ -97,3 +98,12 @@ class UnauthorizedError(AuthError):
 class AuthUnavailableError(AuthError):
     def __init__(self) -> None:
         super().__init__("Authentication storage is unavailable.")
+
+
+class TooManyAttemptsError(AuthError):
+    """A rate limit was hit; ``limit`` names it and carries no request data."""
+
+    def __init__(self, limit: str, retry_after: int) -> None:
+        super().__init__("Too many attempts.")
+        self.limit = limit
+        self.retry_after = retry_after

@@ -7,7 +7,13 @@ from uuid import UUID, uuid4
 
 import httpx
 import pytest
-from api_auth_support import AUTH_COOKIES, static_auth_service
+from api_auth_support import (
+    ADMIN_COOKIES,
+    AUTH_COOKIES,
+    OTHER_COOKIES,
+    TEST_USER,
+    static_auth_service,
+)
 
 from smeshariki_ai.agent import (
     AgentResponse,
@@ -108,7 +114,7 @@ async def test_message_returns_empty_202_before_agent_finishes() -> None:
     agent = BlockingAgent(response="")
     store = InMemoryHistoryStore()
     service = make_service(agent, store)
-    dialog_id = await service.start_dialog()
+    dialog_id = await service.start_dialog(TEST_USER.id)
     client = make_client(service)
 
     async with client:
@@ -146,7 +152,7 @@ async def test_json_logs_link_http_request_and_background_run() -> None:
     agent = BlockingAgent(response="private answer")
     store = InMemoryHistoryStore()
     service = make_service(agent, store)
-    dialog_id = await service.start_dialog()
+    dialog_id = await service.start_dialog(TEST_USER.id)
     client = make_client(service)
     try:
         async with client:
@@ -195,7 +201,7 @@ async def test_unhandled_api_error_returns_request_id_without_private_exception(
     None
 ):
     class FailingStore(InMemoryHistoryStore):
-        async def create(self) -> UUID:
+        async def create(self, owner_id: UUID) -> UUID:
             raise RuntimeError("private failure detail")
 
     logger = logging.getLogger("smeshariki_ai")
@@ -301,7 +307,7 @@ async def test_closed_service_returns_safe_503() -> None:
     agent = BlockingAgent()
     store = InMemoryHistoryStore()
     service = make_service(agent, store)
-    dialog_id = await service.start_dialog()
+    dialog_id = await service.start_dialog(TEST_USER.id)
     await service.shutdown()
     client = make_client(service)
 
@@ -322,7 +328,7 @@ async def test_cookie_does_not_select_or_modify_dialog() -> None:
     agent = BlockingAgent()
     store = InMemoryHistoryStore()
     service = make_service(agent, store)
-    dialog_id = await service.start_dialog()
+    dialog_id = await service.start_dialog(TEST_USER.id)
     client = make_client(
         service,
         cookies={"dialog_id": str(uuid4())},
@@ -347,11 +353,65 @@ async def test_application_lifespan_shuts_service_down() -> None:
     agent = BlockingAgent()
     store = InMemoryHistoryStore()
     service = make_service(agent, store)
-    dialog_id = await service.start_dialog()
+    dialog_id = await service.start_dialog(TEST_USER.id)
     app = create_app(service)
 
     async with app.router.lifespan_context(app):
         pass
 
     with pytest.raises(AgentServiceUnavailableError):
-        await service.submit(dialog_id, UserRequest(content="question"))
+        await service.submit(dialog_id, TEST_USER.id, UserRequest(content="question"))
+
+
+@pytest.mark.asyncio
+async def test_created_dialog_belongs_to_authenticated_user() -> None:
+    store = InMemoryHistoryStore()
+    service = make_service(BlockingAgent(), store)
+    client = make_client(service)
+
+    async with client:
+        response = await client.post("/api/v1/dialogs")
+
+    assert await store.owner(UUID(response.json()["dialog_id"])) == TEST_USER.id
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cookies", [OTHER_COOKIES, ADMIN_COOKIES])
+async def test_foreign_dialog_is_indistinguishable_from_missing(
+    cookies: dict[str, str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="smeshariki_ai.application.agent_service")
+    agent = BlockingAgent()
+    store = InMemoryHistoryStore()
+    service = make_service(agent, store)
+    dialog_id = await service.start_dialog(TEST_USER.id)
+    client = make_client(service, cookies=cookies)
+
+    async with client:
+        foreign = await client.post(
+            f"/api/v1/dialogs/{dialog_id}/messages",
+            json={"request": "private request"},
+        )
+        missing = await client.post(
+            f"/api/v1/dialogs/{uuid4()}/messages",
+            json={"request": "private request"},
+        )
+        foreign_events = await client.get(f"/api/v1/dialogs/{dialog_id}/events")
+        missing_events = await client.get(f"/api/v1/dialogs/{uuid4()}/events")
+
+    for response in (foreign, missing, foreign_events, missing_events):
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Dialog not found."}
+    assert agent.calls == []
+    assert await store.get(dialog_id) == ()
+    denied = [
+        record
+        for record in caplog.records
+        if record.getMessage().split()[0] == "dialog.access.denied"
+    ]
+    assert [record.outcome for record in denied] == ["foreign", "foreign"]
+    assert all(record.dialog_id == str(dialog_id) for record in denied)
+    assert "private request" not in caplog.text
+    await service.shutdown()

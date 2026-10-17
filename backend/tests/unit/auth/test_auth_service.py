@@ -38,6 +38,12 @@ class FailingBlacklist(InMemoryTokenBlacklist):
     async def add(self, jti: str, expires_at: datetime) -> None:
         raise AuthUnavailableError
 
+    async def revoke_family(self, family_id: UUID, until: datetime) -> None:
+        raise AuthUnavailableError
+
+    async def family_revoked(self, family_id: UUID) -> bool:
+        raise AuthUnavailableError
+
 
 class CountingHasher(Argon2PasswordHasher):
     def __init__(self) -> None:
@@ -124,7 +130,7 @@ async def test_login_is_case_insensitive_and_issues_tokens(
 ) -> None:
     registered = await service.register("Krosh", "password123")
 
-    result = await service.login("krosh", "password123")
+    result = await service.login("krosh", "password123", "127.0.0.1")
 
     assert result.user == registered
     assert result.tokens.access_expires_at == clock.now + timedelta(seconds=900)
@@ -139,9 +145,9 @@ async def test_login_failures_are_indistinguishable_and_always_verify_hash(
     await service.register("Krosh", "password123")
 
     with pytest.raises(InvalidCredentialsError) as wrong_password:
-        await service.login("Krosh", "wrong-password")
+        await service.login("Krosh", "wrong-password", "127.0.0.1")
     with pytest.raises(InvalidCredentialsError) as unknown_login:
-        await service.login("Nyusha", "password123")
+        await service.login("Nyusha", "password123", "127.0.0.1")
 
     assert str(wrong_password.value) == str(unknown_login.value)
     assert hasher.verify_calls == 2
@@ -154,7 +160,7 @@ async def test_authenticate_rejects_expired_foreign_and_garbage_tokens(
     hasher: CountingHasher,
 ) -> None:
     await service.register("Krosh", "password123")
-    tokens = (await service.login("Krosh", "password123")).tokens
+    tokens = (await service.login("Krosh", "password123", "127.0.0.1")).tokens
     other = AuthService(
         users=InMemoryUserStore(),
         sessions=sessions,
@@ -164,7 +170,9 @@ async def test_authenticate_rejects_expired_foreign_and_garbage_tokens(
         clock=clock,
     )
     await other.register("Krosh", "password123")
-    foreign = (await other.login("Krosh", "password123")).tokens.access_token
+    foreign = (
+        await other.login("Krosh", "password123", "127.0.0.1")
+    ).tokens.access_token
 
     for token in (foreign, "not-a-jwt", ""):
         with pytest.raises(UnauthorizedError):
@@ -183,7 +191,7 @@ async def test_authenticate_returns_current_role_from_store(
     users = InMemoryUserStore()
     service = make_service(clock, sessions, hasher, users=users)
     user = await service.register("Krosh", "password123")
-    tokens = (await service.login("Krosh", "password123")).tokens
+    tokens = (await service.login("Krosh", "password123", "127.0.0.1")).tokens
 
     users.set_role(user.id, Role.ADMIN)
 
@@ -195,7 +203,7 @@ async def test_refresh_rotates_token_and_detects_reuse(
     clock: Clock,
 ) -> None:
     user = await service.register("Krosh", "password123")
-    first = (await service.login("Krosh", "password123")).tokens
+    first = (await service.login("Krosh", "password123", "127.0.0.1")).tokens
 
     clock.advance(minutes=1)
     second = await service.refresh(first.refresh_token)
@@ -216,7 +224,7 @@ async def test_refresh_rejects_unknown_and_expired_tokens(
     clock: Clock,
 ) -> None:
     await service.register("Krosh", "password123")
-    tokens = (await service.login("Krosh", "password123")).tokens
+    tokens = (await service.login("Krosh", "password123", "127.0.0.1")).tokens
 
     with pytest.raises(UnauthorizedError):
         await service.refresh("unknown-refresh-token")
@@ -234,7 +242,7 @@ async def test_logout_blacklists_access_until_expiry_and_revokes_refresh(
     blacklist = InMemoryTokenBlacklist(clock=clock)
     service = make_service(clock, sessions, hasher, blacklist=blacklist)
     await service.register("Krosh", "password123")
-    tokens = (await service.login("Krosh", "password123")).tokens
+    tokens = (await service.login("Krosh", "password123", "127.0.0.1")).tokens
 
     await service.logout(tokens.access_token, tokens.refresh_token)
 
@@ -243,13 +251,14 @@ async def test_logout_blacklists_access_until_expiry_and_revokes_refresh(
     with pytest.raises(UnauthorizedError):
         await service.refresh(tokens.refresh_token)
     assert list(blacklist.expirations.values()) == [tokens.access_expires_at]
+    assert list(blacklist.family_expirations.values()) == [tokens.access_expires_at]
 
 
 async def test_logout_is_idempotent_and_accepts_missing_or_invalid_tokens(
     service: AuthService,
 ) -> None:
     await service.register("Krosh", "password123")
-    tokens = (await service.login("Krosh", "password123")).tokens
+    tokens = (await service.login("Krosh", "password123", "127.0.0.1")).tokens
 
     await service.logout(None, None)
     await service.logout("garbage", "garbage")
@@ -261,7 +270,7 @@ async def test_logout_with_access_only_revokes_its_refresh_session(
     service: AuthService,
 ) -> None:
     await service.register("Krosh", "password123")
-    tokens = (await service.login("Krosh", "password123")).tokens
+    tokens = (await service.login("Krosh", "password123", "127.0.0.1")).tokens
 
     await service.logout(tokens.access_token, None)
 
@@ -278,9 +287,93 @@ async def test_unavailable_blacklist_fails_closed(
         clock, sessions, hasher, blacklist=FailingBlacklist(clock=clock)
     )
     await service.register("Krosh", "password123")
-    tokens = (await service.login("Krosh", "password123")).tokens
+    tokens = (await service.login("Krosh", "password123", "127.0.0.1")).tokens
 
     with pytest.raises(AuthUnavailableError):
         await service.authenticate(tokens.access_token)
     with pytest.raises(AuthUnavailableError):
         await service.logout(tokens.access_token, None)
+
+
+async def test_logout_revokes_whole_family_including_other_access_tokens(
+    service: AuthService,
+    clock: Clock,
+) -> None:
+    await service.register("Krosh", "password123")
+    first = (await service.login("Krosh", "password123", "127.0.0.1")).tokens
+    clock.advance(minutes=1)
+    second = (await service.refresh(first.refresh_token)).tokens
+    other_login = (await service.login("Krosh", "password123", "127.0.0.1")).tokens
+
+    await service.logout(second.access_token, None)
+
+    for token in (first.access_token, second.access_token):
+        with pytest.raises(UnauthorizedError):
+            await service.authenticate(token)
+    with pytest.raises(UnauthorizedError):
+        await service.refresh(second.refresh_token)
+    # Another login is a separate family and stays valid.
+    await service.authenticate(other_login.access_token)
+
+
+async def test_logout_with_refresh_only_revokes_family_access_tokens(
+    service: AuthService,
+) -> None:
+    await service.register("Krosh", "password123")
+    tokens = (await service.login("Krosh", "password123", "127.0.0.1")).tokens
+
+    await service.logout(None, tokens.refresh_token)
+
+    with pytest.raises(UnauthorizedError):
+        await service.authenticate(tokens.access_token)
+
+
+async def test_refresh_reuse_revokes_family_access_tokens(
+    service: AuthService,
+    clock: Clock,
+) -> None:
+    await service.register("Krosh", "password123")
+    first = (await service.login("Krosh", "password123", "127.0.0.1")).tokens
+    clock.advance(minutes=1)
+    second = (await service.refresh(first.refresh_token)).tokens
+
+    with pytest.raises(UnauthorizedError):
+        await service.refresh(first.refresh_token)
+
+    with pytest.raises(UnauthorizedError):
+        await service.authenticate(second.access_token)
+
+
+async def test_verify_session_ignores_expiry_but_not_revocation(
+    service: AuthService,
+    clock: Clock,
+) -> None:
+    user = await service.register("Krosh", "password123")
+    tokens = (await service.login("Krosh", "password123", "127.0.0.1")).tokens
+
+    clock.advance(hours=2)
+
+    with pytest.raises(UnauthorizedError):
+        await service.authenticate(tokens.access_token)
+    assert await service.verify_session(tokens.access_token) == user
+    with pytest.raises(UnauthorizedError):
+        await service.verify_session("garbage")
+
+    await service.logout(None, tokens.refresh_token)
+    with pytest.raises(UnauthorizedError):
+        await service.verify_session(tokens.access_token)
+
+
+async def test_verify_session_rejects_deleted_user(
+    clock: Clock,
+    sessions: InMemoryRefreshSessionStore,
+    hasher: CountingHasher,
+) -> None:
+    users = InMemoryUserStore()
+    service = make_service(clock, sessions, hasher, users=users)
+    await service.register("Krosh", "password123")
+    tokens = (await service.login("Krosh", "password123", "127.0.0.1")).tokens
+    users._users.clear()
+
+    with pytest.raises(UnauthorizedError):
+        await service.verify_session(tokens.access_token)

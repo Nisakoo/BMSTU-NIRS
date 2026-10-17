@@ -1,6 +1,7 @@
 import os
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
 import pytest
 from redis.asyncio import Redis
@@ -50,5 +51,31 @@ async def test_unreachable_redis_is_unavailable() -> None:
             await blacklist.contains("jti")
         with pytest.raises(AuthUnavailableError):
             await blacklist.add("jti", datetime.now(UTC) + timedelta(minutes=1))
+        with pytest.raises(AuthUnavailableError):
+            await blacklist.family_revoked(uuid4())
+        with pytest.raises(AuthUnavailableError):
+            await blacklist.revoke_family(
+                uuid4(), datetime.now(UTC) + timedelta(minutes=1)
+            )
     finally:
         await client.aclose()
+
+
+async def test_revoked_family_lives_until_given_time(redis: Redis) -> None:
+    blacklist = RedisTokenBlacklist(redis, clock=lambda: NOW)
+    family_id = uuid4()
+
+    await blacklist.revoke_family(family_id, NOW + timedelta(seconds=900))
+
+    assert await blacklist.family_revoked(family_id) is True
+    assert await blacklist.family_revoked(uuid4()) is False
+    assert 0 < await redis.ttl(f"auth:revoked-family:{family_id}") <= 900
+
+
+async def test_expired_family_revocation_is_not_written(redis: Redis) -> None:
+    blacklist = RedisTokenBlacklist(redis, clock=lambda: NOW)
+    family_id = uuid4()
+
+    await blacklist.revoke_family(family_id, NOW)
+
+    assert await blacklist.family_revoked(family_id) is False

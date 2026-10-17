@@ -27,7 +27,7 @@ from smeshariki_ai.bootstrap import (
     configure_logging,
     create_application,
 )
-from smeshariki_ai.cache import RedisConfig
+from smeshariki_ai.cache import RedisAttemptLimiter, RedisConfig
 from smeshariki_ai.config import Config
 from smeshariki_ai.db import DatabaseConfig
 from smeshariki_ai.observability import LoggingConfig
@@ -195,6 +195,7 @@ async def test_create_application_wires_auth_and_closes_infrastructure(
 
     assert received == {"database": config.database, "redis": config.redis}
     assert isinstance(app.state.auth_service, AuthService)
+    assert isinstance(app.state.auth_service._limiter, RedisAttemptLimiter)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://testserver"
     ) as client:

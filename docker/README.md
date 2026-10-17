@@ -18,7 +18,10 @@ make run
 Перед первым запуском скопируйте `docker/.env.example` в `docker/.env`, выберите
 поддерживаемую LiteLLM модель в `LLM_MODEL` и при необходимости задайте
 `LLM_API_KEY` и `LLM_BASE_URL`. Также обязательны `AUTH_JWT_SECRET` (не короче
-32 байт, например `openssl rand -base64 48`) и `POSTGRES_PASSWORD`. Локальный `docker/.env` не отслеживается Git;
+32 байт; в шаблоне он пустой, сгенерируйте его командой
+`openssl rand -base64 48` — без него `make run` останавливается сообщением
+`Set AUTH_JWT_SECRET in docker/.env`, а значения с префиксом `replace-with-`
+backend отклоняет) и `POSTGRES_PASSWORD`. Локальный `docker/.env` не отслеживается Git;
 реальные секреты не должны попадать в `.env.example`.
 
 После запуска frontend доступен на `http://localhost:8080/`, demo-макет панели
@@ -28,6 +31,18 @@ make run
 порт. Compose публикует только порт Caddy на `127.0.0.1`; backend и Nginx
 доступны лишь внутри его сети. Локальный вход использует HTTP: публичный домен
 и HTTPS этим изменением не настроены.
+
+Лимиты попыток входа и регистрации (`AUTH_LOGIN_MAX_FAILURES`,
+`AUTH_LOGIN_FAILURE_WINDOW_SECONDS`, `AUTH_LOGIN_MAX_PER_IP`,
+`AUTH_LOGIN_PER_IP_WINDOW_SECONDS`, `AUTH_REGISTER_MAX_PER_IP`,
+`AUTH_REGISTER_PER_IP_WINDOW_SECONDS`) имеют значения по умолчанию в
+`.env.example` и описаны в [`docs/configuration.md`](../docs/configuration.md).
+Для определения IP клиента сеть Compose использует подсеть `172.31.250.0/24`,
+Caddy получает в ней фиксированный адрес `172.31.250.250`, а backend доверяет
+`X-Forwarded-For` только от него (`FORWARDED_ALLOW_IPS`). Если подсеть
+пересекается с вашей локальной сетью Docker, измените её и адрес в
+`compose.yaml` согласованно. Без Docker Uvicorn по умолчанию доверяет только
+`127.0.0.1`.
 
 Backend использует LiteLLM Python SDK внутри своего процесса. `LLM_MODEL`
 обязателен. Таймаут одного запроса задаётся `LLM_TIMEOUT_SECONDS` (по умолчанию
@@ -98,6 +113,12 @@ curl -i -X POST http://localhost:8080/api/v1/dialogs/<dialog_id>/messages \
   Caddy;
 - `Dockerfile` — Python 3.12 образ backend с зависимостями из `backend/uv.lock`;
 - `frontend.Dockerfile` — Node.js 22 build frontend и runtime Nginx;
+- `nginx.conf` — конфиг Nginx: относительные редиректы на каталог
+  (`absolute_redirect off`, `/login` → `/login/` без потери порта Caddy),
+  `Cache-Control: no-cache` для HTML и `immutable` для хешированных
+  `/assets/`; несуществующие пути — `404` без SPA fallback
+  ([spec](../specs/changes/frontend-nginx-config/spec.md),
+  [verification](../specs/changes/frontend-nginx-config/verification.md));
 - `Caddyfile` — маршруты `/api` к backend и остальных запросов к Nginx;
 - `.env.example` — несекретный шаблон порта, агента, LiteLLM-провайдера, логов,
   аутентификации и PostgreSQL.

@@ -93,9 +93,11 @@ test("HTTP statuses map to stable error codes", async () => {
   const cases = [
     ["register", 409, "login_taken"],
     ["register", 422, "invalid_fields"],
+    ["register", 429, "too_many_attempts"],
     ["register", 500, "unavailable"],
     ["login", 401, "invalid_credentials"],
     ["login", 422, "invalid_fields"],
+    ["login", 429, "too_many_attempts"],
     ["login", 404, "unavailable"],
     ["logout", 500, "unavailable"],
     ["me", 401, "unauthorized"],

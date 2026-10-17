@@ -1,9 +1,10 @@
 """Deterministic in-process stores for tests and local wiring."""
 
 import asyncio
+import math
 from collections.abc import Callable
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from smeshariki_ai.auth.models import (
@@ -13,7 +14,12 @@ from smeshariki_ai.auth.models import (
     User,
     UserWithPassword,
 )
-from smeshariki_ai.auth.stores import RefreshSessionStore, TokenBlacklist, UserStore
+from smeshariki_ai.auth.stores import (
+    AttemptLimiter,
+    RefreshSessionStore,
+    TokenBlacklist,
+    UserStore,
+)
 
 
 class InMemoryUserStore(UserStore):
@@ -106,6 +112,7 @@ class InMemoryTokenBlacklist(TokenBlacklist):
     def __init__(self, *, clock: Callable[[], datetime] | None = None) -> None:
         self._clock = clock or (lambda: datetime.now(UTC))
         self.expirations: dict[str, datetime] = {}
+        self.family_expirations: dict[UUID, datetime] = {}
 
     async def add(self, jti: str, expires_at: datetime) -> None:
         if expires_at > self._clock():
@@ -114,3 +121,51 @@ class InMemoryTokenBlacklist(TokenBlacklist):
     async def contains(self, jti: str) -> bool:
         expires_at = self.expirations.get(jti)
         return expires_at is not None and expires_at > self._clock()
+
+    async def revoke_family(self, family_id: UUID, until: datetime) -> None:
+        if until > self._clock():
+            self.family_expirations[family_id] = until
+
+    async def family_revoked(self, family_id: UUID) -> bool:
+        until = self.family_expirations.get(family_id)
+        return until is not None and until > self._clock()
+
+
+class InMemoryAttemptLimiter(AttemptLimiter):
+    def __init__(self, *, clock: Callable[[], datetime] | None = None) -> None:
+        self._clock = clock or (lambda: datetime.now(UTC))
+        self._counters: dict[str, tuple[int, datetime]] = {}
+
+    async def hit(self, key: str, limit: int, window_seconds: int) -> int | None:
+        count = self._increment(key, window_seconds)
+        return self._retry_after(key) if count > limit else None
+
+    async def blocked(self, key: str, limit: int) -> int | None:
+        self._expire(key)
+        counter = self._counters.get(key)
+        if counter is None or counter[0] < limit:
+            return None
+        return self._retry_after(key)
+
+    async def record_failure(self, key: str, window_seconds: int) -> None:
+        self._increment(key, window_seconds)
+
+    async def reset(self, key: str) -> None:
+        self._counters.pop(key, None)
+
+    def _increment(self, key: str, window_seconds: int) -> int:
+        self._expire(key)
+        count, ends_at = self._counters.get(
+            key, (0, self._clock() + timedelta(seconds=window_seconds))
+        )
+        self._counters[key] = (count + 1, ends_at)
+        return count + 1
+
+    def _expire(self, key: str) -> None:
+        counter = self._counters.get(key)
+        if counter is not None and counter[1] <= self._clock():
+            del self._counters[key]
+
+    def _retry_after(self, key: str) -> int:
+        remaining = (self._counters[key][1] - self._clock()).total_seconds()
+        return max(1, math.ceil(remaining))

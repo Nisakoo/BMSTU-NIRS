@@ -38,6 +38,10 @@ Frontend, Caddy и backend работают в одном Compose проекте
 и `make frontend` для этого сценария не требуются. Все браузерные запросы
 остаются на одном origin. Caddy передаёт `/api/*` в backend, а статические
 страницы — Nginx.
+Nginx использует собственный [`docker/nginx.conf`](../docker/nginx.conf):
+адреса без слеша (`/login`, `/admin`) редиректят относительно и сохраняют
+порт, HTML отдаётся с `no-cache`, а файлы `/assets/` с хешем в имени
+кэшируются как `immutable`.
 
 ## Vite dev-режим
 
@@ -242,3 +246,7 @@ access JWT и refresh-токен передаются `HttpOnly` cookie.
 Единый контейнерный запуск описан в
 [`spec.md`](../specs/changes/compose-caddy-nginx-stack/spec.md), его проверка — в
 [`verification.md`](../specs/changes/compose-caddy-nginx-stack/verification.md).
+Конфиг Nginx описан в
+[`spec.md`](../specs/changes/frontend-nginx-config/spec.md) и
+[`plan.md`](../specs/changes/frontend-nginx-config/plan.md), проверка — в
+[`verification.md`](../specs/changes/frontend-nginx-config/verification.md).

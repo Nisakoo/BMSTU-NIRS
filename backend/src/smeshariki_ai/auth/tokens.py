@@ -9,7 +9,7 @@ from smeshariki_ai.auth.config import AuthConfig
 from smeshariki_ai.auth.models import AccessClaims, Role, UnauthorizedError
 
 _ALGORITHM = "HS256"
-_REQUIRED_CLAIMS = ["sub", "role", "jti", "sid", "iat", "exp", "iss"]
+_REQUIRED_CLAIMS = ["sub", "role", "jti", "sid", "fid", "iat", "exp", "iss"]
 
 
 class TokenCodec:
@@ -23,6 +23,7 @@ class TokenCodec:
         user_id: UUID,
         role: Role,
         session_id: UUID,
+        family_id: UUID,
         now: datetime,
     ) -> tuple[str, AccessClaims]:
         issued_at = now.replace(microsecond=0)
@@ -31,6 +32,7 @@ class TokenCodec:
             role=role,
             jti=uuid4().hex,
             session_id=session_id,
+            family_id=family_id,
             issued_at=issued_at,
             expires_at=issued_at + self._access_ttl,
         )
@@ -39,13 +41,20 @@ class TokenCodec:
             "role": claims.role.value,
             "jti": claims.jti,
             "sid": str(claims.session_id),
+            "fid": str(claims.family_id),
             "iat": int(claims.issued_at.timestamp()),
             "exp": int(claims.expires_at.timestamp()),
             "iss": self._issuer,
         }
         return jwt.encode(payload, self._secret, algorithm=_ALGORITHM), claims
 
-    def decode_access(self, token: str, now: datetime) -> AccessClaims:
+    def decode_access(
+        self,
+        token: str,
+        now: datetime,
+        *,
+        verify_expiry: bool = True,
+    ) -> AccessClaims:
         try:
             # Expiry is checked against the injected clock below.
             payload = jwt.decode(
@@ -64,12 +73,13 @@ class TokenCodec:
                 role=Role(payload["role"]),
                 jti=_non_empty(payload["jti"]),
                 session_id=UUID(payload["sid"]),
+                family_id=UUID(payload["fid"]),
                 issued_at=datetime.fromtimestamp(int(payload["iat"]), UTC),
                 expires_at=datetime.fromtimestamp(int(payload["exp"]), UTC),
             )
         except (jwt.PyJWTError, KeyError, TypeError, ValueError) as error:
             raise UnauthorizedError from error
-        if claims.expires_at <= now:
+        if verify_expiry and claims.expires_at <= now:
             raise UnauthorizedError
         return claims
 

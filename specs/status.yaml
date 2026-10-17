@@ -55,3 +55,11 @@ specs:
       status: done
     - name: admin-user-stats
       status: done
+    - name: auth-hardening
+      status: done
+    - name: dialog-ownership
+      status: done
+    - name: auth-rate-limit
+      status: done
+    - name: frontend-nginx-config
+      status: done

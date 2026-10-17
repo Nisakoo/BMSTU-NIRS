@@ -5,13 +5,16 @@ import pytest
 from smeshariki_ai.agent import Message, MessageRole
 from smeshariki_ai.dialogs import DialogNotFoundError, InMemoryHistoryStore
 
+OWNER_ID = UUID(int=1)
+OTHER_ID = UUID(int=2)
+
 
 @pytest.mark.asyncio
 async def test_create_returns_unique_uuid4_with_empty_history() -> None:
     store = InMemoryHistoryStore()
 
-    first_dialog_id = await store.create()
-    second_dialog_id = await store.create()
+    first_dialog_id = await store.create(OWNER_ID)
+    second_dialog_id = await store.create(OWNER_ID)
 
     assert isinstance(first_dialog_id, UUID)
     assert first_dialog_id.version == 4
@@ -24,8 +27,8 @@ async def test_create_returns_unique_uuid4_with_empty_history() -> None:
 @pytest.mark.asyncio
 async def test_append_is_atomic_ordered_and_isolated_between_dialogs() -> None:
     store = InMemoryHistoryStore()
-    first_dialog_id = await store.create()
-    second_dialog_id = await store.create()
+    first_dialog_id = await store.create(OWNER_ID)
+    second_dialog_id = await store.create(OWNER_ID)
     messages = (
         Message(role=MessageRole.USER, content="question"),
         Message(role=MessageRole.ASSISTANT, content="answer"),
@@ -40,7 +43,7 @@ async def test_append_is_atomic_ordered_and_isolated_between_dialogs() -> None:
 @pytest.mark.asyncio
 async def test_get_returns_an_immutable_snapshot() -> None:
     store = InMemoryHistoryStore()
-    dialog_id = await store.create()
+    dialog_id = await store.create(OWNER_ID)
     first_message = Message(role=MessageRole.USER, content="first")
     await store.append(dialog_id, (first_message,))
 
@@ -65,5 +68,26 @@ async def test_unknown_dialog_raises_domain_error(operation: str) -> None:
             await store.get(missing_dialog_id)
         else:
             await store.append(missing_dialog_id, ())
+
+    assert caught.value.dialog_id == missing_dialog_id
+
+
+@pytest.mark.asyncio
+async def test_owner_is_stored_per_dialog() -> None:
+    store = InMemoryHistoryStore()
+    first_dialog_id = await store.create(OWNER_ID)
+    second_dialog_id = await store.create(OTHER_ID)
+
+    assert await store.owner(first_dialog_id) == OWNER_ID
+    assert await store.owner(second_dialog_id) == OTHER_ID
+
+
+@pytest.mark.asyncio
+async def test_owner_of_unknown_dialog_raises_domain_error() -> None:
+    store = InMemoryHistoryStore()
+    missing_dialog_id = uuid4()
+
+    with pytest.raises(DialogNotFoundError) as caught:
+        await store.owner(missing_dialog_id)
 
     assert caught.value.dialog_id == missing_dialog_id

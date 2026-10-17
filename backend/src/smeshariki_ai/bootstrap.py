@@ -11,7 +11,7 @@ from smeshariki_ai.agent.get_context import GetContextTool
 from smeshariki_ai.api import create_app
 from smeshariki_ai.application import AgentService, InMemoryDialogEventBroker
 from smeshariki_ai.auth import AuthService
-from smeshariki_ai.cache import RedisTokenBlacklist, create_redis
+from smeshariki_ai.cache import RedisAttemptLimiter, RedisTokenBlacklist, create_redis
 from smeshariki_ai.config import Config
 from smeshariki_ai.db import (
     PostgresAdminStatsStore,
@@ -65,6 +65,7 @@ def create_application(
             users=PostgresUserStore(engine),
             sessions=PostgresRefreshSessionStore(engine),
             blacklist=RedisTokenBlacklist(redis),
+            limiter=RedisAttemptLimiter(redis),
             config=config.auth,
         )
         admin_stats = AdminStatsService(PostgresAdminStatsStore(engine))
