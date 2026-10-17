@@ -14,29 +14,20 @@ body{
   min-height:100vh;
   color:var(--auth-ink);
   font-family:"Arial Rounded MT Bold","Trebuchet MS",system-ui,-apple-system,"Segoe UI",sans-serif;
-  background:
-    radial-gradient(circle at 12% 8%,rgba(89,192,244,.10),transparent 26%),
-    radial-gradient(circle at 88% 14%,rgba(255,109,181,.08),transparent 28%),
-    linear-gradient(180deg,#071424 0%,#0a1b2f 58%,#081522 100%);
+  background:#0d2439;
+  overflow-x:hidden;
 }
 button,input{font:inherit}
 
-.auth{
-  width:min(1240px,calc(100% - 32px));
-  margin:0 auto;
-  padding:16px 0;
-}
-
-/* Сцена во весь экран */
+/* Сцена и есть страница: без рамки и отступов от краёв окна */
 .auth-scene{
   position:relative;
   isolation:isolate;
-  min-height:calc(100vh - 32px);
-  padding:28px 56px 56px;
+  min-height:100vh;
+  min-height:100dvh;
+  padding:32px 80px 0;
   display:flex;
   flex-direction:column;
-  border:1px solid #244660;
-  border-radius:48px;
   overflow:hidden;
   background:
     radial-gradient(circle at 9% 23%,rgba(255,255,255,.90) 0 1.2px,transparent 1.8px),
@@ -48,13 +39,12 @@ button,input{font:inherit}
     radial-gradient(circle at 79% 8%,rgba(255,255,255,.62) 0 1px,transparent 1.7px),
     radial-gradient(circle at 93% 19%,rgba(255,217,90,.9) 0 1.2px,transparent 1.9px),
     radial-gradient(circle at 70% 52%,rgba(98,208,255,.10),transparent 32%),
-    linear-gradient(180deg,#102b45 0 55%,#0d2439 55% 100%);
-  box-shadow:0 28px 80px rgba(0,10,28,.46),inset 0 1px 0 rgba(255,255,255,.04);
+    linear-gradient(180deg,#0b2036 0%,#102b45 58%,#0d2439 100%);
 }
 
 .auth-moon{
   position:absolute;
-  right:72px;top:40px;
+  right:80px;top:48px;
   width:74px;height:74px;
   border-radius:50%;
   z-index:0;
@@ -70,7 +60,7 @@ button,input{font:inherit}
 .auth-landscape{
   position:absolute;
   left:0;right:0;bottom:0;
-  height:48%;
+  height:44%;
   z-index:0;
   pointer-events:none;
 }
@@ -107,7 +97,7 @@ button,input{font:inherit}
   display:grid;
   grid-template-columns:minmax(0,1fr) minmax(360px,420px);
   align-items:center;
-  gap:48px;
+  gap:56px;
   padding-top:24px;
 }
 
@@ -120,7 +110,7 @@ button,input{font:inherit}
   justify-content:space-between;
   gap:28px;
 }
-.auth-intro{max-width:520px;padding-top:28px}
+.auth-intro{max-width:620px;padding-top:28px}
 .auth-intro-title{
   margin:0;
   font-size:clamp(34px,3.6vw,50px);
@@ -135,45 +125,17 @@ button,input{font:inherit}
   min-width:0;
   margin:0;
   display:flex;
-  flex-direction:column;
-  align-items:center;
-  gap:18px;
+  align-items:flex-end;
 }
 .auth-friends img{
   display:block;
-  width:100%;
-  max-width:780px;
-  height:auto;
+  width:auto;
+  max-width:min(640px,100%);
+  max-height:max(220px,40vh);
   filter:drop-shadow(0 22px 26px rgba(0,8,20,.42));
   animation:authFloat 6s ease-in-out infinite;
 }
 @keyframes authFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
-
-.auth-hint{
-  position:relative;
-  margin:0;
-  padding:13px 18px;
-  border:2px solid #4db6df;
-  border-radius:22px 22px 22px 9px;
-  background:#102a41;
-  color:#c9e7f8;
-  box-shadow:0 13px 28px rgba(0,0,0,.26);
-  font:780 15px/1.4 Inter,system-ui,sans-serif;
-  transform:rotate(-1.5deg);
-}
-.auth-hint b{color:#ff7ebd}
-.auth-hint::after{
-  content:"";
-  position:absolute;
-  left:50%;bottom:-10px;
-  width:17px;height:17px;
-  margin-left:-8px;
-  background:#102a41;
-  border-right:2px solid #4db6df;
-  border-bottom:2px solid #4db6df;
-  border-radius:0 0 4px 0;
-  transform:rotate(45deg);
-}
 
 /* Стеклянная карточка с мягким свечением */
 .auth-card{
@@ -321,26 +283,25 @@ button,input{font:inherit}
 }
 
 @media (max-width:1050px){
-  .auth-scene{padding:24px 32px 44px}
+  .auth-scene{padding:24px 32px 0}
   .auth-layout{grid-template-columns:minmax(0,1fr) minmax(330px,400px);gap:28px}
 }
 
 @media (max-width:860px){
-  .auth{width:min(100% - 20px,620px);padding:10px 0}
-  .auth-scene{min-height:0;padding:20px 18px 32px;border-radius:36px}
+  .auth-scene{padding:20px 18px 32px}
   .auth-moon{left:auto;right:24px;top:20px;width:52px;height:52px}
   .auth-landscape{height:30%}
   .auth-layout{grid-template-columns:minmax(0,1fr);gap:20px;padding-top:14px}
   .auth-intro{padding-top:6px;text-align:center;margin:0 auto}
   .auth-side{gap:20px}
-  .auth-friends img{max-width:500px}
+  .auth-friends{justify-content:center}
+  .auth-friends img{max-width:min(500px,100%);max-height:none;height:auto}
   .auth-card{width:min(460px,100%);margin:0 auto}
 }
 
 @media (max-width:570px){
-  .auth-scene{padding:16px 12px 24px;border-radius:28px}
+  .auth-scene{padding:16px 12px 24px}
   .auth-moon{display:none}
-  .auth-hint{font-size:13px;padding:10px 14px}
   .auth-card{padding:24px 18px 20px;border-radius:26px}
   .auth-card-head h1{font-size:26px}
   .auth-intro-title{font-size:30px}
