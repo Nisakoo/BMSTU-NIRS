@@ -10,6 +10,7 @@ help:
 	@echo "  make run     Build and run the full application with Docker Compose"
 	@echo "  make migrate Apply database migrations with Docker Compose"
 	@echo "  make create-admin LOGIN=<login> Create an administrator account"
+	@echo "  make knowledge-check DIR=<path> Check a knowledge package"
 	@echo "  make frontend Run the Vite frontend development server"
 	@echo "  make test    Run all configured project tests"
 	@echo "  make lint    Check backend code with Ruff"
@@ -46,6 +47,15 @@ create-admin:
 		docker compose -f "$(COMPOSE_FILE)" run --rm migrate \
 			python -m smeshariki_ai.create_admin --login "$(LOGIN)"; \
 	fi
+
+.PHONY: knowledge-check
+
+knowledge-check:
+	@test -n "$(DIR)" || { \
+		echo "Usage: make knowledge-check DIR=<path>" >&2; \
+		exit 2; \
+	}
+	@uv run --project backend --locked python -m smeshariki_ai.rag check "$(DIR)"
 
 frontend:
 	@npm --prefix frontend run dev

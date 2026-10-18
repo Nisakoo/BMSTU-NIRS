@@ -4,7 +4,8 @@
 
 Концептуальная ER-модель структурированных знаний о вселенной «Смешариков».
 Она описывает предметную область целиком; физическая схема PostgreSQL
-выводится из неё в `knowledge-postgres-store`.
+выводится из неё в `knowledge-postgres-store`. Формат пакетов знаний и их
+проверка реализованы в `knowledge-catalog`.
 
 ## Сущности и связи
 
@@ -24,6 +25,9 @@ erDiagram
     EPISODE }o--o{ CHARACTER : "участники"
     EPISODE }o--o{ LOCATION : "место действия"
     EPISODE }o--o{ ARTIFACT : "фигурирует"
+    EPISODE ||--o{ INTERACTION : "содержит"
+    CHARACTER ||--o{ INTERACTION : "от кого"
+    CHARACTER ||--o{ INTERACTION : "к кому"
     SOURCE_REF }o--o| EPISODE : "указывает на"
 
     CONTINUITY {
@@ -57,6 +61,10 @@ erDiagram
         enum type
         string description
     }
+    INTERACTION {
+        enum type
+        string description
+    }
     LOCATION {
         slug id
         string name
@@ -85,7 +93,8 @@ erDiagram
 | Эпизод | Серия произведения | Вариант канона наследуется от произведения |
 | Персонаж | Неизменная идентичность героя | На него ссылаются отношения, жители, создатели, эпизоды |
 | Версия персонажа | Характер и речь героя в наборе вариантов канона | Не больше одной версии на вариант канона |
-| Отношение | Направленная связь двух персонажей | Тип из закрытого словаря |
+| Отношение | Устойчивая связь двух персонажей в вариантах канона | Тип из словаря отношений |
+| Взаимодействие | Ситуативная связь двух участников эпизода: конфликт, поддержка, эмпатия | Тип из словаря взаимодействий; оба персонажа — участники эпизода |
 | Локация | Место действия | Жители — персонажи |
 | Артефакт | Предмет или изобретение | Что умеет и чего не умеет; создатели — персонажи |
 | Ссылка на источник | Необязательное подтверждение факта | Значение внутри записи, а не самостоятельная сущность |
@@ -123,21 +132,7 @@ erDiagram
   в варианты канона участника (для персонажа — в варианты одной из его
   версий).
 
-Иллюстрация, а не формат файла (формат определяет `knowledge-catalog`):
-
-```yaml
-id: pin
-name: Пин
-species: пингвин
-versions:
-  - continuities: [classic]
-    age_group: adult
-    traits: [...]
-  - continuities: [movies]
-    age_group: adult
-    traits: [...]
-```
-
+Пример персонажа с версиями — в разделе [«Формат пакета»](#формат-пакета).
 Если в новом варианте канона герой такой же, автор добавляет вариант в набор
 существующей версии. Если он отличается, автор добавляет версию. Ссылки на
 персонажа при этом не меняются.
@@ -152,7 +147,7 @@ versions:
 | Атрибуты сущности | Колонки таблицы сущности |
 | Алиасы | Отдельная таблица с уникальным индексом нормализованного значения |
 | Варианты канона записи или версии | Связующая таблица |
-| Связи между сущностями (жители, создатели, участники эпизодов, отношения) | Связующие таблицы с внешними ключами |
+| Связи между сущностями (жители, создатели, участники эпизодов, отношения, взаимодействия) | Связующие таблицы с внешними ключами |
 | `speech_style` | Колонки версии персонажа |
 | Описательные списки без идентичности (`traits`, `catchphrases`, маркеры речи, `capabilities`, `limitations`) | `text[]` в строке сущности или версии |
 
@@ -171,9 +166,238 @@ versions:
   отношения между героями.
 
 Общеизвестные факты (имя, вид героя) источника не требуют. Ссылка указывает
-на эпизод с таймкодом или на внешний документ с местом внутри него. Валидатор
-проверяет только корректность указанной ссылки, например что эпизод
-существует.
+на эпизод с таймкодом или на внешний документ с местом внутри него и
+прикрепляется к записи: персонажу, версии, отношению, взаимодействию, локации
+или артефакту. Необязательное поле `note` уточняет, какой именно факт она
+подтверждает. Валидатор проверяет только корректность указанной ссылки,
+например что эпизод существует.
+
+## Формат пакета
+
+Пакет — каталог, который готовится вне репозитория. Внутри — подкаталоги
+типов; любой может отсутствовать, а пакет может содержать любое подмножество
+сущностей:
+
+```text
+<пакет>/
+├── continuities/<id>.yaml   варианты канона
+├── works/<id>.yaml          произведения
+├── episodes/<id>.yaml       эпизоды с участниками и взаимодействиями
+├── characters/<id>.yaml     персонажи с версиями и отношениями
+├── locations/<id>.yaml      локации с жителями
+└── artifacts/<id>.yaml      артефакты с создателями
+```
+
+- Один файл — одна сущность целиком; имя файла без `.yaml` совпадает с `id`.
+- Файлы и каталоги, имя которых начинается с точки (`.git`, `.DS_Store`),
+  пропускаются; другие лишние файлы и пакет без сущностей — ошибка.
+- Файл — YAML-отображение в UTF-8. Скаляры разбираются по YAML 1.2 core:
+  `true`/`false` — логические значения, десятичные числа — целые,
+  `null` и пустое значение — отсутствие значения, остальное — строки. Поэтому
+  `12:05`, `yes`, `no` и даты остаются строками. Повторяющийся ключ, теги и
+  якоря — ошибка.
+- Списки, не помеченные ниже как непустые, и поля, помеченные как
+  необязательные, можно не указывать. Явное `null` вместо списка — ошибка.
+- Отношения хранятся в файле персонажа, от которого они направлены (для
+  симметричного типа — в файле любого из двух), взаимодействия и участники —
+  в файле эпизода, жители — в файле локации, создатели — в файле артефакта.
+
+Поля сущностей (полная машиночитаемая схема — команда `schema`):
+
+| Тип | Обязательные поля | Необязательные поля |
+| --- | --- | --- |
+| Вариант канона | `id`, `name` | — |
+| Произведение | `id`, `title`, `kind` (`series` \| `film`), `continuity` | — |
+| Эпизод | `id`, `work`, `number` ≥ 1, `title` | `season` ≥ 1, `characters`, `locations`, `artifacts`, `interactions` |
+| Персонаж | `id`, `name`, `species`, непустой `versions` | `aliases`, `relationships`, `sources` |
+| Версия персонажа | непустой `continuities`, `age_group` (`child` \| `teen` \| `adult` \| `elderly`), непустой `traits`, `speech_style.register` | `speech_style.markers`, `speech_style.constraints`, `catchphrases`, `sources` |
+| Отношение | `to`, `type`, непустой `continuities` | `description`, `sources` |
+| Взаимодействие | `from`, `to`, `type`, `description` | `sources` |
+| Локация | `id`, `name`, `description`, непустой `continuities` | `aliases`, `residents`, `sources` |
+| Артефакт | `id`, `name`, `artifact_type`, `description`, непустой `continuities` | `aliases`, `capabilities`, `limitations`, `creators`, `sources` |
+| Ссылка на источник | ровно одно из `episode` и `document` | `timecode` (`MM:SS` или `HH:MM:SS`) при `episode`, `locator` при `document`, `note` |
+
+У фильма не больше одного эпизода: через него задаются участники и
+взаимодействия фильма.
+
+Синтетические примеры показывают формат, а не канонические данные.
+
+```yaml
+# continuities/classic.yaml
+id: classic
+name: Классический сериал
+```
+
+```yaml
+# works/series.yaml
+id: series
+title: Сериал
+kind: series
+continuity: classic
+```
+
+```yaml
+# characters/pin.yaml
+id: pin
+name: Пин
+aliases: [механик]
+species: пингвин
+versions:
+  - continuities: [classic]
+    age_group: adult
+    traits: [изобретательный, ответственный]
+    speech_style:
+      register: разговорный
+      markers: [акцент]
+      constraints: [речь остаётся разборчивой]
+    catchphrases: [пример фразы]
+  - continuities: [movies]
+    age_group: adult
+    traits: [изобретательный, смелый]
+    speech_style:
+      register: разговорный
+    sources:
+      - document: Пример источника
+        locator: раздел 2
+        note: черта «смелый»
+relationships:
+  - to: krosh
+    type: friendship
+    continuities: [classic]
+```
+
+```yaml
+# episodes/s01e01.yaml
+id: s01e01
+work: series
+season: 1
+number: 1
+title: Пример эпизода
+characters: [pin, krosh]
+locations: [pin_house]
+interactions:
+  - from: krosh
+    to: pin
+    type: conflict
+    description: Спор о том, кто первым возьмёт инструмент.
+    sources:
+      - episode: s01e01
+        timecode: "04:32"
+```
+
+```yaml
+# locations/pin_house.yaml
+id: pin_house
+name: Дом Пина
+description: Дом и мастерская.
+continuities: [classic]
+residents: [pin]
+```
+
+```yaml
+# artifacts/pin_plane.yaml
+id: pin_plane
+name: Самолёт Пина
+artifact_type: летательный аппарат
+description: Самодельный самолёт.
+capabilities: [летает]
+limitations: [требует ремонта]
+continuities: [classic]
+creators: [pin]
+```
+
+## Словари типов
+
+Типы хранятся английскими значениями. Направленный тип читается «от `from`
+(или владельца отношения) к `to`».
+
+| Отношение | Значение | Направленность |
+| --- | --- | --- |
+| `friendship` | дружба | симметричное |
+| `neighborhood` | соседство | симметричное |
+| `affection` | симпатия | от того, кто испытывает |
+| `mentor` | наставник | наставник → ученик |
+| `guardian` | опекун | опекун → подопечный |
+
+| Взаимодействие | Значение | Направленность |
+| --- | --- | --- |
+| `conflict` | конфликт или недопонимание | симметричное |
+| `support` | поддержка | кто → кого |
+| `empathy` | эмпатия | кто → к кому |
+
+Для симметричного типа обратная пара считается тем же отношением или
+взаимодействием и не может повторяться.
+
+## Проверка пакета
+
+```sh
+python -m smeshariki_ai.rag check <пакет> [--format text|json]
+python -m smeshariki_ai.rag schema
+make knowledge-check DIR=<пакет>
+```
+
+Команды не требуют environment, БД и сети и не задают вопросов. Код возврата
+`check`: `0` — пакет валиден, `1` — невалиден или не найден, `2` — неверные
+аргументы (`make` при любой ошибке возвращает свой код `2`). Проверяется весь
+пакет сразу, а ошибки выводятся в порядке «файл, поле»:
+
+```text
+characters/krosh.yaml: versions[0].age_group: обязательное поле не заполнено [missing_field]
+episodes/s01e01.yaml: interactions[0].to: персонаж «krosh» не указан в characters эпизода [interaction_participant]
+Сущностей: continuities: 0, works: 0, episodes: 1, characters: 1, locations: 0, artifacts: 0
+Внешние ссылки (проверяются при загрузке): continuity classic, work series
+Ошибок: 2
+```
+
+Сущность, которой нет в пакете, — не ошибка, а внешняя ссылка: она и
+зависящие от неё правила проверяются при загрузке в БД. Ссылки на файлы,
+которые сами не прошли проверку, не выводятся, чтобы одна ошибка не
+порождала каскад других.
+
+JSON-вывод (`--format json`) предназначен для агента автора:
+
+```json
+{
+  "valid": false,
+  "counts": {"continuities": 0, "works": 0, "episodes": 1, "characters": 1, "locations": 0, "artifacts": 0},
+  "external": [{"type": "continuity", "id": "classic"}, {"type": "work", "id": "series"}],
+  "issues": [
+    {
+      "file": "characters/krosh.yaml",
+      "path": "versions[0].age_group",
+      "code": "missing_field",
+      "message": "обязательное поле не заполнено",
+      "line": null
+    }
+  ]
+}
+```
+
+`line` заполняется для ошибок разбора YAML. Коды ошибок стабильны:
+
+| Группа | Коды |
+| --- | --- |
+| Пакет | `package_not_found`, `empty_package`, `unexpected_file`, `unexpected_directory`, `file_id_mismatch` |
+| YAML | `invalid_encoding`, `yaml_syntax`, `duplicate_key`, `yaml_tag`, `yaml_anchor`, `not_a_mapping` |
+| Схема | `missing_field`, `extra_field`, `invalid_type`, `empty_value`, `invalid_value`, `invalid_id`, `invalid_timecode`, `duplicate_value`, `invalid_source`, `schema_error` |
+| Целостность | `unknown_reference` (только при загрузке), `overlapping_versions`, `self_reference`, `continuity_mismatch`, `duplicate_relationship`, `interaction_participant`, `duplicate_interaction`, `duplicate_name`, `duplicate_episode_number`, `film_episode_count` |
+
+Из двух конфликтующих сущностей ошибку получает та, чей `id` идёт позже; при
+нескольких эпизодах фильма ошибку получает каждый.
+
+## Изменение словаря типов
+
+Типы отношений и взаимодействий — реестры в
+[`rag/models.py`](../backend/src/smeshariki_ai/rag/models.py) с признаком
+симметричности.
+
+- **Добавить тип** — новое значение в реестре; существующие записи не
+  меняются.
+- **Разбить тип на несколько** — добавить новые типы, переклассифицировать
+  записи в пакетах, затем удалить старый тип из реестра: `check` укажет каждую
+  оставшуюся запись со старым типом (`invalid_value`). Порядок
+  переклассификации уже загруженных в БД записей фиксируется в
+  `knowledge-postgres-store`.
 
 ## Вне модели
 
@@ -185,5 +409,9 @@ versions:
 
 ## SDD-артефакты
 
-- [спецификация](../specs/changes/rag-architecture/spec.md);
-- [план](../specs/changes/rag-architecture/plan.md).
+- архитектура: [спецификация](../specs/changes/rag-architecture/spec.md),
+  [план](../specs/changes/rag-architecture/plan.md),
+  [результат проверки](../specs/changes/rag-architecture/verification.md);
+- формат и проверка: [спецификация](../specs/changes/knowledge-catalog/spec.md),
+  [план](../specs/changes/knowledge-catalog/plan.md),
+  [результат проверки](../specs/changes/knowledge-catalog/verification.md).

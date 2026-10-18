@@ -67,3 +67,5 @@ specs:
       status: done
     - name: rag-architecture
       status: done
+    - name: knowledge-catalog
+      status: done

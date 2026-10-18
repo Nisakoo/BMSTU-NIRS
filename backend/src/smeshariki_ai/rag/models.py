@@ -1,0 +1,246 @@
+"""Domain model of structured knowledge about the Smeshariki universe.
+
+Models are strict by default. Only tuples and enums accept the looser input
+YAML produces (lists and plain strings), because YAML has neither type; their
+items and values are still validated strictly.
+"""
+
+from __future__ import annotations
+
+from enum import StrEnum
+from typing import Annotated, Any
+
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    model_validator,
+)
+from pydantic_core import PydanticCustomError
+
+SLUG_PATTERN = r"^[a-z0-9]+(_[a-z0-9]+)*$"
+TIMECODE_PATTERN = r"^(?:\d{2}:)?[0-5]\d:[0-5]\d$"
+
+Slug = Annotated[str, StringConstraints(pattern=SLUG_PATTERN)]
+NonEmptyText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+Timecode = Annotated[str, StringConstraints(pattern=TIMECODE_PATTERN)]
+PositiveInt = Annotated[int, Field(ge=1)]
+
+
+def _unique(values: tuple[Any, ...]) -> tuple[Any, ...]:
+    if len(set(values)) != len(values):
+        raise PydanticCustomError("duplicate_value", "значения в списке повторяются")
+    return values
+
+
+_UNIQUE = (
+    AfterValidator(_unique),
+    Field(strict=False, json_schema_extra={"uniqueItems": True}),
+)
+SlugList = Annotated[tuple[Slug, ...], *_UNIQUE]
+TextList = Annotated[tuple[NonEmptyText, ...], *_UNIQUE]
+NonEmptySlugList = Annotated[tuple[Slug, ...], *_UNIQUE, Field(min_length=1)]
+NonEmptyTextList = Annotated[tuple[NonEmptyText, ...], *_UNIQUE, Field(min_length=1)]
+
+
+def normalize_name(value: str) -> str:
+    """Comparison key of a name or alias: trimmed, single-spaced, lower, ё → е."""
+
+    return " ".join(value.split()).lower().replace("ё", "е")
+
+
+class KnowledgeModel(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
+
+
+class AgeGroup(StrEnum):
+    CHILD = "child"
+    TEEN = "teen"
+    ADULT = "adult"
+    ELDERLY = "elderly"
+
+
+class WorkKind(StrEnum):
+    SERIES = "series"
+    FILM = "film"
+
+
+class RelationshipType(StrEnum):
+    FRIENDSHIP = "friendship"
+    NEIGHBORHOOD = "neighborhood"
+    AFFECTION = "affection"
+    MENTOR = "mentor"
+    GUARDIAN = "guardian"
+
+    @property
+    def symmetric(self) -> bool:
+        return self in _SYMMETRIC_RELATIONSHIPS
+
+
+class InteractionType(StrEnum):
+    CONFLICT = "conflict"
+    SUPPORT = "support"
+    EMPATHY = "empathy"
+
+    @property
+    def symmetric(self) -> bool:
+        return self in _SYMMETRIC_INTERACTIONS
+
+
+_SYMMETRIC_RELATIONSHIPS = frozenset(
+    {RelationshipType.FRIENDSHIP, RelationshipType.NEIGHBORHOOD}
+)
+_SYMMETRIC_INTERACTIONS = frozenset({InteractionType.CONFLICT})
+
+
+class SourceRef(KnowledgeModel):
+    episode: Slug | None = None
+    timecode: Timecode | None = None
+    document: NonEmptyText | None = None
+    locator: NonEmptyText | None = None
+    note: NonEmptyText | None = None
+
+    @model_validator(mode="after")
+    def _one_kind(self) -> SourceRef:
+        from_episode = self.episode is not None
+        from_document = self.document is not None
+        misplaced = (from_episode and self.locator is not None) or (
+            from_document and self.timecode is not None
+        )
+        if from_episode == from_document or misplaced:
+            raise PydanticCustomError(
+                "invalid_source",
+                "укажите либо episode (с необязательным timecode), "
+                "либо document (с необязательным locator)",
+            )
+        return self
+
+
+SourceList = Annotated[tuple[SourceRef, ...], *_UNIQUE]
+
+
+class Continuity(KnowledgeModel):
+    id: Slug
+    name: NonEmptyText
+
+
+class Work(KnowledgeModel):
+    id: Slug
+    title: NonEmptyText
+    kind: WorkKind = Field(strict=False)
+    continuity: Slug
+
+
+class Interaction(KnowledgeModel):
+    from_: Slug = Field(alias="from")
+    to: Slug
+    type: InteractionType = Field(strict=False)
+    description: NonEmptyText
+    sources: SourceList = ()
+
+
+class Episode(KnowledgeModel):
+    id: Slug
+    work: Slug
+    season: PositiveInt | None = None
+    number: PositiveInt
+    title: NonEmptyText
+    characters: SlugList = ()
+    locations: SlugList = ()
+    artifacts: SlugList = ()
+    interactions: Annotated[tuple[Interaction, ...], *_UNIQUE] = ()
+
+
+class SpeechStyle(KnowledgeModel):
+    # A field named ``register`` shadows a ``BaseModel`` attribute.
+    register_: NonEmptyText = Field(alias="register")
+    markers: TextList = ()
+    constraints: TextList = ()
+
+
+class CharacterVersion(KnowledgeModel):
+    continuities: NonEmptySlugList
+    age_group: AgeGroup = Field(strict=False)
+    traits: NonEmptyTextList
+    speech_style: SpeechStyle
+    catchphrases: TextList = ()
+    sources: SourceList = ()
+
+
+class Relationship(KnowledgeModel):
+    to: Slug
+    type: RelationshipType = Field(strict=False)
+    continuities: NonEmptySlugList
+    description: NonEmptyText | None = None
+    sources: SourceList = ()
+
+
+class Character(KnowledgeModel):
+    id: Slug
+    name: NonEmptyText
+    aliases: TextList = ()
+    species: NonEmptyText
+    versions: Annotated[tuple[CharacterVersion, ...], *_UNIQUE, Field(min_length=1)]
+    relationships: Annotated[tuple[Relationship, ...], *_UNIQUE] = ()
+    sources: SourceList = ()
+
+
+class Location(KnowledgeModel):
+    id: Slug
+    name: NonEmptyText
+    aliases: TextList = ()
+    description: NonEmptyText
+    continuities: NonEmptySlugList
+    residents: SlugList = ()
+    sources: SourceList = ()
+
+
+class Artifact(KnowledgeModel):
+    id: Slug
+    name: NonEmptyText
+    aliases: TextList = ()
+    artifact_type: NonEmptyText
+    description: NonEmptyText
+    capabilities: TextList = ()
+    limitations: TextList = ()
+    continuities: NonEmptySlugList
+    creators: SlugList = ()
+    sources: SourceList = ()
+
+
+class EntityType(StrEnum):
+    CONTINUITY = "continuity"
+    WORK = "work"
+    EPISODE = "episode"
+    CHARACTER = "character"
+    LOCATION = "location"
+    ARTIFACT = "artifact"
+
+
+class EntityRef(KnowledgeModel):
+    type: EntityType
+    id: Slug
+
+
+class KnowledgeSet(KnowledgeModel):
+    """Entities checked together; ``unverified`` failed validation of their own."""
+
+    continuities: tuple[Continuity, ...] = ()
+    works: tuple[Work, ...] = ()
+    episodes: tuple[Episode, ...] = ()
+    characters: tuple[Character, ...] = ()
+    locations: tuple[Location, ...] = ()
+    artifacts: tuple[Artifact, ...] = ()
+    unverified: frozenset[EntityRef] = frozenset()
+
+
+class Issue(KnowledgeModel):
+    """One problem found in a package, addressed by file and field path."""
+
+    file: str
+    path: str = ""
+    code: str
+    message: str
+    line: int | None = None

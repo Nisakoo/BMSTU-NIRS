@@ -39,10 +39,11 @@
 - [Логирование backend](./logging.md) — форматы, общие поля, идентификаторы
   операций и метрики вызовов модели.
 - [RAG](./rag.md) — границы модуля, гексагональные слои, PostgreSQL как
-  единственное хранилище, путь данных из `knowledge/`, изоляция и точки
-  интеграции.
+  единственное хранилище, путь пакетов знаний в БД, команды, изоляция и
+  точки интеграции.
 - [Модель знаний](./knowledge.md) — ER-модель структурированных знаний,
-  идентичность, версии персонажей, варианты канона и источники.
+  идентичность, версии персонажей, варианты канона, источники, формат пакетов
+  и их проверка.
 - [Запуск приложения](../docker/README.md) — Docker Compose, настройки и примеры
   тестовых запросов.
 
@@ -146,6 +147,7 @@ flowchart LR
 | Agent runtime | Собственный ограниченный tool-calling loop и независимые контракты LLM и инструментов | Проверено | [`smeshariki_ai/agent`](../backend/src/smeshariki_ai/agent/) | [страница компонента](./agent.md), [spec](../specs/changes/agent-runtime/spec.md), [plan](../specs/changes/agent-runtime/plan.md), [verification](../specs/changes/agent-runtime/verification.md) |
 | Инструмент `get_context` | Возвращает агенту фиксированный демонстрационный текст через `ToolRegistry` | Проверено | [`get_context.py`](../backend/src/smeshariki_ai/agent/get_context.py) | [страница компонента](./agent.md), [spec](../specs/changes/get-context-example/spec.md), [plan](../specs/changes/get-context-example/plan.md), [verification](../specs/changes/get-context-example/verification.md) |
 | Архитектура RAG | Границы, слои, хранилище и модель структурированных знаний | Проверено | — | [страница RAG](./rag.md), [модель знаний](./knowledge.md), [spec](../specs/changes/rag-architecture/spec.md), [plan](../specs/changes/rag-architecture/plan.md) |
+| Каталог знаний | Формат пакетов структурированных знаний, правила целостности и команды `check` и `schema` | Проверено | [`smeshariki_ai/rag`](../backend/src/smeshariki_ai/rag/) | [модель знаний](./knowledge.md), [spec](../specs/changes/knowledge-catalog/spec.md), [plan](../specs/changes/knowledge-catalog/plan.md), [verification](../specs/changes/knowledge-catalog/verification.md) |
 | LiteLLM-провайдер | Асинхронный production-адаптер Chat Completions и отдельная provider-конфигурация | Проверено | [`agent/providers`](../backend/src/smeshariki_ai/agent/providers/) | [страница компонента](./agent.md), [spec](../specs/changes/litellm-provider/spec.md), [plan](../specs/changes/litellm-provider/plan.md), [verification](../specs/changes/litellm-provider/verification.md) |
 | Конфигурация backend | Единая загрузка environment, корневой immutable `Config` и раздача подконфигов | Проверено | [`config.py`](../backend/src/smeshariki_ai/config.py), [`main.py`](../backend/src/smeshariki_ai/main.py), [`bootstrap.py`](../backend/src/smeshariki_ai/bootstrap.py) | [страница компонента](./configuration.md), [spec](../specs/changes/backend-config/spec.md), [plan](../specs/changes/backend-config/plan.md), [verification](../specs/changes/backend-config/verification.md) |
 | Диалоги и HTTP API | Создание диалогов, фоновая очередь сообщений, история, владелец диалога и HTTP-вход | Проверено | [`application`](../backend/src/smeshariki_ai/application/), [`dialogs`](../backend/src/smeshariki_ai/dialogs/), [`api`](../backend/src/smeshariki_ai/api/) | [страница компонента](./dialogs.md), [spec](../specs/changes/agent-dialog-api/spec.md), [plan](../specs/changes/agent-dialog-api/plan.md), [verification](../specs/changes/agent-dialog-api/verification.md), [ownership spec](../specs/changes/dialog-ownership/spec.md), [ownership plan](../specs/changes/dialog-ownership/plan.md), [ownership verification](../specs/changes/dialog-ownership/verification.md) |
