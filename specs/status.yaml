@@ -65,3 +65,5 @@ specs:
       status: done
     - name: dialog-history
       status: done
+    - name: rag-architecture
+      status: done
