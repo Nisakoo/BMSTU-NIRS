@@ -244,3 +244,37 @@ class Issue(KnowledgeModel):
     code: str
     message: str
     line: int | None = None
+
+
+KnowledgeEntity = Continuity | Work | Episode | Character | Location | Artifact
+
+ENTITY_TYPES: dict[type[KnowledgeModel], EntityType] = {
+    Continuity: EntityType.CONTINUITY,
+    Work: EntityType.WORK,
+    Episode: EntityType.EPISODE,
+    Character: EntityType.CHARACTER,
+    Location: EntityType.LOCATION,
+    Artifact: EntityType.ARTIFACT,
+}
+ENTITY_FIELDS: dict[EntityType, str] = {
+    EntityType.CONTINUITY: "continuities",
+    EntityType.WORK: "works",
+    EntityType.EPISODE: "episodes",
+    EntityType.CHARACTER: "characters",
+    EntityType.LOCATION: "locations",
+    EntityType.ARTIFACT: "artifacts",
+}
+
+
+def entity_ref(entity: KnowledgeEntity) -> EntityRef:
+    return EntityRef(type=ENTITY_TYPES[type(entity)], id=entity.id)
+
+
+def entities_of(knowledge: KnowledgeSet) -> list[KnowledgeEntity]:
+    """Every entity of the set, in the order of ``EntityType``."""
+
+    return [
+        entity
+        for kind in EntityType
+        for entity in getattr(knowledge, ENTITY_FIELDS[kind])
+    ]

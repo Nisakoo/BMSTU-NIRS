@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from pydantic_core import ErrorDetails
 
 from smeshariki_ai.rag.models import (
+    ENTITY_FIELDS,
     SLUG_PATTERN,
     Artifact,
     Character,
@@ -24,14 +25,8 @@ from smeshariki_ai.rag.models import (
 )
 from smeshariki_ai.rag.yaml_reader import YamlReadError, read_yaml_file
 
-ENTITY_DIRECTORIES: dict[EntityType, str] = {
-    EntityType.CONTINUITY: "continuities",
-    EntityType.WORK: "works",
-    EntityType.EPISODE: "episodes",
-    EntityType.CHARACTER: "characters",
-    EntityType.LOCATION: "locations",
-    EntityType.ARTIFACT: "artifacts",
-}
+# Package directories are named after the fields of ``KnowledgeSet``.
+ENTITY_DIRECTORIES = ENTITY_FIELDS
 ENTITY_MODELS: dict[EntityType, type[KnowledgeModel]] = {
     EntityType.CONTINUITY: Continuity,
     EntityType.WORK: Work,

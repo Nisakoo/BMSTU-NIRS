@@ -69,3 +69,5 @@ specs:
       status: done
     - name: knowledge-catalog
       status: done
+    - name: knowledge-postgres-store
+      status: done
