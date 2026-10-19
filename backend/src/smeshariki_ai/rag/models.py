@@ -7,8 +7,9 @@ items and values are still validated strictly.
 
 from __future__ import annotations
 
+import unicodedata
 from enum import StrEnum
-from typing import Annotated, Any
+from typing import Annotated, Any, NamedTuple
 
 from pydantic import (
     AfterValidator,
@@ -19,6 +20,9 @@ from pydantic import (
     model_validator,
 )
 from pydantic_core import PydanticCustomError
+
+# Version of the entity format used by package files and revision snapshots.
+KNOWLEDGE_FORMAT_VERSION = 1
 
 SLUG_PATTERN = r"^[a-z0-9]+(_[a-z0-9]+)*$"
 TIMECODE_PATTERN = r"^(?:\d{2}:)?[0-5]\d:[0-5]\d$"
@@ -46,9 +50,14 @@ NonEmptyTextList = Annotated[tuple[NonEmptyText, ...], *_UNIQUE, Field(min_lengt
 
 
 def normalize_name(value: str) -> str:
-    """Comparison key of a name or alias: trimmed, single-spaced, lower, ё → е."""
+    """Comparison key of a name or alias: NFC, case-folded, single-spaced, ё → е.
 
-    return " ".join(value.split()).lower().replace("ё", "е")
+    NFC first joins letters typed as a base and a combining mark, so "ё" made
+    of "е" and a diaeresis gives the same key as the single character.
+    """
+
+    folded = unicodedata.normalize("NFC", value).casefold()
+    return " ".join(folded.split()).replace("ё", "е")
 
 
 class KnowledgeModel(BaseModel):
@@ -225,7 +234,7 @@ class EntityRef(KnowledgeModel):
 
 
 class KnowledgeSet(KnowledgeModel):
-    """Entities checked together; ``unverified`` failed validation of their own."""
+    """Entities checked together by the integrity rules."""
 
     continuities: tuple[Continuity, ...] = ()
     works: tuple[Work, ...] = ()
@@ -233,14 +242,42 @@ class KnowledgeSet(KnowledgeModel):
     characters: tuple[Character, ...] = ()
     locations: tuple[Location, ...] = ()
     artifacts: tuple[Artifact, ...] = ()
-    unverified: frozenset[EntityRef] = frozenset()
 
 
-class Issue(KnowledgeModel):
-    """One problem found in a package, addressed by file and field path."""
+KnowledgeEntity = Continuity | Work | Episode | Character | Location | Artifact
 
-    file: str
-    path: str = ""
-    code: str
-    message: str
-    line: int | None = None
+
+class EntityKind(NamedTuple):
+    model: type[KnowledgeModel]
+    field: str
+
+
+# The single registry of entity types; every other mapping derives from it.
+ENTITY_KINDS: dict[EntityType, EntityKind] = {
+    EntityType.CONTINUITY: EntityKind(Continuity, "continuities"),
+    EntityType.WORK: EntityKind(Work, "works"),
+    EntityType.EPISODE: EntityKind(Episode, "episodes"),
+    EntityType.CHARACTER: EntityKind(Character, "characters"),
+    EntityType.LOCATION: EntityKind(Location, "locations"),
+    EntityType.ARTIFACT: EntityKind(Artifact, "artifacts"),
+}
+ENTITY_TYPES: dict[type[KnowledgeModel], EntityType] = {
+    kind.model: entity_type for entity_type, kind in ENTITY_KINDS.items()
+}
+ENTITY_FIELDS: dict[EntityType, str] = {
+    entity_type: kind.field for entity_type, kind in ENTITY_KINDS.items()
+}
+
+
+def entity_ref(entity: KnowledgeEntity) -> EntityRef:
+    return EntityRef(type=ENTITY_TYPES[type(entity)], id=entity.id)
+
+
+def entities_of(knowledge: KnowledgeSet) -> list[KnowledgeEntity]:
+    """Every entity of the set, in the order of ``EntityType``."""
+
+    return [
+        entity
+        for kind in EntityType
+        for entity in getattr(knowledge, ENTITY_FIELDS[kind])
+    ]

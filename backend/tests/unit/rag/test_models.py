@@ -248,7 +248,15 @@ def test_relationship_and_interaction_registries() -> None:
 
 @pytest.mark.parametrize(
     ("value", "expected"),
-    [("  Ёжик ", "ежик"), ("Дом   Пина", "дом пина"), ("КРОШ", "крош")],
+    [
+        ("  Ёжик ", "ежик"),
+        ("Дом   Пина", "дом пина"),
+        ("КРОШ", "крош"),
+        # "Ё" typed as "Е" plus a combining diaeresis, as some editors produce.
+        ("\u0415\u0308жик", "ежик"),
+        ("сме\u0308шарик", "смешарик"),
+        ("Straße", "strasse"),
+    ],
 )
 def test_normalize_name(value: str, expected: str) -> None:
     assert normalize_name(value) == expected

@@ -1,12 +1,16 @@
 import json
 import subprocess
 import sys
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from io import StringIO
 from pathlib import Path
 
 import pytest
 
-from smeshariki_ai.rag.cli import main
+from smeshariki_ai.rag.cli import ConfigurationError, main
+from smeshariki_ai.rag.memory import InMemoryKnowledgeStore
+from smeshariki_ai.rag.ports import KnowledgeDataInvalidError
 
 CHARACTER = """\
 id: pin
@@ -20,6 +24,15 @@ versions:
       register: разговорный
 """
 EPISODE = "id: s01e01\nwork: series\nnumber: 1\ntitle: Серия\ncharacters: [pin]\n"
+
+
+@pytest.fixture(autouse=True)
+def manifest(tmp_path: Path) -> Path:
+    """Every package of these tests declares the current format version."""
+
+    path = tmp_path / "package.yaml"
+    path.write_text("format_version: 1\n", encoding="utf-8")
+    return path
 
 
 def put(root: Path, relative: str, text: str) -> None:
@@ -127,7 +140,8 @@ def test_missing_package_text(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "argv", [[], ["check"], ["unknown"], ["check", ".", "--format", "xml"]]
+    "argv",
+    [[], ["check"], ["load"], ["unknown"], ["check", ".", "--format", "xml"]],
 )
 def test_bad_arguments_exit_with_2(argv: list[str], capsys) -> None:
     assert run(*argv)[0] == 2
@@ -139,7 +153,9 @@ def test_schema_lists_every_entity_type() -> None:
 
     schema = json.loads(output)
     assert code == 0
-    assert set(schema) == {
+    assert schema["format_version"] == 1
+    assert schema["manifest"]["required"] == ["format_version"]
+    assert set(schema["entities"]) == {
         "continuities",
         "works",
         "episodes",
@@ -147,8 +163,8 @@ def test_schema_lists_every_entity_type() -> None:
         "locations",
         "artifacts",
     }
-    assert schema["characters"]["properties"]["id"]["pattern"]
-    assert "Interaction" in schema["episodes"]["$defs"]
+    assert schema["entities"]["characters"]["properties"]["id"]["pattern"]
+    assert "Interaction" in schema["entities"]["episodes"]["$defs"]
 
 
 def test_module_runs_without_environment(tmp_path: Path) -> None:
@@ -166,3 +182,89 @@ def test_module_runs_without_environment(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     assert "Пакет валиден" in result.stdout
+
+
+def memory(store: InMemoryKnowledgeStore):
+    @asynccontextmanager
+    async def factory() -> AsyncIterator[InMemoryKnowledgeStore]:
+        yield store
+
+    return factory
+
+
+def run_load(store: InMemoryKnowledgeStore, *argv: str) -> tuple[int, str]:
+    output = StringIO()
+    code = main(["load", *argv], stdout=output, store=memory(store))
+    return code, output.getvalue()
+
+
+def valid_package(root: Path) -> Path:
+    put(root, "continuities/classic.yaml", "id: classic\nname: Классика\n")
+    put(root, "characters/pin.yaml", CHARACTER)
+    return root
+
+
+def test_load_reports_added_then_unchanged(tmp_path: Path) -> None:
+    store = InMemoryKnowledgeStore()
+    root = valid_package(tmp_path)
+
+    first_code, first = run_load(store, str(root))
+    second_code, second = run_load(store, str(root))
+
+    assert (first_code, second_code) == (0, 0)
+    assert "Загрузка 1 выполнена." in first
+    assert "characters: добавлено 1, изменено 0, без изменений 0" in first
+    assert "Всего сущностей в БД: 2." in first
+    assert "characters: добавлено 0, изменено 0, без изменений 1" in second
+
+
+def test_load_of_invalid_package_writes_nothing(tmp_path: Path) -> None:
+    store = InMemoryKnowledgeStore()
+    put(tmp_path, "characters/pin.yaml", CHARACTER.replace("age_group: adult", ""))
+
+    code, output = run_load(store, str(tmp_path))
+
+    assert code == 1
+    assert "characters/pin.yaml: versions[0].age_group:" in output
+    assert "Загрузка отменена, БД не изменена. Ошибок: 1" in output
+
+
+def test_load_json_output(tmp_path: Path) -> None:
+    store = InMemoryKnowledgeStore()
+
+    code, output = run_load(store, str(valid_package(tmp_path)), "--format", "json")
+
+    report = json.loads(output)
+    assert code == 0
+    assert report["loaded"] is True and report["load_id"] == 1
+    assert report["counts"]["characters"] == {"added": 1, "updated": 0, "unchanged": 0}
+    assert report["entity_count"] == 2 and report["issues"] == []
+
+
+def test_load_without_backend_config_is_a_clear_error(tmp_path: Path) -> None:
+    @asynccontextmanager
+    async def unconfigured() -> AsyncIterator[InMemoryKnowledgeStore]:
+        raise ConfigurationError
+        yield InMemoryKnowledgeStore()  # pragma: no cover
+
+    output = StringIO()
+    code = main(
+        ["load", str(valid_package(tmp_path))], stdout=output, store=unconfigured
+    )
+
+    assert code == 1
+    assert "[configuration_error]" in output.getvalue()
+
+
+def test_invalid_stored_data_is_not_a_configuration_error(tmp_path: Path) -> None:
+    class CorruptedStore(InMemoryKnowledgeStore):
+        @asynccontextmanager
+        async def transaction(self):  # type: ignore[override]
+            raise KnowledgeDataInvalidError
+            yield  # pragma: no cover
+
+    code, output = run_load(CorruptedStore(), str(valid_package(tmp_path)))
+
+    assert code == 1
+    assert "[stored_data_invalid]" in output
+    assert "configuration_error" not in output
