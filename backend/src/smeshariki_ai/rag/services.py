@@ -9,9 +9,9 @@ from typing import Any
 from smeshariki_ai.rag.integrity import Violation, check_integrity
 from smeshariki_ai.rag.models import (
     ENTITY_FIELDS,
+    KNOWLEDGE_FORMAT_VERSION,
     EntityRef,
     EntityType,
-    Issue,
     KnowledgeEntity,
     KnowledgeModel,
     KnowledgeSet,
@@ -21,12 +21,16 @@ from smeshariki_ai.rag.models import (
 from smeshariki_ai.rag.package import (
     ENTITY_DIRECTORIES,
     ENTITY_MODELS,
+    Issue,
+    PackageManifest,
     PackageNotFoundError,
     entity_file,
     read_package,
 )
 from smeshariki_ai.rag.ports import (
+    ChangeCounts,
     EntityChange,
+    KnowledgeDataInvalidError,
     KnowledgeSchemaNotReadyError,
     KnowledgeStore,
     KnowledgeStoreUnavailableError,
@@ -41,12 +45,6 @@ class CheckReport(KnowledgeModel):
     counts: dict[str, int]
     external: tuple[EntityRef, ...]
     issues: tuple[Issue, ...]
-
-
-class ChangeCounts(KnowledgeModel):
-    added: int = 0
-    updated: int = 0
-    unchanged: int = 0
 
 
 class LoadReport(KnowledgeModel):
@@ -77,7 +75,9 @@ def _check(root: Path) -> tuple[KnowledgeSet, CheckReport]:
         return KnowledgeSet(), report
 
     knowledge = contents.knowledge
-    integrity = check_integrity(knowledge, complete=False)
+    integrity = check_integrity(
+        knowledge, complete=False, unverified=contents.unverified
+    )
     issues = _sorted(
         [*contents.issues, *_violation_issues(integrity.violations, knowledge)]
     )
@@ -136,7 +136,7 @@ async def load_package(
                     finished_at=finished_at,
                     duration_ms=report.duration_ms,
                     entity_count=report.entity_count,
-                    report=report.model_dump(mode="json", include={"counts"}),
+                    counts=report.counts,
                 ),
             )
     except _Rejected as rejected:
@@ -149,6 +149,17 @@ async def load_package(
                     code="schema_not_ready",
                     message="таблицы знаний не созданы: примените миграции "
                     "(make migrate)",
+                ),
+            )
+        )
+    except KnowledgeDataInvalidError:
+        return _failed(
+            (
+                Issue(
+                    file=".",
+                    code="stored_data_invalid",
+                    message="данные знаний в БД не проходят проверку моделей: "
+                    "загрузка невозможна, пока данные не исправлены",
                 ),
             )
         )
@@ -165,12 +176,16 @@ async def load_package(
     return report
 
 
-def package_schema() -> dict[str, dict[str, Any]]:
-    """JSON Schema of each entity file, keyed by the package directory."""
+def package_schema() -> dict[str, Any]:
+    """Format version, the schema of ``package.yaml`` and of each entity file."""
 
     return {
-        ENTITY_DIRECTORIES[kind]: ENTITY_MODELS[kind].model_json_schema()
-        for kind in EntityType
+        "format_version": KNOWLEDGE_FORMAT_VERSION,
+        "manifest": PackageManifest.model_json_schema(),
+        "entities": {
+            ENTITY_DIRECTORIES[kind]: ENTITY_MODELS[kind].model_json_schema()
+            for kind in EntityType
+        },
     }
 
 

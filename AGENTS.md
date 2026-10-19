@@ -373,6 +373,13 @@
    изменения сущностей — в журнал `rag_revisions` со снимком агрегата.
    Логическое удаление не используется. Спецификация:
    `specs/changes/knowledge-postgres-store/`.
+8. Пакет обязательно содержит `package.yaml` с `format_version`, а каждая
+   ревизия хранит версию формата снимка; текущая версия — константа
+   `KNOWLEDGE_FORMAT_VERSION`. Имена нормализуются через NFC и `casefold`.
+   Ошибка конфигурации (`configuration_error`) и данные БД, не проходящие
+   модели (`stored_data_invalid`), различаются. Типы сущностей описаны одним
+   реестром `ENTITY_KINDS`, а преобразование агрегатов в строки БД — в
+   `rag/postgres_mappers.py`. Спецификация: `specs/changes/knowledge-hardening/`.
 
 ## Согласованные технологии
 

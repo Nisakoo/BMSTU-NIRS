@@ -129,12 +129,12 @@ def upgrade() -> None:
         sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("duration_ms", sa.Integer(), nullable=True),
         sa.Column("entity_count", sa.Integer(), nullable=True),
-        sa.Column("report", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column("counts", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.CheckConstraint(
             "finished_at >= started_at", name="rag_loads_finished_after_start"
         ),
         sa.CheckConstraint(
-            "num_nulls(finished_at, duration_ms, entity_count, report) IN (0, 4)",
+            "num_nulls(finished_at, duration_ms, entity_count, counts) IN (0, 4)",
             name="rag_loads_completion_consistent",
         ),
         sa.PrimaryKeyConstraint("id"),
@@ -511,6 +511,7 @@ def upgrade() -> None:
         sa.Column("entity_id", sa.Text(), nullable=False),
         sa.Column("revision", sa.Integer(), nullable=False),
         sa.Column("operation", sa.Text(), nullable=False),
+        sa.Column("format_version", sa.Integer(), nullable=False),
         sa.Column("payload", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column(
             "recorded_at",
@@ -534,6 +535,9 @@ def upgrade() -> None:
             name="rag_revisions_operation_valid",
         ),
         sa.CheckConstraint("revision >= 1", name="rag_revisions_revision_positive"),
+        sa.CheckConstraint(
+            "format_version >= 1", name="rag_revisions_format_version_positive"
+        ),
         sa.ForeignKeyConstraint(
             ["load_id"],
             ["rag_loads.id"],

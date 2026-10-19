@@ -103,7 +103,7 @@ flowchart LR
 | Команда | Назначение |
 | --- | --- |
 | `python -m smeshariki_ai.rag check <path> [--format text\|json]` | Проверить пакет без БД и environment. Код `0` — валиден, `1` — невалиден или не найден, `2` — неверные аргументы |
-| `python -m smeshariki_ai.rag schema` | JSON Schema файлов каждого типа сущностей — подсказка агенту автора |
+| `python -m smeshariki_ai.rag schema` | Версия формата, JSON Schema `package.yaml` и файлов каждого типа сущностей — подсказка агенту автора |
 | `python -m smeshariki_ai.rag load <path> [--format text\|json]` | Проверить пакет и загрузить его в БД; конфиг БД берётся из `load_config`. Код `0` — загружено, `1` — пакет невалиден, нарушена целостность, БД недоступна или схема не готова, `2` — неверные аргументы |
 | `make knowledge-check DIR=<path>` | `check` из корня репозитория через `uv`; `make` при любой ошибке возвращает собственный код `2` |
 | `make knowledge-load DIR=<path> [FORMAT=json]` | Применить миграции и выполнить `load` в Compose-контейнере с окружением из `docker/.env`; пакет монтируется только для чтения |
@@ -164,4 +164,8 @@ flowchart LR
 - хранилище и загрузка:
   [спецификация](../specs/changes/knowledge-postgres-store/spec.md),
   [план](../specs/changes/knowledge-postgres-store/plan.md),
-  [результат проверки](../specs/changes/knowledge-postgres-store/verification.md).
+  [результат проверки](../specs/changes/knowledge-postgres-store/verification.md);
+- надёжность и рефакторинг:
+  [спецификация](../specs/changes/knowledge-hardening/spec.md),
+  [план](../specs/changes/knowledge-hardening/plan.md),
+  [результат проверки](../specs/changes/knowledge-hardening/verification.md).

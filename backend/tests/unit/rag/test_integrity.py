@@ -385,6 +385,10 @@ def test_directed_interaction_reverse_pair_is_allowed() -> None:
         ({"name": "крош"}, ("krosh", "name", "duplicate_name")),
         ({"aliases": ["кролик"]}, ("krosh", "aliases[0]", "duplicate_name")),
         ({"aliases": ["ежик"]}, ("ezhik", "aliases[0]", "duplicate_name")),
+        (
+            {"aliases": ["\u0415\u0308жик"]},
+            ("ezhik", "aliases[0]", "duplicate_name"),
+        ),
     ],
 )
 def test_character_names_are_unique(change: dict, expected: tuple) -> None:
@@ -479,7 +483,7 @@ def test_unverified_entities_are_neither_errors_nor_external() -> None:
     data["characters"] = [find(data, "characters", "krosh")]
     unverified = frozenset({EntityRef(type=EntityType.CHARACTER, id="ezhik")})
 
-    report = check_integrity(build(data, unverified=unverified), complete=True)
+    report = check_integrity(build(data), complete=True, unverified=unverified)
 
     assert report.violations == ()
     assert report.external == ()

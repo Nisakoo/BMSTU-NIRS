@@ -28,7 +28,12 @@ from smeshariki_ai.rag.models import (
     Work,
     entities_of,
 )
-from smeshariki_ai.rag.ports import EntityChange, KnowledgeStore, LoadSummary
+from smeshariki_ai.rag.ports import (
+    ChangeCounts,
+    EntityChange,
+    KnowledgeStore,
+    LoadSummary,
+)
 from smeshariki_ai.rag.postgres import PostgresKnowledgeStore
 
 STARTED = datetime(2026, 10, 19, 12, 0, tzinfo=UTC)
@@ -193,7 +198,7 @@ async def save(
         await transaction.finish_load(
             load_id,
             LoadSummary(
-                finished_at=FINISHED, duration_ms=1000, entity_count=0, report={}
+                finished_at=FINISHED, duration_ms=1000, entity_count=0, counts={}
             ),
         )
     return load_id
@@ -294,7 +299,10 @@ async def test_revisions_keep_every_version_of_an_entity(
 
 async def test_load_is_recorded_and_completed(store: KnowledgeStore) -> None:
     summary = LoadSummary(
-        finished_at=FINISHED, duration_ms=5, entity_count=2, report={"a": 1}
+        finished_at=FINISHED,
+        duration_ms=5,
+        entity_count=2,
+        counts={"characters": ChangeCounts(added=2)},
     )
     async with store.transaction() as transaction:
         first = await transaction.start_load(STARTED)

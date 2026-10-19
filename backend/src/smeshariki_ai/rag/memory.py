@@ -7,6 +7,7 @@ from datetime import datetime
 
 from smeshariki_ai.rag.models import (
     ENTITY_FIELDS,
+    KNOWLEDGE_FORMAT_VERSION,
     EntityRef,
     EntityType,
     KnowledgeEntity,
@@ -82,6 +83,7 @@ class _InMemoryTransaction(KnowledgeTransaction):
                     revision=len(history) + 1,
                     operation=change.operation,
                     load_id=load_id,
+                    format_version=KNOWLEDGE_FORMAT_VERSION,
                     payload=change.entity.model_dump(mode="json", by_alias=True),
                 )
             )

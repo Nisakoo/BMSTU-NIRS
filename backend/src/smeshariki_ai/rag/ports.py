@@ -35,16 +35,27 @@ class KnowledgeSchemaNotReadyError(KnowledgeStoreError):
     """The tables of structured knowledge do not exist: migrations are missing."""
 
 
+class KnowledgeDataInvalidError(KnowledgeStoreError):
+    """Stored rows do not form valid domain entities."""
+
+
 class EntityChange(KnowledgeModel):
     operation: ChangeOperation
     entity: KnowledgeEntity
+
+
+class ChangeCounts(KnowledgeModel):
+    added: int = Field(default=0, ge=0)
+    updated: int = Field(default=0, ge=0)
+    unchanged: int = Field(default=0, ge=0)
 
 
 class LoadSummary(KnowledgeModel):
     finished_at: datetime
     duration_ms: int = Field(ge=0)
     entity_count: int = Field(ge=0)
-    report: dict[str, Any]
+    # Counts of each entity type, keyed by the ``KnowledgeSet`` field.
+    counts: dict[str, ChangeCounts]
 
 
 class LoadRecord(KnowledgeModel):
@@ -57,6 +68,8 @@ class Revision(KnowledgeModel):
     revision: int = Field(ge=1)
     operation: Literal["create", "update", "delete"]
     load_id: int
+    # Version of the entity format the payload is written in.
+    format_version: int = Field(ge=1)
     payload: dict[str, Any]
 
 

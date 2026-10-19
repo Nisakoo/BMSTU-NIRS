@@ -47,8 +47,15 @@ class IntegrityReport(KnowledgeModel):
     external: tuple[EntityRef, ...]
 
 
-def check_integrity(knowledge: KnowledgeSet, *, complete: bool) -> IntegrityReport:
-    return _Checker(knowledge, complete).run()
+def check_integrity(
+    knowledge: KnowledgeSet,
+    *,
+    complete: bool,
+    unverified: frozenset[EntityRef] = frozenset(),
+) -> IntegrityReport:
+    """Check the set; ``unverified`` entities exist but failed their own checks."""
+
+    return _Checker(knowledge, complete, unverified).run()
 
 
 def _by_id(items: Iterable[Any]) -> list[Any]:
@@ -64,9 +71,15 @@ def _pair_key(
 
 
 class _Checker:
-    def __init__(self, knowledge: KnowledgeSet, complete: bool) -> None:
+    def __init__(
+        self,
+        knowledge: KnowledgeSet,
+        complete: bool,
+        unverified: frozenset[EntityRef],
+    ) -> None:
         self._knowledge = knowledge
         self._complete = complete
+        self._unverified = unverified
         self._index: dict[EntityType, dict[str, Any]] = {
             EntityType.CONTINUITY: {c.id: c for c in knowledge.continuities},
             EntityType.WORK: {w.id: w for w in knowledge.works},
@@ -112,7 +125,7 @@ class _Checker:
         if target in self._index[kind]:
             return True
         ref = EntityRef(type=kind, id=target)
-        if ref in self._knowledge.unverified:
+        if ref in self._unverified:
             return False
         if self._complete:
             self._violation(

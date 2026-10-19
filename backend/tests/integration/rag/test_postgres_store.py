@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import event, func, select
+from sqlalchemy import event, func, insert, select
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from smeshariki_ai.db import DatabaseConfig, create_engine
@@ -13,6 +13,7 @@ from smeshariki_ai.rag import tables
 from smeshariki_ai.rag.models import Character, Continuity, KnowledgeEntity
 from smeshariki_ai.rag.ports import (
     EntityChange,
+    KnowledgeDataInvalidError,
     KnowledgeSchemaNotReadyError,
     KnowledgeStoreUnavailableError,
     LoadSummary,
@@ -78,7 +79,7 @@ async def save(
         )
         await transaction.finish_load(
             load_id,
-            LoadSummary(finished_at=STARTED, duration_ms=0, entity_count=0, report={}),
+            LoadSummary(finished_at=STARTED, duration_ms=0, entity_count=0, counts={}),
         )
 
 
@@ -168,6 +169,7 @@ async def test_load_package_end_to_end(engine: AsyncEngine, tmp_path) -> None:
     store = PostgresKnowledgeStore(engine)
     package = tmp_path / "package"
     for relative, body in {
+        "package.yaml": "format_version: 1\n",
         "continuities/classic.yaml": "id: classic\nname: Классика\n",
         "characters/krosh.yaml": (
             "id: krosh\nname: Крош\nspecies: кролик\nversions:\n"
@@ -190,3 +192,17 @@ async def test_load_package_end_to_end(engine: AsyncEngine, tmp_path) -> None:
             select(func.count()).select_from(tables.revisions)
         )
     assert (loads, revisions) == (2, 2)
+
+
+async def test_corrupted_rows_are_reported_as_invalid_data(
+    engine: AsyncEngine,
+) -> None:
+    # A character root without its name row does not form a valid entity.
+    async with engine.begin() as connection:
+        await connection.execute(
+            insert(tables.characters).values(id="ghost", species="призрак")
+        )
+
+    with pytest.raises(KnowledgeDataInvalidError):
+        async with PostgresKnowledgeStore(engine).transaction() as transaction:
+            await transaction.read_all()

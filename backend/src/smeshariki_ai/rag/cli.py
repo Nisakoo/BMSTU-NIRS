@@ -16,7 +16,7 @@ from typing import Any, TextIO
 
 from pydantic import ValidationError
 
-from smeshariki_ai.rag.models import Issue
+from smeshariki_ai.rag.package import Issue
 from smeshariki_ai.rag.ports import KnowledgeStore
 from smeshariki_ai.rag.services import (
     CheckReport,
@@ -29,6 +29,10 @@ from smeshariki_ai.rag.services import (
 StoreFactory = Callable[[], AbstractAsyncContextManager[KnowledgeStore]]
 
 
+class ConfigurationError(Exception):
+    """The backend config could not be loaded from the environment."""
+
+
 @asynccontextmanager
 async def postgres_store() -> AsyncIterator[KnowledgeStore]:
     """The production store; imported lazily so other commands need no config."""
@@ -37,7 +41,12 @@ async def postgres_store() -> AsyncIterator[KnowledgeStore]:
     from smeshariki_ai.db import create_engine
     from smeshariki_ai.rag.postgres import PostgresKnowledgeStore
 
-    engine = create_engine(load_config().database)
+    try:
+        config = load_config()
+    except ValidationError as error:
+        # Secrets of the config never reach the message: only its absence does.
+        raise ConfigurationError from error
+    engine = create_engine(config.database)
     try:
         yield PostgresKnowledgeStore(engine)
     finally:
@@ -73,8 +82,7 @@ async def _load(path: Path, store: StoreFactory) -> LoadReport:
     try:
         async with store() as opened:
             return await load_package(path, opened)
-    except ValidationError:
-        # Secrets of the config never reach the message: only its absence does.
+    except ConfigurationError:
         issue = Issue(
             file=".",
             code="configuration_error",

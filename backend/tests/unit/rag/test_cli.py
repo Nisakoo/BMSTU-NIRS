@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from smeshariki_ai.rag.cli import main
+from smeshariki_ai.rag.cli import ConfigurationError, main
 from smeshariki_ai.rag.memory import InMemoryKnowledgeStore
-from smeshariki_ai.rag.models import Issue
+from smeshariki_ai.rag.ports import KnowledgeDataInvalidError
 
 CHARACTER = """\
 id: pin
@@ -24,6 +24,15 @@ versions:
       register: разговорный
 """
 EPISODE = "id: s01e01\nwork: series\nnumber: 1\ntitle: Серия\ncharacters: [pin]\n"
+
+
+@pytest.fixture(autouse=True)
+def manifest(tmp_path: Path) -> Path:
+    """Every package of these tests declares the current format version."""
+
+    path = tmp_path / "package.yaml"
+    path.write_text("format_version: 1\n", encoding="utf-8")
+    return path
 
 
 def put(root: Path, relative: str, text: str) -> None:
@@ -144,7 +153,9 @@ def test_schema_lists_every_entity_type() -> None:
 
     schema = json.loads(output)
     assert code == 0
-    assert set(schema) == {
+    assert schema["format_version"] == 1
+    assert schema["manifest"]["required"] == ["format_version"]
+    assert set(schema["entities"]) == {
         "continuities",
         "works",
         "episodes",
@@ -152,8 +163,8 @@ def test_schema_lists_every_entity_type() -> None:
         "locations",
         "artifacts",
     }
-    assert schema["characters"]["properties"]["id"]["pattern"]
-    assert "Interaction" in schema["episodes"]["$defs"]
+    assert schema["entities"]["characters"]["properties"]["id"]["pattern"]
+    assert "Interaction" in schema["entities"]["episodes"]["$defs"]
 
 
 def test_module_runs_without_environment(tmp_path: Path) -> None:
@@ -233,9 +244,8 @@ def test_load_json_output(tmp_path: Path) -> None:
 def test_load_without_backend_config_is_a_clear_error(tmp_path: Path) -> None:
     @asynccontextmanager
     async def unconfigured() -> AsyncIterator[InMemoryKnowledgeStore]:
-        # load_config raises a ValidationError like this when variables are absent.
-        Issue.model_validate({})
-        yield InMemoryKnowledgeStore()
+        raise ConfigurationError
+        yield InMemoryKnowledgeStore()  # pragma: no cover
 
     output = StringIO()
     code = main(
@@ -244,3 +254,17 @@ def test_load_without_backend_config_is_a_clear_error(tmp_path: Path) -> None:
 
     assert code == 1
     assert "[configuration_error]" in output.getvalue()
+
+
+def test_invalid_stored_data_is_not_a_configuration_error(tmp_path: Path) -> None:
+    class CorruptedStore(InMemoryKnowledgeStore):
+        @asynccontextmanager
+        async def transaction(self):  # type: ignore[override]
+            raise KnowledgeDataInvalidError
+            yield  # pragma: no cover
+
+    code, output = run_load(CorruptedStore(), str(valid_package(tmp_path)))
+
+    assert code == 1
+    assert "[stored_data_invalid]" in output
+    assert "configuration_error" not in output

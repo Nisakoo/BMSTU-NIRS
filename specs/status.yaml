@@ -71,3 +71,5 @@ specs:
       status: done
     - name: knowledge-postgres-store
       status: done
+    - name: knowledge-hardening
+      status: done

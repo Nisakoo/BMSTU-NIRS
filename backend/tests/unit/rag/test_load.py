@@ -19,6 +19,7 @@ from smeshariki_ai.rag.models import (
 )
 from smeshariki_ai.rag.package import entity_file
 from smeshariki_ai.rag.ports import (
+    KnowledgeDataInvalidError,
     KnowledgeSchemaNotReadyError,
     KnowledgeStore,
     KnowledgeStoreUnavailableError,
@@ -75,6 +76,8 @@ BASE: list[KnowledgeEntity] = [CLASSIC, MOVIES, SERIES, FILM, PIN, KROSH, FILM_E
 
 
 def write_package(root: Path, entities: list[KnowledgeEntity]) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "package.yaml").write_text("format_version: 1\n", encoding="utf-8")
     for entity in entities:
         path = root / entity_file(entity_ref(entity))
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -108,6 +111,7 @@ def store() -> InMemoryKnowledgeStore:
 async def test_invalid_package_does_not_touch_the_store(
     tmp_path: Path, store: InMemoryKnowledgeStore
 ) -> None:
+    write_package(tmp_path, [])
     (tmp_path / "characters").mkdir()
     (tmp_path / "characters" / "pin.yaml").write_text("id: pin\n", encoding="utf-8")
 
@@ -138,7 +142,7 @@ async def test_first_load_adds_everything(
         revisions = await transaction.read_revisions(entity_ref(PIN))
     assert load is not None and load.summary is not None
     assert load.summary.entity_count == len(BASE)
-    assert load.summary.report["counts"]["characters"]["added"] == 2
+    assert load.summary.counts["characters"].added == 2
     assert [revision.operation for revision in revisions] == ["create"]
 
 
@@ -255,6 +259,7 @@ class FailingStore(KnowledgeStore):
     [
         (KnowledgeStoreUnavailableError(), "database_unavailable"),
         (KnowledgeSchemaNotReadyError(), "schema_not_ready"),
+        (KnowledgeDataInvalidError(), "stored_data_invalid"),
     ],
 )
 async def test_store_failures_are_reported(

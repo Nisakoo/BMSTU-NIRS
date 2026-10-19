@@ -1,4 +1,5 @@
 import asyncio
+import re
 from typing import Any
 
 import pytest
@@ -14,6 +15,7 @@ from smeshariki_ai.db.migrate import downgrade, upgrade
 from smeshariki_ai.rag import tables
 from smeshariki_ai.rag.models import (
     AgeGroup,
+    EntityType,
     InteractionType,
     RelationshipType,
     WorkKind,
@@ -346,9 +348,37 @@ async def test_revision_number_is_unique_per_entity(engine: AsyncEngine) -> None
         "entity_id": "krosh",
         "revision": 1,
         "operation": "create",
+        "format_version": 1,
         "payload": {"id": "krosh"},
     }
     await execute(engine, insert(tables.revisions).values(**revision))
 
     with pytest.raises(IntegrityError):
         await execute(engine, insert(tables.revisions).values(**revision))
+
+
+@pytest.mark.parametrize(
+    ("constraint", "values"),
+    [
+        ("rag_works_kind_valid", WorkKind),
+        ("rag_character_versions_age_group_valid", AgeGroup),
+        ("rag_relationships_type_valid", RelationshipType),
+        ("rag_episode_interactions_type_valid", InteractionType),
+        ("rag_revisions_entity_type_valid", EntityType),
+        ("rag_revisions_operation_valid", tables.REVISION_OPERATIONS),
+    ],
+)
+async def test_check_constraints_allow_exactly_the_registry(
+    engine: AsyncEngine, constraint: str, values: Any
+) -> None:
+    async with engine.connect() as connection:
+        definition = await connection.scalar(
+            text(
+                "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+                "WHERE conname = :name"
+            ),
+            {"name": constraint},
+        )
+
+    assert definition is not None
+    assert set(re.findall(r"'([^']*)'", definition)) == {str(v) for v in values}

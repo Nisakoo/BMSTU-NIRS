@@ -457,10 +457,10 @@ loads = Table(
     Column("finished_at", DateTime(timezone=True), nullable=True),
     Column("duration_ms", Integer, nullable=True),
     Column("entity_count", Integer, nullable=True),
-    Column("report", JSONB, nullable=True),
+    Column("counts", JSONB, nullable=True),
     # A load is recorded first and completed at the end of the same transaction.
     CheckConstraint(
-        "num_nulls(finished_at, duration_ms, entity_count, report) IN (0, 4)",
+        "num_nulls(finished_at, duration_ms, entity_count, counts) IN (0, 4)",
         name="rag_loads_completion_consistent",
     ),
     CheckConstraint("finished_at >= started_at", name="rag_loads_finished_after_start"),
@@ -475,6 +475,7 @@ revisions = Table(
     Column("entity_id", Text, nullable=False),
     Column("revision", Integer, nullable=False),
     Column("operation", Text, nullable=False),
+    Column("format_version", Integer, nullable=False),
     Column("payload", JSONB, nullable=False),
     Column(
         "recorded_at",
@@ -495,6 +496,9 @@ revisions = Table(
     _one_of("rag_revisions", "operation", REVISION_OPERATIONS),
     _slug("rag_revisions", "entity_id"),
     CheckConstraint("revision >= 1", name="rag_revisions_revision_positive"),
+    CheckConstraint(
+        "format_version >= 1", name="rag_revisions_format_version_positive"
+    ),
     CheckConstraint(
         "jsonb_typeof(payload) = 'object'", name="rag_revisions_payload_object"
     ),

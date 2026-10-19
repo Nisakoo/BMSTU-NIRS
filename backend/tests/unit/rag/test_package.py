@@ -22,6 +22,15 @@ versions:
 """
 
 
+@pytest.fixture(autouse=True)
+def manifest(tmp_path: Path) -> Path:
+    """Every package of these tests declares the current format version."""
+
+    path = tmp_path / "package.yaml"
+    path.write_text("format_version: 1\n", encoding="utf-8")
+    return path
+
+
 def put(root: Path, relative: str, text: str) -> None:
     path = root / relative
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -183,9 +192,9 @@ def test_invalid_files_are_unverified(tmp_path: Path) -> None:
     put(tmp_path, "characters/pin.yaml", CHARACTER.replace("species: пингвин\n", ""))
     put(tmp_path, "characters/krosh.yaml", "id: [broken\n")
 
-    knowledge = read_package(tmp_path).knowledge
-    assert knowledge.characters == ()
-    assert knowledge.unverified == frozenset(
+    contents = read_package(tmp_path)
+    assert contents.knowledge.characters == ()
+    assert contents.unverified == frozenset(
         {
             EntityRef(type=EntityType.CHARACTER, id="krosh"),
             EntityRef(type=EntityType.CHARACTER, id="pin"),
@@ -197,3 +206,47 @@ def test_entity_file() -> None:
     ref = EntityRef(type=EntityType.EPISODE, id="s01e01")
 
     assert entity_file(ref) == "episodes/s01e01.yaml"
+
+
+def test_missing_manifest(tmp_path: Path, manifest: Path) -> None:
+    manifest.unlink()
+    put(tmp_path, "characters/pin.yaml", CHARACTER)
+
+    assert issues(tmp_path) == [("package.yaml", "", "missing_manifest")]
+
+
+@pytest.mark.parametrize(
+    ("text", "path", "code"),
+    [
+        ("format_version: 2\n", "format_version", "unsupported_format_version"),
+        ("format_version: 1\nauthor: я\n", "author", "extra_field"),
+        ("version: 1\n", "format_version", "missing_field"),
+        ("format_version: '1'\n", "format_version", "invalid_type"),
+    ],
+)
+def test_invalid_manifest(
+    tmp_path: Path, manifest: Path, text: str, path: str, code: str
+) -> None:
+    manifest.write_text(text, encoding="utf-8")
+    put(tmp_path, "characters/pin.yaml", CHARACTER)
+
+    found = issues(tmp_path)
+    assert ("package.yaml", path, code) in found
+
+
+def test_symlinks_are_rejected_and_not_read(tmp_path: Path) -> None:
+    outside = tmp_path.parent / f"{tmp_path.name}_outside"
+    outside.mkdir()
+    (outside / "pin.yaml").write_text(CHARACTER, encoding="utf-8")
+    (tmp_path / "characters").mkdir()
+    (tmp_path / "characters" / "pin.yaml").symlink_to(outside / "pin.yaml")
+    (tmp_path / "locations").symlink_to(outside, target_is_directory=True)
+
+    contents = read_package(tmp_path)
+
+    assert [(i.file, i.code) for i in contents.issues] == [
+        ("characters/pin.yaml", "symlink_not_allowed"),
+        ("locations", "symlink_not_allowed"),
+        (".", "empty_package"),
+    ]
+    assert contents.knowledge.characters == ()

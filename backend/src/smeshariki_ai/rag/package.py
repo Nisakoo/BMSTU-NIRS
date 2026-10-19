@@ -5,47 +5,56 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from pydantic import ValidationError
+from pydantic import Field, ValidationError
 from pydantic_core import ErrorDetails
 
 from smeshariki_ai.rag.models import (
     ENTITY_FIELDS,
+    ENTITY_KINDS,
+    KNOWLEDGE_FORMAT_VERSION,
     SLUG_PATTERN,
-    Artifact,
-    Character,
-    Continuity,
     EntityRef,
     EntityType,
-    Episode,
-    Issue,
     KnowledgeModel,
     KnowledgeSet,
-    Location,
-    Work,
 )
 from smeshariki_ai.rag.yaml_reader import YamlReadError, read_yaml_file
 
 # Package directories are named after the fields of ``KnowledgeSet``.
 ENTITY_DIRECTORIES = ENTITY_FIELDS
 ENTITY_MODELS: dict[EntityType, type[KnowledgeModel]] = {
-    EntityType.CONTINUITY: Continuity,
-    EntityType.WORK: Work,
-    EntityType.EPISODE: Episode,
-    EntityType.CHARACTER: Character,
-    EntityType.LOCATION: Location,
-    EntityType.ARTIFACT: Artifact,
+    entity_type: kind.model for entity_type, kind in ENTITY_KINDS.items()
 }
 _TYPES_BY_DIRECTORY = {name: kind for kind, name in ENTITY_DIRECTORIES.items()}
 _SLUG = re.compile(SLUG_PATTERN)
 _EXTENSION = ".yaml"
+MANIFEST = "package.yaml"
 
 
 class PackageNotFoundError(Exception):
     """The package path does not exist or is not a directory."""
 
 
+class Issue(KnowledgeModel):
+    """One problem found in a package, addressed by file and field path."""
+
+    file: str
+    path: str = ""
+    code: str
+    message: str
+    line: int | None = None
+
+
+class PackageManifest(KnowledgeModel):
+    """``package.yaml`` at the package root: the format the files are written in."""
+
+    format_version: int = Field(ge=1)
+
+
 class PackageContents(KnowledgeModel):
     knowledge: KnowledgeSet
+    # Entities whose files exist but failed their own validation.
+    unverified: frozenset[EntityRef]
     issues: tuple[Issue, ...]
 
 
@@ -59,18 +68,20 @@ def read_package(root: Path) -> PackageContents:
     if not root.is_dir():
         raise PackageNotFoundError(root)
 
-    issues: list[Issue] = []
+    issues: list[Issue] = list(_read_manifest(root))
     entities: dict[EntityType, list[Any]] = {kind: [] for kind in EntityType}
     unverified: set[EntityRef] = set()
     entity_files = 0
 
     for entry in _visible(root):
+        if entry.name == MANIFEST and not entry.is_symlink():
+            continue
         kind = _TYPES_BY_DIRECTORY.get(entry.name)
-        if kind is None or not entry.is_dir():
+        if entry.is_symlink() or kind is None or not entry.is_dir():
             issues.append(_unexpected(root, entry))
             continue
         for path in _visible(entry):
-            if not path.is_file() or path.suffix != _EXTENSION:
+            if path.is_symlink() or not path.is_file() or path.suffix != _EXTENSION:
                 issues.append(_unexpected(root, path))
                 continue
             entity_files += 1
@@ -87,10 +98,11 @@ def read_package(root: Path) -> PackageContents:
         )
 
     knowledge = KnowledgeSet(
-        **{ENTITY_DIRECTORIES[kind]: tuple(items) for kind, items in entities.items()},
-        unverified=frozenset(unverified),
+        **{ENTITY_DIRECTORIES[kind]: tuple(items) for kind, items in entities.items()}
     )
-    return PackageContents(knowledge=knowledge, issues=tuple(issues))
+    return PackageContents(
+        knowledge=knowledge, unverified=frozenset(unverified), issues=tuple(issues)
+    )
 
 
 def _visible(directory: Path) -> Iterator[Path]:
@@ -103,7 +115,51 @@ def _relative(root: Path, path: Path) -> str:
     return path.relative_to(root).as_posix()
 
 
+def _read_manifest(root: Path) -> list[Issue]:
+    path = root / MANIFEST
+    if path.is_symlink():
+        return []  # Reported with the other entries of the root.
+    if not path.is_file():
+        return [
+            Issue(
+                file=MANIFEST,
+                code="missing_manifest",
+                message=f"нет {MANIFEST} с format_version: {KNOWLEDGE_FORMAT_VERSION}",
+            )
+        ]
+    try:
+        data = read_yaml_file(path)
+    except YamlReadError as error:
+        return [
+            Issue(
+                file=MANIFEST, code=error.code, message=error.message, line=error.line
+            )
+        ]
+    try:
+        manifest = PackageManifest.model_validate(data)
+    except ValidationError as error:
+        return [_schema_issue(MANIFEST, item) for item in error.errors()]
+    if manifest.format_version != KNOWLEDGE_FORMAT_VERSION:
+        return [
+            Issue(
+                file=MANIFEST,
+                path="format_version",
+                code="unsupported_format_version",
+                message=f"версия формата {manifest.format_version} не "
+                f"поддерживается; поддерживается {KNOWLEDGE_FORMAT_VERSION}",
+            )
+        ]
+    return []
+
+
 def _unexpected(root: Path, path: Path) -> Issue:
+    if path.is_symlink():
+        # The target is never read: it may lie outside the package.
+        return Issue(
+            file=_relative(root, path),
+            code="symlink_not_allowed",
+            message="символьные ссылки в пакете не допускаются",
+        )
     if path.is_dir():
         return Issue(
             file=_relative(root, path),
