@@ -73,3 +73,5 @@ specs:
       status: done
     - name: knowledge-hardening
       status: done
+    - name: knowledge-load-json-output
+      status: done

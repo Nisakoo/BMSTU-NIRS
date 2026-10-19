@@ -69,7 +69,7 @@ knowledge-load:
 		echo "Error: knowledge package $(DIR) is not a directory." >&2; \
 		exit 2; \
 	}
-	@$(MAKE) --no-print-directory migrate
+	@$(MAKE) --no-print-directory migrate >&2
 	@if [ -f "$(ENV_FILE)" ]; then \
 		docker compose --env-file "$(ENV_FILE)" -f "$(COMPOSE_FILE)" run --rm \
 			-v "$(abspath $(DIR)):/knowledge:ro" migrate \
