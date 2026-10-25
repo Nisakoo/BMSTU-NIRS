@@ -6,8 +6,8 @@ RAG даёт агенту канонические знания о вселен�
 структурированные знания: сущности со строгой схемой и их точный поиск. Поиск
 по неструктурированному лору (сюжеты, сценарии) — следующая очередь.
 
-Состояние: реализованы формат и проверка пакетов, хранилище в PostgreSQL и
-загрузка; инструмента агента пока нет.
+Состояние: реализованы формат и проверка пакетов, хранилище в PostgreSQL,
+загрузка и инструмент агента `lookup_knowledge`.
 
 ## Назначение и границы
 
@@ -112,6 +112,57 @@ flowchart LR
 появится общая БД, загрузка перейдёт на отдельный конфиг только БД: это
 изменение `config.py` и правила `AGENTS.md` по согласованию с владельцем.
 
+## Инструмент `lookup_knowledge`
+
+```mermaid
+flowchart LR
+    Agent["Agent<br/>ToolRegistry"] --> Tool["LookupKnowledgeTool<br/>rag/tools.py"]
+    Tool --> UC["KnowledgeLookup<br/>rag/lookup.py"]
+    UC --> Port["KnowledgeReader<br/>rag/ports.py"]
+    Port -.реализует.- PG["PostgresKnowledgeStore"]
+    Port -.реализует.- Mem["InMemoryKnowledgeStore"]
+```
+
+- **Аргументы:** `{"name": "<строка 1–200 символов>"}`, лишние поля
+  запрещены. Неверные аргументы `ToolRegistry` превращает в
+  `invalid_arguments`, хранилище не вызывается.
+- **Поиск точный:** запрос нормализуется `normalize_name` и сравнивается с
+  именами и алиасами персонажей, локаций и артефактов, названиями эпизодов
+  (`rag_episodes.normalized_title`, миграция `0004`) и slug. Произведения и
+  варианты канона не ищутся, а показываются в карточках названиями.
+- **Порт чтения** `KnowledgeReader`: `find(key)` возвращает найденные
+  агрегаты, произведения их эпизодов и названия всех сущностей, на которые
+  они ссылаются; `has_knowledge()` — есть ли завершённая загрузка. PostgreSQL
+  читает в транзакции `REPEATABLE READ READ ONLY` без advisory lock загрузки,
+  поэтому поиск не ждёт загрузку и видит состояние до неё или после.
+  Число запросов не зависит от числа сущностей.
+- **Ответ:** `status`, `total`, `truncated`, `matches` и `message`.
+
+| `status` | Когда | `message` |
+| --- | --- | --- |
+| `found` | Есть совпадения; в `matches` не больше 10 карточек, `total` — число совпадений | — |
+| `not_found` | Совпадений нет, знания загружены | Не выдавать придуманные факты за канон |
+| `unavailable` | Знаний нет, таблиц `rag_*` нет, БД недоступна или её данные невалидны | Не выдавать придуманные факты за канон |
+
+- **Карточки** (`type` = `character`, `location`, `artifact`, `episode`)
+  упорядочены по типу, затем по `id`. Ссылки показаны именами вместо slug,
+  `sources` не входят. Персонаж — все версии с названиями вариантов канона,
+  характер, `speech_style`, коронные фразы и отношения; локация — описание и
+  жители; артефакт — тип, описание, возможности, ограничения и создатели;
+  эпизод — произведение и его вариант канона, сезон и номер, участники,
+  места, предметы и взаимодействия.
+- **Журнал:** каждый вызов пишет `rag.lookup.completed` с `outcome`,
+  `match_count`, длительностью, а при `unavailable` — `error_type` (ошибка
+  хранилища, уровень `WARNING`) или `reason=not_loaded`. Текст запроса и
+  содержимое карточек в журнал не попадают.
+- **Подключение:** `build_agent_service` принимает необязательный
+  `knowledge_reader` и регистрирует `lookup_knowledge` рядом с `get_context`.
+  `create_application` передаёт `PostgresKnowledgeStore` на общем engine;
+  без него (явный `auth_service`, вызов по умолчанию) используется пустой
+  `InMemoryKnowledgeStore`, и инструмент отвечает `unavailable`. Модули RAG
+  импортируются напрямую: пакет `rag` ничего не реэкспортирует, чтобы CLI не
+  загружал агент и LiteLLM.
+
 ## Изоляция
 
 - Таблицы RAG имеют префикс `rag_` в схеме `public`, описаны собственным
@@ -121,11 +172,13 @@ flowchart LR
 - Адаптер PostgreSQL находится в пакете `rag`; пакет `db/` других модулей не
   меняется. Миграции RAG — отдельные файлы в общей цепочке Alembic,
   затрагивающие только таблицы `rag_*`.
-- Из других модулей RAG импортирует только `agent.tools.Tool` и общие
+- Из других модулей RAG импортирует только `agent.tools.Tool` (в
+  `rag/tools.py`), `log_event` и `utc_now` из `observability` и общие
   `DatabaseConfig` и `create_engine`.
-- Инструмент зависит от интерфейса use case, аргументы и результаты —
-  Pydantic-модели. При выделении RAG в сервис инструмент заменяется
-  HTTP-клиентом без изменения агента и домена.
+- Инструмент получает use case `KnowledgeLookup` в конструкторе, аргументы и
+  результаты — Pydantic-модели. Отдельный абстрактный интерфейс use case
+  появится вместе со второй реализацией: при выделении RAG в сервис
+  инструмент получит HTTP-клиент без изменения агента и домена.
 
 ## Точки интеграции
 
@@ -148,8 +201,7 @@ flowchart LR
 
 1. `knowledge-maintenance` — выгрузка сущностей из БД в пакет и удаление с
    проверкой ссылок и архивом в журнале ревизий.
-2. `knowledge-lookup-tool` — use case поиска и инструмент `lookup_knowledge`
-   в composition root.
+2. Нечёткий поиск имён (`pg_trgm`) и подсказки при `not_found`.
 3. Поиск по лору — отдельная серия после оценки потребности.
 
 ## SDD-артефакты
@@ -165,6 +217,10 @@ flowchart LR
   [спецификация](../specs/changes/knowledge-postgres-store/spec.md),
   [план](../specs/changes/knowledge-postgres-store/plan.md),
   [результат проверки](../specs/changes/knowledge-postgres-store/verification.md);
+- инструмент `lookup_knowledge`:
+  [спецификация](../specs/changes/knowledge-lookup-tool/spec.md),
+  [план](../specs/changes/knowledge-lookup-tool/plan.md),
+  [результат проверки](../specs/changes/knowledge-lookup-tool/verification.md);
 - надёжность и рефакторинг:
   [спецификация](../specs/changes/knowledge-hardening/spec.md),
   [план](../specs/changes/knowledge-hardening/plan.md),

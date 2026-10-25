@@ -10,17 +10,30 @@ from smeshariki_ai.rag.models import (
     KNOWLEDGE_FORMAT_VERSION,
     EntityRef,
     EntityType,
+    Episode,
     KnowledgeEntity,
     KnowledgeSet,
+    Work,
     entity_ref,
+    normalize_name,
+    references_of,
 )
 from smeshariki_ai.rag.ports import (
     EntityChange,
+    FoundKnowledge,
+    KnowledgeReader,
     KnowledgeStore,
     KnowledgeTransaction,
     LoadRecord,
     LoadSummary,
     Revision,
+)
+
+_LOOKED_UP = (
+    EntityType.CHARACTER,
+    EntityType.LOCATION,
+    EntityType.ARTIFACT,
+    EntityType.EPISODE,
 )
 
 
@@ -39,10 +52,54 @@ class _State:
         return state
 
 
-class InMemoryKnowledgeStore(KnowledgeStore):
+def _keys(entity: KnowledgeEntity) -> set[str]:
+    if isinstance(entity, Episode):
+        return {entity.id, normalize_name(entity.title)}
+    return {entity.id, *(normalize_name(n) for n in (entity.name, *entity.aliases))}
+
+
+def _name(entity: KnowledgeEntity) -> str:
+    return entity.title if isinstance(entity, Work | Episode) else entity.name
+
+
+class InMemoryKnowledgeStore(KnowledgeStore, KnowledgeReader):
     def __init__(self) -> None:
         self._state = _State()
         self._lock = asyncio.Lock()
+
+    async def find(self, key: str) -> FoundKnowledge:
+        # A committed transaction replaces the state whole, so this is a snapshot.
+        entities = self._state.entities
+        grouped: dict[EntityType, list[KnowledgeEntity]] = {
+            kind: [] for kind in _LOOKED_UP
+        }
+        for ref in sorted(entities, key=lambda item: item.id):
+            if ref.type in grouped and key in _keys(entities[ref]):
+                grouped[ref.type].append(entities[ref])
+        found = KnowledgeSet(
+            **{ENTITY_FIELDS[kind]: tuple(items) for kind, items in grouped.items()}
+        )
+        works = sorted(references_of(found).get(EntityType.WORK, ()))
+        found = found.model_copy(
+            update={
+                "works": tuple(
+                    entities[EntityRef(type=EntityType.WORK, id=work_id)]
+                    for work_id in works
+                )
+            }
+        )
+        names = {
+            kind: {
+                entity_id: _name(entities[ref])
+                for entity_id in ids
+                if (ref := EntityRef(type=kind, id=entity_id)) in entities
+            }
+            for kind, ids in references_of(found).items()
+        }
+        return FoundKnowledge(entities=found, names=names)
+
+    async def has_knowledge(self) -> bool:
+        return any(r.summary is not None for r in self._state.loads.values())
 
     @asynccontextmanager
     async def transaction(self) -> AsyncIterator[KnowledgeTransaction]:

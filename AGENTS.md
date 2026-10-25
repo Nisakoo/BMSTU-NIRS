@@ -382,6 +382,18 @@
    модели (`stored_data_invalid`), различаются. Типы сущностей описаны одним
    реестром `ENTITY_KINDS`, а преобразование агрегатов в строки БД — в
    `rag/postgres_mappers.py`. Спецификация: `specs/changes/knowledge-hardening/`.
+9. Инструмент агента `lookup_knowledge` (`rag/tools.py`) получает use case
+   `KnowledgeLookup` (`rag/lookup.py`), который читает через порт
+   `KnowledgeReader` (реализуют `PostgresKnowledgeStore` и
+   `InMemoryKnowledgeStore`). Поиск точный по нормализованному имени, алиасу,
+   названию эпизода (`normalized_title`, миграция `0004`) и slug; ответ —
+   статус `found`/`not_found`/`unavailable` и до 10 карточек с именами вместо
+   slug и без `sources`. Чтение — `REPEATABLE READ READ ONLY` без advisory
+   lock загрузки; ошибки хранилища дают `unavailable`. Bootstrap
+   регистрирует инструмент рядом с `get_context`: production —
+   `PostgresKnowledgeStore` на общем engine, без него — пустой
+   `InMemoryKnowledgeStore`. Спецификация:
+   `specs/changes/knowledge-lookup-tool/`.
 
 ## Согласованные технологии
 

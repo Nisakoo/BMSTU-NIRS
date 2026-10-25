@@ -311,6 +311,7 @@ class _EpisodeMapper(AggregateMapper):
             "season": entity.season,
             "number": entity.number,
             "title": entity.title,
+            "normalized_title": normalize_name(entity.title),
         }, {
             tables.episode_characters: _members(
                 owner, entity.id, "character_id", entity.characters

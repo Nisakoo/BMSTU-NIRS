@@ -20,6 +20,7 @@ from smeshariki_ai.rag.models import (
     RelationshipType,
     WorkKind,
 )
+from smeshariki_ai.rag.postgres import PostgresKnowledgeStore
 
 
 def only_rag_tables(name: str | None, type_: str, parent_names: Any) -> bool:
@@ -48,7 +49,11 @@ async def seed(engine: AsyncEngine) -> None:
         )
         await connection.execute(
             insert(tables.episodes).values(
-                id="e1", work_id="series", number=1, title="Серия"
+                id="e1",
+                work_id="series",
+                number=1,
+                title="Серия",
+                normalized_title="серия",
             )
         )
         await connection.execute(
@@ -89,6 +94,9 @@ async def seed(engine: AsyncEngine) -> None:
         )
 
 
+TITLE = {"title": "Т", "normalized_title": "т"}
+
+
 async def execute(engine: AsyncEngine, statement: Any, values: Any = None) -> None:
     async with engine.begin() as connection:
         await connection.execute(statement, values)
@@ -119,6 +127,52 @@ async def test_downgrade_removes_tables_and_upgrade_restores_them(
     assert len(await rag_table_names(engine)) == 23
 
 
+async def test_title_key_migration_fills_existing_episodes(
+    engine: AsyncEngine, database_config: DatabaseConfig
+) -> None:
+    await asyncio.to_thread(downgrade, create_engine(database_config), "0003")
+    async with engine.begin() as connection:
+        await connection.execute(
+            text("INSERT INTO rag_continuities (id, name) VALUES ('classic', 'К')")
+        )
+        await connection.execute(
+            text(
+                "INSERT INTO rag_works (id, title, kind, continuity_id)"
+                " VALUES ('series', 'С', 'series', 'classic')"
+            )
+        )
+        await connection.execute(
+            text(
+                "INSERT INTO rag_episodes (id, work_id, number, title)"
+                " VALUES ('e1', 'series', 1, '  Ёлка  и   ПИН '),"
+                " ('e2', 'series', 2, 'Ёлка и Пин')"
+            )
+        )
+
+    await asyncio.to_thread(upgrade, create_engine(database_config))
+
+    async with engine.connect() as connection:
+        rows = await connection.execute(
+            select(tables.episodes.c.id, tables.episodes.c.normalized_title).order_by(
+                tables.episodes.c.id
+            )
+        )
+        assert rows.all() == [("e1", "елка и пин"), ("e2", "елка и пин")]
+    found = await PostgresKnowledgeStore(engine).find("елка и пин")
+    assert [episode.id for episode in found.entities.episodes] == ["e1", "e2"]
+
+    await asyncio.to_thread(downgrade, create_engine(database_config), "0003")
+    async with engine.connect() as connection:
+        columns = await connection.execute(
+            text(
+                "SELECT column_name FROM information_schema.columns"
+                " WHERE table_name = 'rag_episodes'"
+            )
+        )
+        assert "normalized_title" not in {row.column_name for row in columns}
+    await asyncio.to_thread(upgrade, create_engine(database_config))
+
+
 async def test_public_schema_reset_of_other_modules_is_compatible(
     database_config: DatabaseConfig,
 ) -> None:
@@ -137,15 +191,25 @@ async def test_public_schema_reset_of_other_modules_is_compatible(
         ),
         (
             tables.episodes,
-            {"id": "e2", "work_id": "series", "number": 0, "title": "Т"},
+            {"id": "e2", "work_id": "series", "number": 0, **TITLE},
         ),
         (
             tables.episodes,
-            {"id": "e2", "work_id": "series", "season": 0, "number": 2, "title": "Т"},
+            {"id": "e2", "work_id": "series", "season": 0, "number": 2, **TITLE},
         ),
         (
             tables.episodes,
-            {"id": "e2", "work_id": "series", "number": 1, "title": "Повтор"},
+            {"id": "e2", "work_id": "series", "number": 1, **TITLE},
+        ),
+        (
+            tables.episodes,
+            {
+                "id": "e2",
+                "work_id": "series",
+                "number": 2,
+                "title": "Т",
+                "normalized_title": " ",
+            },
         ),
         (tables.characters, {"id": "pin", "species": "пингвин", "sources": {}}),
         (

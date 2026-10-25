@@ -48,6 +48,7 @@ _SAFE_FIELDS = frozenset(
         "model",
         "message_count",
         "tool_count",
+        "match_count",
         "time_to_first_token_ms",
         "usage_available",
         "input_tokens",

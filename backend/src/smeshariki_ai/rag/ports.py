@@ -1,8 +1,11 @@
-"""Outbound port of the knowledge store.
+"""Outbound ports of the knowledge store.
 
 A load runs as one transaction: read every entity, then record the load, save
 the changed aggregates with their revisions and complete the load. Concurrent
 transactions are serialized, so a load always sees the state it writes on.
+
+Lookups read through a separate port: they never wait for a load and see
+either the state before it or after it.
 """
 
 from abc import ABC, abstractmethod
@@ -15,6 +18,7 @@ from pydantic import Field
 
 from smeshariki_ai.rag.models import (
     EntityRef,
+    EntityType,
     KnowledgeEntity,
     KnowledgeModel,
     KnowledgeSet,
@@ -103,3 +107,23 @@ class KnowledgeStore(ABC):
     @abstractmethod
     def transaction(self) -> AbstractAsyncContextManager[KnowledgeTransaction]:
         """Open a serialized transaction; an exception inside rolls it back."""
+
+
+class FoundKnowledge(KnowledgeModel):
+    """Entities matching a lookup key and the names of what they reference."""
+
+    # Only characters, locations, artifacts and episodes are looked up.
+    entities: KnowledgeSet = KnowledgeSet()
+    # Name or title of each referenced continuity, work, character, location
+    # and artifact, keyed by its type and id.
+    names: dict[EntityType, dict[str, str]] = {}
+
+
+class KnowledgeReader(ABC):
+    @abstractmethod
+    async def find(self, key: str) -> FoundKnowledge:
+        """Entities whose normalized name, alias, title or id equals ``key``."""
+
+    @abstractmethod
+    async def has_knowledge(self) -> bool:
+        """Whether at least one load has completed."""
