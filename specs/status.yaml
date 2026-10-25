@@ -75,3 +75,5 @@ specs:
       status: done
     - name: knowledge-load-json-output
       status: done
+    - name: postgres-test-env
+      status: done

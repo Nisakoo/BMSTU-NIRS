@@ -36,6 +36,8 @@
    - `make migrate` — применение миграций базы данных через Compose-сервис
      `migrate`;
    - `make test` — запуск полного набора автоматических тестов продукта;
+   - `make test-integration` — запуск backend-тестов на временных PostgreSQL и
+     Redis в отдельном Compose-проекте `smeshariki-ai-test`;
    - `make lint` — проверка Python-кода backend через Ruff;
    - `make format` — автоматическое исправление и форматирование Python-кода
      backend через Ruff.
