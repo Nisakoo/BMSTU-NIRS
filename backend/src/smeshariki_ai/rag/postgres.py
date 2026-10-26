@@ -1,7 +1,9 @@
 """PostgreSQL implementation of the knowledge store over the ``rag_*`` tables.
 
 Reading issues one query per table and saving one statement per table, so the
-number of queries does not grow with the number of entities. Saving replaces
+number of queries does not grow with the number of entities. A lookup reads
+only the matching aggregates, in a read-only transaction without the load
+lock. Saving replaces
 the child rows of each changed aggregate and updates its root row in place:
 other aggregates reference only root rows, so they are never touched. How an
 aggregate maps to rows is described in ``postgres_mappers``.
@@ -15,7 +17,18 @@ from typing import Any
 
 from asyncpg import PostgresError
 from pydantic import ValidationError
-from sqlalchemy import Table, delete, func, insert, select, update
+from sqlalchemy import (
+    Select,
+    Table,
+    delete,
+    exists,
+    func,
+    insert,
+    or_,
+    select,
+    text,
+    update,
+)
 from sqlalchemy.dialects.postgresql import insert as upsert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
@@ -30,10 +43,13 @@ from smeshariki_ai.rag.models import (
     KnowledgeEntity,
     KnowledgeSet,
     entity_ref,
+    references_of,
 )
 from smeshariki_ai.rag.ports import (
     EntityChange,
+    FoundKnowledge,
     KnowledgeDataInvalidError,
+    KnowledgeReader,
     KnowledgeSchemaNotReadyError,
     KnowledgeStore,
     KnowledgeStoreUnavailableError,
@@ -62,7 +78,77 @@ def _translate_errors() -> Iterator[None]:
         raise KnowledgeStoreUnavailableError from error
 
 
-class PostgresKnowledgeStore(KnowledgeStore):
+async def _rows(
+    connection: AsyncConnection,
+    table: Table,
+    order: tuple[str, ...],
+    owner: tuple[str, Sequence[str]] | None = None,
+) -> list[Row]:
+    statement = select(table).order_by(*(table.c[name] for name in order))
+    if owner is not None:
+        column, ids = owner
+        statement = statement.where(table.c[column].in_(ids))
+    result = await connection.execute(statement)
+    return [dict(row) for row in result.mappings()]
+
+
+async def _read_aggregates(
+    connection: AsyncConnection, kind: EntityType, ids: Sequence[str] | None = None
+) -> tuple[Any, ...]:
+    """Aggregates of one type, ordered by ``id``: every one or those in ``ids``."""
+
+    mapper = MAPPERS[kind]
+    children: dict[Table, Grouped] = {}
+    for child in mapper.children:
+        groups: Grouped = defaultdict(list)
+        owner = None if ids is None else (child.owner, ids)
+        for row in await _rows(
+            connection, child.table, (*child.key, "position"), owner
+        ):
+            values = tuple(row[name] for name in child.key)
+            groups[values[0] if len(values) == 1 else values].append(row)
+        children[child.table] = groups
+    roots = await _rows(
+        connection, mapper.root, ("id",), None if ids is None else ("id", ids)
+    )
+    try:
+        return tuple(mapper.from_rows(root, children) for root in roots)
+    except ValidationError as error:
+        # The rows are not shown: they may hold anything.
+        raise KnowledgeDataInvalidError from error
+
+
+def _matching_ids(kind: EntityType, key: str) -> Select:
+    """Ids of the aggregates of ``kind`` whose id or search key equals ``key``."""
+
+    if kind is EntityType.EPISODE:
+        root = tables.episodes
+        condition = root.c.normalized_title == key
+    else:
+        root, names, owner = _NAMED[kind]
+        condition = exists().where(
+            names.c[owner] == root.c.id, names.c.normalized == key
+        )
+    return select(root.c.id).where(or_(root.c.id == key, condition)).order_by(root.c.id)
+
+
+# Root and name tables of the types looked up by name or alias.
+_NAMED: dict[EntityType, tuple[Table, Table, str]] = {
+    EntityType.CHARACTER: (tables.characters, tables.character_names, "character_id"),
+    EntityType.LOCATION: (tables.locations, tables.location_names, "location_id"),
+    EntityType.ARTIFACT: (tables.artifacts, tables.artifact_names, "artifact_id"),
+}
+_LOOKED_UP = (*_NAMED, EntityType.EPISODE)
+# Name of each referenced entity type: its table, owner column and name column.
+_NAMES: dict[EntityType, tuple[Table, str, str]] = {
+    EntityType.CONTINUITY: (tables.continuities, "id", "name"),
+    EntityType.CHARACTER: (tables.character_names, "character_id", "value"),
+    EntityType.LOCATION: (tables.location_names, "location_id", "value"),
+    EntityType.ARTIFACT: (tables.artifact_names, "artifact_id", "value"),
+}
+
+
+class PostgresKnowledgeStore(KnowledgeStore, KnowledgeReader):
     def __init__(self, engine: AsyncEngine) -> None:
         self._engine = engine
 
@@ -75,41 +161,72 @@ class PostgresKnowledgeStore(KnowledgeStore):
                 )
                 yield _PostgresTransaction(connection)
 
+    @asynccontextmanager
+    async def _snapshot(self) -> AsyncIterator[AsyncConnection]:
+        """A read-only transaction that sees one consistent snapshot."""
+
+        with _translate_errors():
+            async with self._engine.begin() as connection:
+                await connection.execute(
+                    text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+                )
+                yield connection
+
+    async def find(self, key: str) -> FoundKnowledge:
+        async with self._snapshot() as connection:
+            matched: dict[EntityType, tuple[Any, ...]] = {}
+            for kind in _LOOKED_UP:
+                ids = list((await connection.scalars(_matching_ids(kind, key))).all())
+                if ids:
+                    matched[kind] = await _read_aggregates(connection, kind, ids)
+            found = KnowledgeSet(
+                **{ENTITY_FIELDS[kind]: items for kind, items in matched.items()}
+            )
+            works = references_of(found).get(EntityType.WORK, set())
+            if works:
+                found = found.model_copy(
+                    update={
+                        "works": await _read_aggregates(
+                            connection, EntityType.WORK, sorted(works)
+                        )
+                    }
+                )
+            names: dict[EntityType, dict[str, str]] = {}
+            if found.works:
+                names[EntityType.WORK] = {work.id: work.title for work in found.works}
+            for kind, ids in references_of(found).items():
+                if kind not in _NAMES:
+                    continue
+                table, owner, column = _NAMES[kind]
+                statement = select(table.c[owner], table.c[column]).where(
+                    table.c[owner].in_(sorted(ids))
+                )
+                if "position" in table.c:
+                    statement = statement.where(table.c.position == 0)
+                rows = await connection.execute(statement)
+                names[kind] = {entity_id: name for entity_id, name in rows}
+        return FoundKnowledge(entities=found, names=names)
+
+    async def has_knowledge(self) -> bool:
+        async with self._snapshot() as connection:
+            return bool(
+                await connection.scalar(
+                    select(exists().where(tables.loads.c.finished_at.is_not(None)))
+                )
+            )
+
 
 class _PostgresTransaction(KnowledgeTransaction):
     def __init__(self, connection: AsyncConnection) -> None:
         self._connection = connection
 
-    async def _rows(self, table: Table, *order: str) -> list[Row]:
-        statement = select(table).order_by(*(table.c[name] for name in order))
-        result = await self._connection.execute(statement)
-        return [dict(row) for row in result.mappings()]
-
-    async def _grouped(self, table: Table, *key: str) -> Grouped:
-        """Rows grouped by ``key`` (one column or a tuple), in ``position`` order."""
-
-        groups: Grouped = defaultdict(list)
-        for row in await self._rows(table, *key, "position"):
-            values = tuple(row[name] for name in key)
-            groups[values[0] if len(values) == 1 else values].append(row)
-        return groups
-
     async def read_all(self) -> KnowledgeSet:
-        entities: dict[str, tuple[Any, ...]] = {}
-        for kind, mapper in MAPPERS.items():
-            children = {
-                child.table: await self._grouped(child.table, *child.key)
-                for child in mapper.children
+        return KnowledgeSet(
+            **{
+                ENTITY_FIELDS[kind]: await _read_aggregates(self._connection, kind)
+                for kind in MAPPERS
             }
-            roots = await self._rows(mapper.root, "id")
-            try:
-                entities[ENTITY_FIELDS[kind]] = tuple(
-                    mapper.from_rows(root, children) for root in roots
-                )
-            except ValidationError as error:
-                # The rows are not shown: they may hold anything.
-                raise KnowledgeDataInvalidError from error
-        return KnowledgeSet(**entities)
+        )
 
     async def start_load(self, started_at: datetime) -> int:
         return await self._connection.scalar(

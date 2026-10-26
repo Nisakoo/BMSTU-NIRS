@@ -122,9 +122,37 @@ curl -i -X POST http://localhost:8080/api/v1/dialogs/<dialog_id>/messages \
 - `Caddyfile` — маршруты `/api` к backend и остальных запросов к Nginx;
 - `.env.example` — несекретный шаблон порта, агента, LiteLLM-провайдера, логов,
   аутентификации и PostgreSQL.
+- `compose.test.yaml` и `test-integration.sh` — временные PostgreSQL и Redis
+  для `make test-integration`.
 
 `make frontend` по-прежнему запускает отдельный Vite dev server при разработке;
 для основного запуска он не нужен.
+
+## Интеграционные тесты
+
+`make test` не требует Docker и пропускает тесты PostgreSQL и Redis. Полный
+backend-набор на настоящих хранилищах запускает команда:
+
+```sh
+make test-integration
+make test-integration PYTEST_ARGS="backend/tests/integration/rag -x"
+```
+
+Команда поднимает отдельный Compose-проект `smeshariki-ai-test` из
+`compose.test.yaml` (`postgres:17-alpine` и `redis:7-alpine`), ждёт
+healthcheck и запускает pytest на хосте через `uv` с `TEST_DATABASE_URL` и
+`TEST_REDIS_URL`. Проект не читает `docker/.env`, не использует тома и сеть
+основного стека и может работать рядом с `make run`. Порты выбираются Docker
+динамически и публикуются только на `127.0.0.1`; данные хранятся в `tmpfs`
+(PostgreSQL — до 512 МБ), поэтому каждый запуск начинается с пустой БД и не
+пишет на диск. Учётные данные фиксированные тестовые (`test`/`test`).
+
+`PYTEST_ARGS` заменяет аргументы pytest (по умолчанию `backend`). Код
+возврата — код pytest. Контейнеры, сеть и тома проекта удаляются после
+успеха, падения, ошибки запуска и `Ctrl+C`, а остатки прерванного запуска —
+перед стартом. Без Docker команда завершается с ошибкой и pytest не
+запускает. Подробности — в
+[`spec.md`](../specs/changes/postgres-test-env/spec.md).
 
 RAG остаётся будущим внутренним инструментом backend и пока не добавлен в
 Compose.

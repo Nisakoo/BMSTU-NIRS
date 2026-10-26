@@ -281,3 +281,29 @@ def entities_of(knowledge: KnowledgeSet) -> list[KnowledgeEntity]:
         for kind in EntityType
         for entity in getattr(knowledge, ENTITY_FIELDS[kind])
     ]
+
+
+def references_of(knowledge: KnowledgeSet) -> dict[EntityType, set[str]]:
+    """Ids of the entities that the entities of the set reference, by type."""
+
+    refs: dict[EntityType, set[str]] = {kind: set() for kind in EntityType}
+    for work in knowledge.works:
+        refs[EntityType.CONTINUITY].add(work.continuity)
+    for episode in knowledge.episodes:
+        refs[EntityType.WORK].add(episode.work)
+        refs[EntityType.CHARACTER].update(episode.characters)
+        refs[EntityType.LOCATION].update(episode.locations)
+        refs[EntityType.ARTIFACT].update(episode.artifacts)
+    for character in knowledge.characters:
+        for version in character.versions:
+            refs[EntityType.CONTINUITY].update(version.continuities)
+        for relationship in character.relationships:
+            refs[EntityType.CHARACTER].add(relationship.to)
+            refs[EntityType.CONTINUITY].update(relationship.continuities)
+    for place in (*knowledge.locations, *knowledge.artifacts):
+        refs[EntityType.CONTINUITY].update(place.continuities)
+    for location in knowledge.locations:
+        refs[EntityType.CHARACTER].update(location.residents)
+    for artifact in knowledge.artifacts:
+        refs[EntityType.CHARACTER].update(artifact.creators)
+    return {kind: ids for kind, ids in refs.items() if ids}

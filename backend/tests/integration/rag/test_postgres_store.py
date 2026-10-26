@@ -206,3 +206,69 @@ async def test_corrupted_rows_are_reported_as_invalid_data(
     with pytest.raises(KnowledgeDataInvalidError):
         async with PostgresKnowledgeStore(engine).transaction() as transaction:
             await transaction.read_all()
+
+
+async def test_lookup_query_count_does_not_grow_with_entities(
+    engine: AsyncEngine,
+) -> None:
+    store = PostgresKnowledgeStore(engine)
+    await save(store, [Continuity(id="classic", name="Классика")])
+    counts = []
+    for size in (2, 50):
+        await save(store, heroes(size))
+        with counted_queries(engine) as statements:
+            found = await store.find("hero_1")
+            await store.has_knowledge()
+        assert [hero.id for hero in found.entities.characters] == ["hero_1"]
+        counts.append(len(statements))
+
+    assert counts[0] == counts[1]
+
+
+async def test_lookup_reads_in_a_read_only_snapshot(engine: AsyncEngine) -> None:
+    store = PostgresKnowledgeStore(engine)
+    await save(store, [Continuity(id="classic", name="Классика"), *heroes(2)])
+
+    with counted_queries(engine) as statements:
+        await store.find("hero_0")
+
+    assert statements[0] == (
+        "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"
+    )
+    assert not any("pg_advisory" in statement for statement in statements)
+
+
+async def test_lookup_without_tables_means_schema_not_ready(
+    engine: AsyncEngine, database_config: DatabaseConfig
+) -> None:
+    await asyncio.to_thread(downgrade, create_engine(database_config), "0002")
+    store = PostgresKnowledgeStore(engine)
+
+    with pytest.raises(KnowledgeSchemaNotReadyError):
+        await store.find("krosh")
+    with pytest.raises(KnowledgeSchemaNotReadyError):
+        await store.has_knowledge()
+
+
+async def test_lookup_on_unreachable_database_is_unavailable() -> None:
+    engine = create_async_engine(
+        "postgresql+asyncpg://test:test@127.0.0.1:1/test",
+        connect_args={"timeout": 1},
+    )
+    try:
+        with pytest.raises(KnowledgeStoreUnavailableError) as error:
+            await PostgresKnowledgeStore(engine).find("krosh")
+    finally:
+        await engine.dispose()
+
+    assert "127.0.0.1" not in str(error.value)
+
+
+async def test_lookup_of_corrupted_rows_is_invalid_data(engine: AsyncEngine) -> None:
+    async with engine.begin() as connection:
+        await connection.execute(
+            insert(tables.characters).values(id="ghost", species="призрак")
+        )
+
+    with pytest.raises(KnowledgeDataInvalidError):
+        await PostgresKnowledgeStore(engine).find("ghost")

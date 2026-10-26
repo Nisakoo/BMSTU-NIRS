@@ -14,6 +14,7 @@ help:
 	@echo "  make knowledge-load DIR=<path> [FORMAT=json] Check and load a knowledge package into PostgreSQL"
 	@echo "  make frontend Run the Vite frontend development server"
 	@echo "  make test    Run all configured project tests"
+	@echo "  make test-integration [PYTEST_ARGS=...] Run backend tests against disposable PostgreSQL and Redis"
 	@echo "  make lint    Check backend code with Ruff"
 	@echo "  make format  Fix and format backend code with Ruff"
 
@@ -86,6 +87,11 @@ frontend:
 test:
 	@npm --prefix frontend test
 	@uv run --project backend --locked pytest backend
+
+.PHONY: test-integration
+
+test-integration:
+	@sh docker/test-integration.sh
 
 lint:
 	@uv run --project backend --locked ruff check backend

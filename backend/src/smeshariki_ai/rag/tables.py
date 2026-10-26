@@ -2,8 +2,9 @@
 
 Each entity is an aggregate: a root table plus child tables owned by it.
 Foreign keys inside an aggregate cascade; references between aggregates point
-only at root tables and restrict deletion. Migration ``0003`` is the source of
-truth for the database; a test checks that it matches this description.
+only at root tables and restrict deletion. Migrations ``0003`` and ``0004`` are
+the source of truth for the database; a test checks that they match this
+description.
 """
 
 from collections.abc import Iterable
@@ -202,8 +203,11 @@ episodes = _root(
     Column("season", Integer, nullable=True),
     Column("number", Integer, nullable=False),
     Column("title", Text, nullable=False),
+    # Search key of the title, added by migration 0004.
+    Column("normalized_title", Text, nullable=False),
     constraints=[
         _not_blank("rag_episodes", "title"),
+        _not_blank("rag_episodes", "normalized_title"),
         CheckConstraint("season >= 1", name="rag_episodes_season_positive"),
         CheckConstraint("number >= 1", name="rag_episodes_number_positive"),
         UniqueConstraint(
@@ -221,6 +225,8 @@ episodes = _root(
         ),
     ],
 )
+
+Index("rag_episodes_normalized_title_idx", episodes.c.normalized_title)
 
 characters = _root(
     "rag_characters",
