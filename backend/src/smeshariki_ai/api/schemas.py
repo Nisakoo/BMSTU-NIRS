@@ -2,10 +2,26 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, StringConstraints
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictInt,
+    StrictStr,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 from smeshariki_ai.agent.models import ReadingMinutes
-from smeshariki_ai.dialogs import MAX_SCORE, MIN_SCORE
+from smeshariki_ai.dialogs import (
+    MAX_SCORE,
+    MIN_SCORE,
+    REPORT_COMMENT_MAX_LENGTH,
+    REPORT_NEWS_LIMIT,
+    ReportReason,
+    ReportState,
+)
 
 RequestText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
@@ -44,6 +60,8 @@ class DialogMessageResponse(ApiModel):
     content: str
     created_at: datetime
     feedback: Score | None
+    reported: bool
+    report: ReportState | None
 
 
 class DialogMessagesResponse(ApiModel):
@@ -54,3 +72,48 @@ class DialogMessagesResponse(ApiModel):
 
 class FeedbackRequest(ApiModel):
     score: Score
+
+
+class ReportRequest(ApiModel):
+    reason: ReportReason
+    comment: (
+        Annotated[
+            StrictStr,
+            StringConstraints(
+                strip_whitespace=True, max_length=REPORT_COMMENT_MAX_LENGTH
+            ),
+        ]
+        | None
+    ) = None
+
+    @field_validator("comment")
+    @classmethod
+    def blank_is_none(cls, value: str | None) -> str | None:
+        return value or None
+
+    @model_validator(mode="after")
+    def other_needs_a_comment(self) -> "ReportRequest":
+        # Only "other" does not say by itself what is wrong with the answer.
+        if self.reason is ReportReason.OTHER and self.comment is None:
+            raise ValueError("A comment is required for the reason 'other'.")
+        return self
+
+
+class ReportResponse(ApiModel):
+    report_id: int
+
+
+class ReportNewsItem(ApiModel):
+    report_id: int
+    dialog_id: UUID | None
+    dialog_title: str | None
+
+
+class ReportNewsResponse(ApiModel):
+    news: list[ReportNewsItem]
+
+
+class ReportNewsSeenRequest(ApiModel):
+    report_ids: Annotated[
+        list[StrictInt], Field(min_length=1, max_length=REPORT_NEWS_LIMIT)
+    ]

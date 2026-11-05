@@ -20,7 +20,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, ValidationError
 
-from smeshariki_ai.admin import AdminStatsService
+from smeshariki_ai.admin import AdminReportsService, AdminStatsService
 from smeshariki_ai.agent import UserRequest
 from smeshariki_ai.api.admin import install_admin
 from smeshariki_ai.api.auth import current_user, install_auth, install_auth_errors
@@ -30,6 +30,11 @@ from smeshariki_ai.api.schemas import (
     DialogMessagesResponse,
     DialogSummaryResponse,
     FeedbackRequest,
+    ReportNewsItem,
+    ReportNewsResponse,
+    ReportNewsSeenRequest,
+    ReportRequest,
+    ReportResponse,
     StartDialogResponse,
     SubmitMessageRequest,
 )
@@ -44,6 +49,7 @@ from smeshariki_ai.dialogs import (
     DialogNotFoundError,
     DialogStoreUnavailableError,
     MessageNotFoundError,
+    ReportExistsError,
 )
 from smeshariki_ai.observability import RequestLogMiddleware
 
@@ -61,6 +67,7 @@ def create_app(
     auth_service: AuthService | None = None,
     auth_cookie_secure: bool = False,
     admin_stats: AdminStatsService | None = None,
+    admin_reports: AdminReportsService | None = None,
     on_shutdown: Sequence[Callable[[], Awaitable[None]]] = (),
 ) -> FastAPI:
     if heartbeat_seconds <= 0:
@@ -117,6 +124,16 @@ def create_app(
             ]
         )
 
+    @router.delete(
+        "/dialogs/{dialog_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+        response_class=Response,
+    )
+    async def delete_dialog(user: CurrentUser, dialog_id: UUID) -> Response:
+        with _dialog_errors():
+            await agent_service.delete_dialog(user.id, dialog_id)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
     @router.get(
         "/dialogs/{dialog_id}/messages",
         response_model=DialogMessagesResponse,
@@ -136,6 +153,8 @@ def create_app(
                     content=item.content,
                     created_at=_utc(item.created_at),
                     feedback=item.feedback,
+                    reported=item.reported,
+                    report=item.report,
                 )
                 for item in transcript.messages
             ],
@@ -186,6 +205,53 @@ def create_app(
             await agent_service.clear_feedback(user.id, dialog_id, message_id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
+    @router.post(
+        "/dialogs/{dialog_id}/messages/{message_id}/report",
+        status_code=status.HTTP_201_CREATED,
+        response_model=ReportResponse,
+    )
+    async def report_message(
+        user: CurrentUser, dialog_id: UUID, message_id: int, request: Request
+    ) -> ReportResponse:
+        body = await _read_body(request, ReportRequest)
+        with _dialog_errors():
+            try:
+                report_id = await agent_service.report(
+                    user.id, dialog_id, message_id, body.reason, body.comment
+                )
+            except ReportExistsError as error:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Already reported.",
+                ) from error
+        return ReportResponse(report_id=report_id)
+
+    @router.get("/reports/news", response_model=ReportNewsResponse)
+    async def report_news(user: CurrentUser) -> ReportNewsResponse:
+        with _dialog_errors():
+            news = await agent_service.report_news(user.id)
+        return ReportNewsResponse(
+            news=[
+                ReportNewsItem(
+                    report_id=item.report_id,
+                    dialog_id=item.dialog_id,
+                    dialog_title=item.dialog_title,
+                )
+                for item in news
+            ]
+        )
+
+    @router.post(
+        "/reports/news/seen",
+        status_code=status.HTTP_204_NO_CONTENT,
+        response_class=Response,
+    )
+    async def mark_report_news_seen(user: CurrentUser, request: Request) -> Response:
+        body = await _read_body(request, ReportNewsSeenRequest)
+        with _dialog_errors():
+            await agent_service.mark_report_news_seen(user.id, body.report_ids)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
     @router.get("/dialogs/{dialog_id}/events")
     async def stream_dialog_events(
         user: CurrentUser, dialog_id: UUID
@@ -227,7 +293,7 @@ def create_app(
     app.include_router(router)
     if auth_service is not None:
         install_auth(app, auth_service, cookie_secure=auth_cookie_secure)
-    install_admin(app, admin_stats)
+    install_admin(app, admin_stats, admin_reports)
     return app
 
 

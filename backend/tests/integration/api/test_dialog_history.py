@@ -131,9 +131,19 @@ async def test_answered_dialog_is_listed_and_its_messages_are_returned() -> None
         ("assistant", "ответ: Крош и Ёжик строят ракету"),
     ]
     for item in body["messages"]:
-        assert set(item) == {"id", "role", "content", "created_at", "feedback"}
+        assert set(item) == {
+            "id",
+            "role",
+            "content",
+            "created_at",
+            "feedback",
+            "reported",
+            "report",
+        }
         assert isinstance(item["id"], int)
         assert item["feedback"] is None
+        assert item["reported"] is False
+        assert item["report"] is None
         assert_utc(item["created_at"])
     await service.shutdown()
 

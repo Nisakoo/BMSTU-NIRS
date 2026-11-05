@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import time
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Collection, Sequence
 from typing import Protocol
 from uuid import UUID
 
@@ -21,9 +21,12 @@ from smeshariki_ai.application.events import (
     DialogSubscription,
 )
 from smeshariki_ai.dialogs import (
+    REPORT_NEWS_LIMIT,
     DialogSummary,
     DialogTranscript,
     HistoryStore,
+    ReportNews,
+    ReportReason,
 )
 from smeshariki_ai.observability import bind_context, log_event, utc_now
 
@@ -69,6 +72,10 @@ class AgentService:
     async def transcript(self, user_id: UUID, dialog_id: UUID) -> DialogTranscript:
         return await self._history_store.transcript(user_id, dialog_id)
 
+    async def delete_dialog(self, user_id: UUID, dialog_id: UUID) -> None:
+        await self._history_store.delete(user_id, dialog_id)
+        log_event(logger, logging.INFO, "dialog.deleted", dialog_id=str(dialog_id))
+
     async def set_feedback(
         self,
         user_id: UUID,
@@ -97,6 +104,37 @@ class AgentService:
             dialog_id=str(dialog_id),
             message_id=message_id,
         )
+
+    async def report(
+        self,
+        user_id: UUID,
+        dialog_id: UUID,
+        message_id: int,
+        reason: ReportReason,
+        comment: str | None,
+    ) -> int:
+        report_id = await self._history_store.report(
+            user_id, dialog_id, message_id, reason, comment
+        )
+        log_event(
+            logger,
+            logging.INFO,
+            "dialog.report.created",
+            dialog_id=str(dialog_id),
+            message_id=message_id,
+            report_id=report_id,
+            reason=reason.value,
+        )
+        return report_id
+
+    async def report_news(self, user_id: UUID) -> tuple[ReportNews, ...]:
+        return await self._history_store.report_news(user_id, limit=REPORT_NEWS_LIMIT)
+
+    async def mark_report_news_seen(
+        self, user_id: UUID, report_ids: Collection[int]
+    ) -> None:
+        count = await self._history_store.mark_report_news_seen(user_id, report_ids)
+        log_event(logger, logging.INFO, "dialog.report.news_seen", count=count)
 
     async def submit(
         self, user_id: UUID, dialog_id: UUID, request: UserRequest

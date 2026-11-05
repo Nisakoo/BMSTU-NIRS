@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from smeshariki_ai.admin import AdminStatsService
+from smeshariki_ai.admin import AdminReportsService, AdminStatsService
 from smeshariki_ai.agent import (
     Agent,
     LiteLLMProvider,
@@ -17,6 +17,7 @@ from smeshariki_ai.db import (
     PostgresAdminStatsStore,
     PostgresHistoryStore,
     PostgresRefreshSessionStore,
+    PostgresReportStore,
     PostgresUserStore,
     create_engine,
 )
@@ -56,6 +57,7 @@ def create_application(
     configure_logging(config.logging)
     on_shutdown = []
     admin_stats = None
+    admin_reports = None
     history_store: HistoryStore | None = None
     if auth_service is None:
         # Both clients are lazy: no connection is opened until the first request.
@@ -69,6 +71,7 @@ def create_application(
             config=config.auth,
         )
         admin_stats = AdminStatsService(PostgresAdminStatsStore(engine))
+        admin_reports = AdminReportsService(PostgresReportStore(engine))
         on_shutdown = [engine.dispose, redis.aclose]
     agent_service = build_agent_service(
         config,
@@ -80,5 +83,6 @@ def create_application(
         auth_service=auth_service,
         auth_cookie_secure=config.auth.cookie_secure,
         admin_stats=admin_stats,
+        admin_reports=admin_reports,
         on_shutdown=on_shutdown,
     )

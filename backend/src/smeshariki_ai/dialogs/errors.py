@@ -22,5 +22,14 @@ class MessageNotFoundError(DialogError):
         super().__init__(f"Message not found: {dialog_id}/{message_id}")
 
 
+class ReportExistsError(DialogError):
+    """The answer has already been reported; the first report stays."""
+
+    def __init__(self, dialog_id: UUID, message_id: int) -> None:
+        self.dialog_id = dialog_id
+        self.message_id = message_id
+        super().__init__(f"Message already reported: {dialog_id}/{message_id}")
+
+
 class DialogStoreUnavailableError(DialogError):
     """The history storage failed; the caller must not assume any change."""

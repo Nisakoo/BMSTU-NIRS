@@ -8,6 +8,10 @@ from smeshariki_ai.dialogs import (
     DialogNotFoundError,
     InMemoryHistoryStore,
     MessageNotFoundError,
+    ReportExistsError,
+    ReportNews,
+    ReportReason,
+    ReportState,
     dialog_title,
 )
 
@@ -166,9 +170,13 @@ async def test_list_returns_at_most_limit_dialogs() -> None:
     [
         ("Крош", "Крош"),
         ("  a \n\t b  ", "a b"),
-        ("x" * 60, "x" * 60),
-        ("x" * 61, "x" * 60 + "…"),
-        ("слово " * 20, ("слово " * 10).strip() + "…"),
+        ("x" * 200, "x" * 200),
+        ("x" * 201, "x" * 200 + "…"),
+        ("слово " * 40, "слово " * 33 + "сл…"),
+        (
+            "Расскажи короткую, спокойную и уютную историю перед сном про Бараша и Нюшу.",
+            "Расскажи короткую, спокойную и уютную историю перед сном про Бараша и Нюшу.",
+        ),
     ],
 )
 def test_dialog_title_collapses_whitespace_and_truncates(
@@ -236,3 +244,132 @@ async def test_feedback_targets_only_own_assistant_answers(case: str) -> None:
     assert [
         item.feedback for item in (await store.transcript(OWNER, dialog_id)).messages
     ] == [None, None]
+
+
+@pytest.mark.asyncio
+async def test_delete_removes_own_dialog_with_its_ratings() -> None:
+    store = InMemoryHistoryStore()
+    dialog_id = await store.create(OWNER)
+    kept = await store.create(OWNER)
+    _, answer_id = await store.append(dialog_id, pair("q"))
+    await store.append(kept, pair("kept"))
+    await store.set_feedback(OWNER, dialog_id, answer_id, 5)
+
+    await store.delete(OWNER, dialog_id)
+
+    with pytest.raises(DialogNotFoundError):
+        await store.get(OWNER, dialog_id)
+    with pytest.raises(MessageNotFoundError):
+        await store.set_feedback(OWNER, dialog_id, answer_id, 4)
+    assert [item.dialog_id for item in await store.list_dialogs(OWNER, limit=50)] == [
+        kept
+    ]
+    assert store._feedback == {}
+    with pytest.raises(DialogNotFoundError):
+        await store.delete(OWNER, dialog_id)
+
+
+@pytest.mark.asyncio
+async def test_delete_rejects_foreign_and_missing_dialogs() -> None:
+    store = InMemoryHistoryStore()
+    dialog_id = await store.create(OWNER)
+    await store.append(dialog_id, pair("q"))
+
+    with pytest.raises(DialogNotFoundError):
+        await store.delete(STRANGER, dialog_id)
+    with pytest.raises(DialogNotFoundError):
+        await store.delete(OWNER, uuid4())
+
+    assert len(await store.get(OWNER, dialog_id)) == 2
+
+
+@pytest.mark.asyncio
+async def test_report_copies_texts_marks_the_answer_and_happens_once() -> None:
+    store = InMemoryHistoryStore(clock=StepClock())
+    dialog_id = await store.create(OWNER)
+    await store.append(dialog_id, pair("Про Нюшу", "Первый"))
+    question_id, answer_id = await store.append(dialog_id, pair("Страшнее", "Ужас"))
+
+    report_id = await store.report(
+        OWNER, dialog_id, answer_id, ReportReason.SCARY, "Испугался"
+    )
+    with pytest.raises(ReportExistsError):
+        await store.report(OWNER, dialog_id, answer_id, ReportReason.RUDE, None)
+
+    [report] = store.reports()
+    assert (report.id, report.message_id, report.user_id) == (
+        report_id,
+        answer_id,
+        OWNER,
+    )
+    assert (report.reason, report.comment) == (ReportReason.SCARY, "Испугался")
+    assert (report.request_text, report.answer_text) == ("Страшнее", "Ужас")
+    transcript = await store.transcript(OWNER, dialog_id)
+    assert [item.reported for item in transcript.messages] == [
+        False,
+        False,
+        False,
+        True,
+    ]
+    with pytest.raises(MessageNotFoundError):
+        await store.report(OWNER, dialog_id, question_id, ReportReason.WRONG, None)
+    with pytest.raises(MessageNotFoundError):
+        await store.report(STRANGER, dialog_id, answer_id, ReportReason.WRONG, None)
+
+
+@pytest.mark.asyncio
+async def test_report_outlives_the_deleted_dialog() -> None:
+    store = InMemoryHistoryStore()
+    dialog_id = await store.create(OWNER)
+    _, answer_id = await store.append(dialog_id, pair("Вопрос", "Грубо"))
+    await store.report(OWNER, dialog_id, answer_id, ReportReason.RUDE, None)
+
+    await store.delete(OWNER, dialog_id)
+
+    [report] = store.reports()
+    assert report.message_id is None
+    assert (report.request_text, report.answer_text) == ("Вопрос", "Грубо")
+
+
+@pytest.mark.asyncio
+async def test_reviewed_reports_become_news_until_seen() -> None:
+    store = InMemoryHistoryStore(clock=StepClock())
+    rocket = await store.create(OWNER)
+    _, first_answer = await store.append(rocket, pair("Ракета"))
+    tea = await store.create(OWNER)
+    _, second_answer = await store.append(tea, pair("Чай"))
+    foreign = await store.create(STRANGER)
+    _, foreign_answer = await store.append(foreign, pair("Чужая"))
+    first = await store.report(OWNER, rocket, first_answer, ReportReason.RUDE, None)
+    second = await store.report(OWNER, tea, second_answer, ReportReason.SCARY, None)
+    other = await store.report(
+        STRANGER, foreign, foreign_answer, ReportReason.RUDE, None
+    )
+
+    assert await store.report_news(OWNER, limit=20) == ()
+    assert (await store.transcript(OWNER, rocket)).messages[1].report is (
+        ReportState.SENT
+    )
+    store.set_report_status(first, "resolved")
+    store.set_report_status(second, "dismissed")
+    store.set_report_status(other, "resolved")
+
+    assert await store.report_news(OWNER, limit=20) == (
+        ReportNews(second, tea, "Чай"),
+        ReportNews(first, rocket, "Ракета"),
+    )
+    assert len(await store.report_news(OWNER, limit=1)) == 1
+    assert (await store.transcript(OWNER, tea)).messages[1].report is (
+        ReportState.REVIEWED
+    )
+    assert await store.mark_report_news_seen(OWNER, [first, other, 999]) == 1
+    assert await store.mark_report_news_seen(OWNER, [first]) == 0
+    assert await store.report_news(OWNER, limit=20) == (ReportNews(second, tea, "Чай"),)
+
+    store.set_report_status(first, "new")
+    store.set_report_status(first, "resolved")
+    await store.delete(OWNER, rocket)
+    assert await store.report_news(OWNER, limit=20) == (
+        ReportNews(first, None, None),
+        ReportNews(second, tea, "Чай"),
+    )

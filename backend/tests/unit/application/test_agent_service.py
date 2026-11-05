@@ -30,6 +30,9 @@ from smeshariki_ai.dialogs import (
     DialogTranscript,
     InMemoryHistoryStore,
     MessageNotFoundError,
+    ReportExistsError,
+    ReportNews,
+    ReportReason,
 )
 from smeshariki_ai.observability import bind_context
 
@@ -726,4 +729,140 @@ async def test_feedback_is_delegated_and_checked_for_ownership(
     assert (await store.transcript(OWNER, dialog_id)).messages[1].feedback is None
     with pytest.raises(MessageNotFoundError):
         await service.set_feedback(STRANGER, dialog_id, answer_id, 5)
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_report_is_delegated_and_logged_without_texts(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="smeshariki_ai.application.agent_service")
+    store = InMemoryHistoryStore()
+    service = make_service(ControlledAgent({}), store)
+    dialog_id = await service.start_dialog(OWNER)
+    _, answer_id = await store.append(
+        dialog_id,
+        (
+            Message(role=MessageRole.USER, content="секретный вопрос"),
+            Message(role=MessageRole.ASSISTANT, content="секретный ответ"),
+        ),
+    )
+
+    report_id = await service.report(
+        OWNER, dialog_id, answer_id, ReportReason.RUDE, "секретный комментарий"
+    )
+
+    [report] = store.reports()
+    assert report.id == report_id
+    [record] = [
+        record
+        for record in caplog.records
+        if record.getMessage().startswith("dialog.report.created")
+    ]
+    assert {
+        name: record.log_fields[name]
+        for name in ("dialog_id", "message_id", "report_id", "reason")
+    } == {
+        "dialog_id": str(dialog_id),
+        "message_id": answer_id,
+        "report_id": report_id,
+        "reason": "rude",
+    }
+    assert "секретн" not in caplog.text
+    with pytest.raises(ReportExistsError):
+        await service.report(OWNER, dialog_id, answer_id, ReportReason.RUDE, None)
+    with pytest.raises(MessageNotFoundError):
+        await service.report(STRANGER, dialog_id, answer_id, ReportReason.RUDE, None)
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_report_news_are_read_and_marked_seen_with_a_count(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="smeshariki_ai.application.agent_service")
+    store = InMemoryHistoryStore()
+    service = make_service(ControlledAgent({}), store)
+    dialog_id = await service.start_dialog(OWNER)
+    _, answer_id = await store.append(
+        dialog_id,
+        (
+            Message(role=MessageRole.USER, content="секретный вопрос"),
+            Message(role=MessageRole.ASSISTANT, content="секретный ответ"),
+        ),
+    )
+    report_id = await service.report(
+        OWNER, dialog_id, answer_id, ReportReason.RUDE, None
+    )
+    store.set_report_status(report_id, "dismissed")
+
+    news = await service.report_news(OWNER)
+    await service.mark_report_news_seen(OWNER, [report_id])
+
+    assert news == (ReportNews(report_id, dialog_id, "секретный вопрос"),)
+    assert await service.report_news(OWNER) == ()
+    [record] = [
+        record
+        for record in caplog.records
+        if record.getMessage().startswith("dialog.report.news_seen")
+    ]
+    assert record.log_fields["count"] == 1
+    assert "секретн" not in caplog.text
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_delete_dialog_removes_it_and_logs_only_the_id(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="smeshariki_ai.application.agent_service")
+    store = InMemoryHistoryStore()
+    service = make_service(ControlledAgent({}), store)
+    dialog_id = await service.start_dialog(OWNER)
+    await store.append(
+        dialog_id,
+        (
+            Message(role=MessageRole.USER, content="private title"),
+            Message(role=MessageRole.ASSISTANT, content="a"),
+        ),
+    )
+
+    with pytest.raises(DialogNotFoundError):
+        await service.delete_dialog(STRANGER, dialog_id)
+    await service.delete_dialog(OWNER, dialog_id)
+
+    with pytest.raises(DialogNotFoundError):
+        await service.transcript(OWNER, dialog_id)
+    [record] = [
+        record
+        for record in caplog.records
+        if record.getMessage().startswith("dialog.deleted")
+    ]
+    assert record.log_fields["dialog_id"] == str(dialog_id)
+    assert "private title" not in caplog.text
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_answer_for_a_deleted_dialog_is_dropped_with_an_error() -> None:
+    control = RunControl()
+    store = InMemoryHistoryStore()
+    broker = RecordingBroker()
+    service = make_service(ControlledAgent({"question": control}), store, broker=broker)
+    dialog_id = await service.start_dialog(OWNER)
+
+    await service.submit(OWNER, dialog_id, UserRequest(content="question"))
+    await control.started.wait()
+    await service.delete_dialog(OWNER, dialog_id)
+    control.release.set()
+
+    async def error_published() -> None:
+        while not any(
+            event.type is DialogEventType.MESSAGE_ERROR for _, event in broker.published
+        ):
+            await asyncio.sleep(0)
+
+    await asyncio.wait_for(error_published(), timeout=1)
+    with pytest.raises(DialogNotFoundError):
+        await store.get(OWNER, dialog_id)
     await service.shutdown()

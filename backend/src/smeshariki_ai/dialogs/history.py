@@ -1,16 +1,24 @@
 import asyncio
 import itertools
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
+from typing import Literal
 from uuid import UUID, uuid4
 
 from smeshariki_ai.agent import Message, MessageRole
-from smeshariki_ai.dialogs.errors import DialogNotFoundError, MessageNotFoundError
+from smeshariki_ai.dialogs.errors import (
+    DialogNotFoundError,
+    MessageNotFoundError,
+    ReportExistsError,
+)
 from smeshariki_ai.dialogs.models import (
     DialogSummary,
     DialogTranscript,
+    ReportNews,
+    ReportReason,
+    ReportState,
     StoredMessage,
     dialog_title,
 )
@@ -49,6 +57,10 @@ class HistoryStore(ABC):
         """Return the title and the stored messages of a dialog."""
 
     @abstractmethod
+    async def delete(self, owner_id: UUID, dialog_id: UUID) -> None:
+        """Delete the user's dialog with its messages and ratings."""
+
+    @abstractmethod
     async def set_feedback(
         self,
         owner_id: UUID,
@@ -64,9 +76,61 @@ class HistoryStore(ABC):
     ) -> None:
         """Remove the rating of an answer; removing a missing rating is a no-op."""
 
+    @abstractmethod
+    async def report(
+        self,
+        owner_id: UUID,
+        dialog_id: UUID,
+        message_id: int,
+        reason: ReportReason,
+        comment: str | None,
+    ) -> int:
+        """Report an assistant answer in the user's own dialog; return the report id.
+
+        The report keeps copies of the answer and of the user request before
+        it, so it outlives the dialog. A second report of the same answer
+        raises ``ReportExistsError``.
+        """
+
+    @abstractmethod
+    async def report_news(
+        self, owner_id: UUID, *, limit: int
+    ) -> tuple[ReportNews, ...]:
+        """Return the user's reviewed reports not yet seen, latest reviewed first."""
+
+    @abstractmethod
+    async def mark_report_news_seen(
+        self, owner_id: UUID, report_ids: Collection[int]
+    ) -> int:
+        """Mark the user's reviewed, unseen reports among ``report_ids`` as seen.
+
+        Other ids are skipped; return how many reports were marked.
+        """
+
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
+
+
+@dataclass(frozen=True, slots=True)
+class StoredReport:
+    """A report kept by ``InMemoryHistoryStore``; ``message_id`` is lost with the dialog."""
+
+    id: int
+    message_id: int | None
+    user_id: UUID
+    reason: ReportReason
+    comment: str | None
+    request_text: str | None
+    answer_text: str
+    created_at: datetime
+    status: Literal["new", "resolved", "dismissed"] = "new"
+    resolved_at: datetime | None = None
+    seen_at: datetime | None = None
+
+    @property
+    def state(self) -> ReportState:
+        return ReportState.SENT if self.status == "new" else ReportState.REVIEWED
 
 
 @dataclass
@@ -82,7 +146,9 @@ class InMemoryHistoryStore(HistoryStore):
     def __init__(self, *, clock: Callable[[], datetime] = _utc_now) -> None:
         self._dialogs: dict[UUID, _Dialog] = {}
         self._feedback: dict[int, int] = {}
+        self._reports: dict[int, StoredReport] = {}
         self._message_ids = itertools.count(1)
+        self._report_ids = itertools.count(1)
         self._clock = clock
         self._lock = asyncio.Lock()
 
@@ -162,10 +228,26 @@ class InMemoryHistoryStore(HistoryStore):
                 dialog_id=dialog_id,
                 title=dialog.title,
                 messages=tuple(
-                    replace(item, feedback=self._feedback.get(item.id))
+                    replace(
+                        item,
+                        feedback=self._feedback.get(item.id),
+                        report=self._report_state(item.id),
+                    )
                     for item in dialog.messages
                 ),
             )
+
+    async def delete(self, owner_id: UUID, dialog_id: UUID) -> None:
+        async with self._lock:
+            dialog = self._owned(owner_id, dialog_id)
+            for item in dialog.messages:
+                self._feedback.pop(item.id, None)
+            # Reports stay for the administrator, detached from the dialog.
+            ids = {item.id for item in dialog.messages}
+            for report in list(self._reports.values()):
+                if report.message_id in ids:
+                    self._reports[report.id] = replace(report, message_id=None)
+            del self._dialogs[dialog_id]
 
     async def set_feedback(
         self,
@@ -184,6 +266,112 @@ class InMemoryHistoryStore(HistoryStore):
         async with self._lock:
             self._answer(owner_id, dialog_id, message_id)
             self._feedback.pop(message_id, None)
+
+    async def report(
+        self,
+        owner_id: UUID,
+        dialog_id: UUID,
+        message_id: int,
+        reason: ReportReason,
+        comment: str | None,
+    ) -> int:
+        async with self._lock:
+            self._answer(owner_id, dialog_id, message_id)
+            if self._report_state(message_id) is not None:
+                raise ReportExistsError(dialog_id, message_id)
+            history = self._dialogs[dialog_id].messages
+            position = next(
+                index for index, item in enumerate(history) if item.id == message_id
+            )
+            request = next(
+                (
+                    item.content
+                    for item in reversed(history[:position])
+                    if item.role is MessageRole.USER
+                ),
+                None,
+            )
+            report = StoredReport(
+                id=next(self._report_ids),
+                message_id=message_id,
+                user_id=owner_id,
+                reason=reason,
+                comment=comment,
+                request_text=request,
+                answer_text=history[position].content,
+                created_at=self._clock(),
+            )
+            self._reports[report.id] = report
+            return report.id
+
+    async def report_news(
+        self, owner_id: UUID, *, limit: int
+    ) -> tuple[ReportNews, ...]:
+        async with self._lock:
+            unseen = sorted(
+                (
+                    report
+                    for report in self._reports.values()
+                    if report.user_id == owner_id
+                    and report.state is ReportState.REVIEWED
+                    and report.seen_at is None
+                ),
+                key=lambda report: (report.resolved_at, report.id),
+                reverse=True,
+            )
+            return tuple(self._news(report) for report in unseen[:limit])
+
+    async def mark_report_news_seen(
+        self, owner_id: UUID, report_ids: Collection[int]
+    ) -> int:
+        async with self._lock:
+            now = self._clock()
+            marked = 0
+            for report_id in set(report_ids):
+                report = self._reports.get(report_id)
+                if (
+                    report is None
+                    or report.user_id != owner_id
+                    or report.state is not ReportState.REVIEWED
+                    or report.seen_at is not None
+                ):
+                    continue
+                self._reports[report_id] = replace(report, seen_at=now)
+                marked += 1
+            return marked
+
+    def set_report_status(
+        self, report_id: int, status: Literal["new", "resolved", "dismissed"]
+    ) -> None:
+        """Do what the administrator does to a report, for tests."""
+
+        report = self._reports[report_id]
+        if status == "new":
+            report = replace(report, status=status, resolved_at=None, seen_at=None)
+        else:
+            report = replace(report, status=status, resolved_at=self._clock())
+        self._reports[report_id] = report
+
+    def reports(self) -> tuple[StoredReport, ...]:
+        """Reports in the order they were made, for tests."""
+
+        return tuple(self._reports.values())
+
+    def _news(self, report: StoredReport) -> ReportNews:
+        for dialog_id, dialog in self._dialogs.items():
+            if any(item.id == report.message_id for item in dialog.messages):
+                return ReportNews(report.id, dialog_id, dialog.title)
+        return ReportNews(report.id, None, None)
+
+    def _report_state(self, message_id: int) -> ReportState | None:
+        return next(
+            (
+                report.state
+                for report in self._reports.values()
+                if report.message_id == message_id
+            ),
+            None,
+        )
 
     def _answer(self, owner_id: UUID, dialog_id: UUID, message_id: int) -> None:
         dialog = self._dialogs.get(dialog_id)
