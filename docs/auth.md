@@ -33,6 +33,7 @@ backend-реализацию на JWT и refresh-токенах и исполь�
 | `POST /api/v1/auth/refresh` без тела — обновление токенов | `200 OK`, объект пользователя, новые `access_token` и `refresh_token` | `401` `unauthorized` — refresh отсутствует, просрочен, отозван или использован повторно; обе cookie сбрасываются |
 | `POST /api/v1/auth/logout` без тела — выход | `204 No Content`, access-токен в blacklist, refresh-сессия отозвана, обе cookie сброшены | Нет: без действительных токенов ответ тоже `204` |
 | `GET /api/v1/users/me` — текущий пользователь | `200 OK`, `{"id":"<uuid>","login":"<login>","role":"user"\|"admin"}` с актуальными данными из БД | `401` `unauthorized` — access-токена нет, он некорректен, просрочен или в blacklist |
+| `PUT /api/v1/users/me/password` с `{"current_password":"<password>","new_password":"<password>"}` — смена пароля | `204 No Content`; остальные refresh-сессии пользователя отозваны, текущие cookie не меняются | `400` `wrong_password` — неверный текущий пароль; `422` `same_password` — новый совпадает с текущим; `422` `invalid_fields`; `401` `unauthorized` раньше `400`/`422` |
 
 Тело любой ошибки этих ручек — `{"error":"<code>"}` без повторения введённых
 значений. Если PostgreSQL или Redis недоступны, любая ручка отвечает `503`
@@ -106,6 +107,7 @@ await AuthService.login(login, password) -> AuthResult        # user + IssuedTok
 await AuthService.authenticate(access_token) -> User
 await AuthService.refresh(refresh_token) -> AuthResult
 await AuthService.logout(access_token | None, refresh_token | None) -> None
+await AuthService.change_password(access_token, current_password, new_password) -> None
 ```
 
 `AuthService` не зависит от FastAPI, SQLAlchemy и redis-py и не читает
@@ -163,11 +165,11 @@ Compose-контейнере `migrate`. Пароль вводится дважд
 | Страница | `anonymous` | `user` | `admin` | `unavailable` |
 | --- | --- | --- | --- | --- |
 | `/` | `location.replace("/login/")` без создания диалога | чат | чат | статус ошибки, повтор через 3 с |
-| `/admin/` | `/login/` | `/` | панель | сообщение без demo-данных |
+| `/admin/` | `/login/` | `/` | панель | сообщение без данных панели |
 | `/login/` | форма | `/` | `/admin/` | форма |
 
 После входа или регистрации `/login/` также переходит по роли. Адрес перехода
-не берётся из URL. Проверка роли на `/admin/` скрывает demo-данные, но не
+не берётся из URL. Проверка роли на `/admin/` скрывает панель, но не
 защищает данные; данные панели отдаёт
 [административный API](./admin.md), который проверяет роль на backend.
 
@@ -188,6 +190,32 @@ Compose-контейнере `migrate`. Пароль вводится дважд
 поэтому страница остаётся на месте, показывает «Не удалось выйти. Попробуйте
 ещё раз» и снова разблокирует кнопку. В админке обработчик подключается только
 после успешной проверки роли `admin`.
+
+## Смена пароля
+
+`AuthService.change_password` проверяет access-токен и blacklist, сверяет
+текущий пароль с хешем (`UserStore.get_password_hash`) и лишь затем
+сравнивает новый пароль с текущим, поэтому `same_password` не подтверждает
+непроверенную догадку. Новый пароль проходит те же правила, что при
+регистрации (модель `PasswordChange`: 8–128 символов, только два поля),
+хешируется argon2id и сохраняется `UserStore.set_password_hash` вместе с
+`users.updated_at`. Затем `RefreshSessionStore.revoke_user_sessions`
+отзывает все активные refresh-сессии пользователя, кроме `sid` текущего
+access-токена: другие устройства теряют доступ при следующем `refresh`, а их
+уже выданные access-токены действуют не дольше своего TTL (15 минут).
+Журнал содержит `auth.password.changed` и `auth.password.rejected` только с
+`user_id`.
+
+В чате кнопка «Настройки» с шестерёнкой над чертой строки пользователя
+(под ссылкой «Панель администратора», если она есть), а в `/admin/` — кнопка
+«Настройки» над «Выйти» открывают модальное окно с разделом «Сменить
+пароль». Логика окна общая — модуль
+[`password-settings.js`](../frontend/src/password-settings.js); страница
+передаёт ему элементы и `changePassword` со своей обработкой `401`. Окно проверяет длину и повтор
+пароля до запроса, отправляет `PUT` через `AuthApi.changePassword`, при `401`
+выполняет один `refresh` и повтор, показывает итог в области `aria-live` и
+очищает поля после успеха, закрытия или неверного текущего пароля. Пароли не
+попадают в браузерные хранилища.
 
 ## Поведение страницы `/login/`
 
@@ -213,7 +241,8 @@ sequenceDiagram
 
 `AuthApi` переводит ответы в стабильные коды ошибок: `login_taken` (`409`),
 `invalid_credentials` (`401` при входе), `unauthorized` (`401` у `/users/me`),
-`invalid_fields` (`422`), `invalid_response` (некорректное тело успешного
+`invalid_fields` (`422`), `wrong_password` (`400` при смене пароля),
+`same_password` (`422` с этим кодом в теле), `invalid_response` (некорректное тело успешного
 ответа) и `unavailable` (сетевой сбой, `503` или любой другой статус).
 Страница показывает по ним понятный текст, сохраняет введённый логин и
 очищает пароль.
@@ -239,4 +268,14 @@ sequenceDiagram
 - кнопки выхода:
   [спецификация](../specs/changes/logout-button/spec.md),
   [план](../specs/changes/logout-button/plan.md),
-  [результат проверки](../specs/changes/logout-button/verification.md).
+  [результат проверки](../specs/changes/logout-button/verification.md);
+- смена пароля:
+  [спецификация](../specs/changes/change-password/spec.md),
+  [план](../specs/changes/change-password/plan.md),
+  [результат проверки](../specs/changes/change-password/verification.md);
+  место кнопки «Настройки»:
+  [спецификация](../specs/changes/settings-above-divider/spec.md),
+  [результат проверки](../specs/changes/settings-above-divider/verification.md);
+  настройки в админке:
+  [спецификация](../specs/changes/admin-settings-password/spec.md),
+  [результат проверки](../specs/changes/admin-settings-password/verification.md).

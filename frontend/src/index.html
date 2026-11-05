@@ -20,13 +20,38 @@
       <button class="sai-history-retry" id="saiHistoryRetry" type="button" hidden>Повторить</button>
     </nav>
 
+    <a class="sai-admin-link" id="saiAdminLink" href="/admin/" hidden><span aria-hidden="true">⚙</span>Панель администратора</a>
+    <button class="sai-settings-button" id="saiSettingsButton" type="button" aria-haspopup="dialog" aria-controls="saiSettings" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>Настройки</button>
     <div class="sai-user">
       <span class="sai-user-avatar" aria-hidden="true">✦</span>
       <span class="sai-user-login" id="saiUserLogin"></span>
-      <button class="sai-logout" id="saiLogout" type="button">Выйти</button>
+      <button class="sai-logout" id="saiLogout" type="button"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M14 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M10 8l-4 4 4 4M6 12h9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Выйти</button>
     </div>
   </aside>
   <div class="sai-backdrop" id="saiBackdrop" hidden></div>
+
+  <div class="sai-settings" id="saiSettings" hidden>
+    <div class="sai-settings-card" role="dialog" aria-modal="true" aria-labelledby="saiSettingsTitle">
+      <div class="sai-settings-head">
+        <h2 class="sai-settings-title" id="saiSettingsTitle">Настройки</h2>
+        <button class="sai-settings-close" id="saiSettingsClose" type="button" aria-label="Закрыть" title="Закрыть">×</button>
+      </div>
+      <form class="sai-password" id="saiPasswordForm" novalidate>
+        <h3 class="sai-password-title">Сменить пароль</h3>
+        <label class="sai-password-field">Текущий пароль
+          <input id="saiCurrentPassword" type="password" autocomplete="current-password" required />
+        </label>
+        <label class="sai-password-field">Новый пароль
+          <input id="saiNewPassword" type="password" autocomplete="new-password" required />
+        </label>
+        <label class="sai-password-field">Повторите новый пароль
+          <input id="saiRepeatPassword" type="password" autocomplete="new-password" required />
+        </label>
+        <p class="sai-password-status" id="saiPasswordStatus" aria-live="polite"></p>
+        <button class="sai-password-save" id="saiPasswordSave" type="submit">Сохранить</button>
+      </form>
+    </div>
+  </div>
 
   <main class="sai-main" aria-label="Чат с ИИ">
     <div class="sai-stars" aria-hidden="true"></div>
@@ -53,6 +78,7 @@
       </div>
     </header>
 
+    <div class="sai-news" id="saiNews" role="status" hidden></div>
     <div class="sai-messages" id="saiMessages" aria-live="polite"></div>
     <template id="saiKroshTemplate">
       <div class="sai-krosh">
@@ -73,15 +99,17 @@
     <div class="sai-compose-wrap">
       <form class="sai-composer" id="saiForm">
         <textarea id="saiPrompt" rows="1" placeholder="Например: Крош и Ёжик строят ракету и отправляются смотреть звёзды…" aria-label="Идея для истории" disabled></textarea>
-        <span class="sai-length-field">
-          <svg class="sai-length-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <select class="sai-length" id="saiLength" aria-label="Длина истории" title="Длина истории" disabled>
-            <option value="">Любая</option>
-            <option value="2">2 мин</option>
-            <option value="5">5 мин</option>
-            <option value="10">10 мин</option>
-          </select>
-        </span>
+        <button class="sai-length-button" id="saiLengthButton" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="saiLengthPanel" aria-label="Длина истории: Любая" disabled>
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span id="saiLengthValue">Любая</span>
+        </button>
+        <div class="sai-length-panel" id="saiLengthPanel" role="dialog" aria-label="Длина истории" hidden>
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span class="sai-length-title">Длина истории <span id="saiLengthCurrent">(любая)</span></span>
+          <div class="sai-length-dots" id="saiLengthDots" data-step="0">
+            <i></i><i></i><i></i><i></i>
+            <input type="range" id="saiLength" min="0" max="3" step="1" value="0" aria-label="Длина истории" aria-valuetext="Любая" disabled />
+          </div>
+        </div>
         <button class="sai-send" type="submit" aria-label="Отправить" disabled>
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 12.4 20 5l-5.8 14-2.5-5.1L4 12.4Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="m11.7 13.9 3.5-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
         </button>

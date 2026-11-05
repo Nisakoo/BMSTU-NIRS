@@ -237,16 +237,20 @@ test("getMessages reads an encoded dialog history", async () => {
     dialog_id: "a/b",
     title: "Ракета",
     messages: [
-      { id: 1, role: "user", content: "Крош", created_at: "2026-10-17T10:00:00Z", feedback: null },
-      { id: 2, role: "assistant", content: "Однажды…", created_at: "2026-10-17T10:00:01Z", feedback: 5 },
+      { id: 1, role: "user", content: "Крош", created_at: "2026-10-17T10:00:00Z", feedback: null, reported: false, report: null },
+      { id: 2, role: "assistant", content: "Однажды…", created_at: "2026-10-17T10:00:01Z", feedback: 5, reported: true, report: "sent" },
+      { id: 3, role: "assistant", content: "Потом…", created_at: "2026-10-17T10:00:02Z", feedback: null, reported: true, report: "reviewed" },
+      { id: 4, role: "assistant", content: "Ещё…", created_at: "2026-10-17T10:00:03Z", feedback: null },
     ],
   }));
 
   assert.deepEqual(await api.getMessages("a/b"), {
     title: "Ракета",
     messages: [
-      { id: 1, role: "user", content: "Крош", feedback: null },
-      { id: 2, role: "assistant", content: "Однажды…", feedback: 5 },
+      { id: 1, role: "user", content: "Крош", feedback: null, report: null },
+      { id: 2, role: "assistant", content: "Однажды…", feedback: 5, report: "sent" },
+      { id: 3, role: "assistant", content: "Потом…", feedback: null, report: "reviewed" },
+      { id: 4, role: "assistant", content: "Ещё…", feedback: null, report: null },
     ],
   });
   assert.deepEqual(calls, [["/api/v1/dialogs/a%2Fb/messages"]]);
@@ -286,6 +290,8 @@ test("history requests reject malformed bodies", async () => {
     { title: null, messages: [{ id: 1, role: "assistant", content: "x", feedback: 6 }] },
     { title: null, messages: [{ id: 1, role: "assistant", content: "x", feedback: 2.5 }] },
     { title: null, messages: [{ id: 1, role: "assistant", content: "x", feedback: true }] },
+    { title: null, messages: [{ id: 1, role: "assistant", content: "x", feedback: null, reported: "yes" }] },
+    { title: null, messages: [{ id: 1, role: "assistant", content: "x", feedback: null, report: "dismissed" }] },
     { title: 7, messages: [] },
   ];
   for (const body of transcripts) {
@@ -339,4 +345,101 @@ test("feedback requests map statuses to error codes", async () => {
   }
   const offline = apiWith(() => { throw new TypeError("offline"); }).api;
   await rejectsWith(offline.setFeedback("d", 1, 3), "feedback_failed");
+});
+
+test("a dialog is deleted by its encoded id", async () => {
+  const { api, calls } = apiWith(() => response(204));
+
+  await api.deleteDialog("a/b");
+
+  assert.deepEqual(calls, [["/api/v1/dialogs/a%2Fb", { method: "DELETE" }]]);
+});
+
+test("deleting a dialog maps statuses to error codes", async () => {
+  for (const [status, code] of [[401, "unauthorized"], [404, "not_found"], [503, "delete_failed"], [200, "delete_failed"]]) {
+    const { api } = apiWith(() => response(status));
+    await rejectsWith(api.deleteDialog("d"), code);
+  }
+  const offline = apiWith(() => { throw new TypeError("offline"); }).api;
+  await rejectsWith(offline.deleteDialog("d"), "delete_failed");
+});
+
+test("a report is posted for an encoded answer, with or without a comment", async () => {
+  const { api, calls } = apiWith(() => response(201, { report_id: 3 }));
+
+  await api.reportMessage("a/b", 7, "scary", "Страшно");
+  await api.reportMessage("a/b", 7, "other", "");
+
+  assert.deepEqual(calls, [
+    ["/api/v1/dialogs/a%2Fb/messages/7/report", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason: "scary", comment: "Страшно" }),
+    }],
+    ["/api/v1/dialogs/a%2Fb/messages/7/report", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason: "other" }),
+    }],
+  ]);
+});
+
+test("an answer reported before counts as reported", async () => {
+  const { api } = apiWith(() => response(409, { detail: "Already reported." }));
+
+  await api.reportMessage("d", 1, "rude", "");
+});
+
+test("report requests map statuses to error codes", async () => {
+  for (const [status, code] of [[401, "unauthorized"], [404, "not_found"], [422, "report_failed"], [503, "report_failed"], [200, "report_failed"]]) {
+    const { api } = apiWith(() => response(status));
+    await rejectsWith(api.reportMessage("d", 1, "rude", ""), code);
+  }
+  const offline = apiWith(() => { throw new TypeError("offline"); }).api;
+  await rejectsWith(offline.reportMessage("d", 1, "rude", ""), "report_failed");
+});
+
+test("report news are read as story references", async () => {
+  const { api, calls } = apiWith(() => response(200, {
+    news: [
+      { report_id: 3, dialog_id: "d-1", dialog_title: "Ракета" },
+      { report_id: 2, dialog_id: null, dialog_title: null },
+    ],
+  }));
+
+  assert.deepEqual(await api.getReportNews(), [
+    { reportId: 3, dialogId: "d-1", dialogTitle: "Ракета" },
+    { reportId: 2, dialogId: null, dialogTitle: null },
+  ]);
+  assert.deepEqual(calls, [["/api/v1/reports/news"]]);
+});
+
+test("malformed report news are rejected", async () => {
+  for (const body of [
+    null,
+    { news: "nope" },
+    { news: [{ report_id: "3", dialog_id: null, dialog_title: null }] },
+    { news: [{ report_id: 3, dialog_id: 5, dialog_title: null }] },
+    { news: [{ report_id: 3, dialog_id: null, dialog_title: 7 }] },
+  ]) {
+    await rejectsWith(apiWith(() => response(200, body)).api.getReportNews(), "invalid_response");
+  }
+  await rejectsWith(apiWith(() => response(401)).api.getReportNews(), "unauthorized");
+  await rejectsWith(apiWith(() => response(503)).api.getReportNews(), "load_failed");
+});
+
+test("seen report news are posted by id", async () => {
+  const { api, calls } = apiWith(() => response(204));
+
+  await api.markReportNewsSeen([3, 2]);
+
+  assert.deepEqual(calls, [["/api/v1/reports/news/seen", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ report_ids: [3, 2] }),
+  }]]);
+  for (const [status, code] of [[401, "unauthorized"], [422, "news_failed"], [503, "news_failed"]]) {
+    await rejectsWith(apiWith(() => response(status)).api.markReportNewsSeen([1]), code);
+  }
+  await rejectsWith(apiWith(() => { throw new TypeError("offline"); }).api.markReportNewsSeen([1]), "news_failed");
 });

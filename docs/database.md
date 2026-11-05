@@ -13,9 +13,10 @@ Backend хранит постоянные данные в PostgreSQL 17. Баз�
 | --- | --- | --- |
 | `users` | Учётные записи и роли | Реализовано, миграция `0001` |
 | `refresh_sessions` | Refresh-токены и их ротация | Реализовано, миграция `0001` |
-| `dialogs` | Диалоги пользователя | Реализовано, миграция `0002` |
+| `dialogs` | Диалоги пользователя | Реализовано, миграции `0002`, `0005` |
 | `messages` | Сообщения диалога | Реализовано, миграция `0002` |
 | `message_feedback` | Оценки ответов ассистента (1–5) | Реализовано, миграции `0003`, `0004` |
+| `message_reports` | Жалобы на ответы ассистента | Реализовано, миграции `0006`, `0007` |
 
 ## Где находится реализация
 
@@ -25,6 +26,8 @@ Backend хранит постоянные данные в PostgreSQL 17. Баз�
   `PostgresUserStore` и `PostgresRefreshSessionStore`;
 - [`db/history.py`](../backend/src/smeshariki_ai/db/history.py) —
   `PostgresHistoryStore` (контракт `HistoryStore` из [диалогов](./dialogs.md));
+- [`db/reports.py`](../backend/src/smeshariki_ai/db/reports.py) —
+  `PostgresReportStore` (контракт `ReportStore` из [панели администратора](./admin.md));
 - [`db/engine.py`](../backend/src/smeshariki_ai/db/engine.py) — ленивый async
   engine (`asyncpg`);
 - [`db/migrations/`](../backend/src/smeshariki_ai/db/migrations/) — Alembic
@@ -117,7 +120,9 @@ erDiagram
 
 Индекс `ix_dialogs_user_id_updated_at` — `(user_id, updated_at DESC)` для
 списка диалогов пользователя от новых к старым. `title` задаётся из первого
-запроса при первом сохранении сообщений и затем не меняется; `updated_at`
+запроса при первом сохранении сообщений (в одну строку, целиком до 200
+символов) и затем не меняется; миграция `0005` пересчитала из первого
+запроса названия, обрезанные прежним лимитом в 60 символов; `updated_at`
 обновляется при каждом добавлении сообщений.
 
 ### `messages`
@@ -153,6 +158,32 @@ erDiagram
 заменяет прежнюю (`INSERT ... ON CONFLICT DO UPDATE`), снятие удаляет строку.
 Перед записью хранилище проверяет, что сообщение — ответ ассистента в
 диалоге этого пользователя. Удаление пользователя каскадно удаляет и оценки.
+
+### `message_reports`
+
+| Столбец | Тип | Ограничения |
+| --- | --- | --- |
+| `id` | `bigint` | PK, `GENERATED ALWAYS AS IDENTITY` |
+| `message_id` | `bigint` | `UNIQUE`, FK `messages(id) ON DELETE SET NULL`, nullable |
+| `user_id` | `uuid` | `NOT NULL`, FK `users(id) ON DELETE CASCADE` |
+| `reason` | `text` | `NOT NULL`, `CHECK reason IN ('scary','rude','wrong','other')` |
+| `comment` | `text` | nullable, `CHECK char_length(comment) <= 500` |
+| `request_text` | `text` | nullable: копия запроса пользователя перед ответом |
+| `answer_text` | `text` | `NOT NULL`: копия ответа |
+| `status` | `text` | `NOT NULL DEFAULT 'new'`, `CHECK status IN ('new','resolved','dismissed')` |
+| `created_at` | `timestamptz` | `NOT NULL DEFAULT now()` |
+| `resolved_at` | `timestamptz` | nullable |
+| `resolved_by` | `uuid` | FK `users(id) ON DELETE SET NULL`, nullable |
+| `seen_at` | `timestamptz` | nullable: когда пользователь закрыл новость о разборе (миграция `0007`) |
+
+Индекс `ix_message_reports_status_created_at (status, created_at DESC)` служит
+списку жалоб администратора. Тексты копируются при подаче
+(`INSERT ... SELECT`), поэтому удаление диалога пользователем лишь обнуляет
+`message_id`. Повторная жалоба на тот же ответ не вставляет строку
+(`ON CONFLICT (message_id) DO NOTHING`) и даёт `ReportExistsError`. Закрытие
+жалобы записывает `resolved_at` и `resolved_by`, возврат в `new` обнуляет их
+и `seen_at`. Новости пользователя — его жалобы со статусом не `new` и
+`seen_at IS NULL`; название истории берётся через `messages` → `dialogs`.
 
 ## Решения
 

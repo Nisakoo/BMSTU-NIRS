@@ -9,6 +9,8 @@ const EVENT_TYPES = [
 ];
 
 const MESSAGE_ROLES = new Set(["user", "assistant"]);
+// What the user may know about a report on an answer.
+const REPORT_STATES = new Set(["sent", "reviewed"]);
 const MIN_SCORE = 1;
 const MAX_SCORE = 5;
 
@@ -18,6 +20,10 @@ function isScore(value) {
 
 function isTitle(value) {
   return value === null || typeof value === "string";
+}
+
+function isReport(value) {
+  return value === undefined || value === null || REPORT_STATES.has(value);
 }
 
 export class AgentApiError extends Error {
@@ -119,12 +125,32 @@ export class AgentApi {
       messages: body.messages.map(item => {
         if (!Number.isInteger(item?.id) || !MESSAGE_ROLES.has(item.role)
           || typeof item.content !== "string"
-          || !(item.feedback === null || isScore(item.feedback))) {
+          || !(item.feedback === null || isScore(item.feedback))
+          || !(item.reported === undefined || typeof item.reported === "boolean")
+          || !isReport(item.report)) {
           throw new AgentApiError("invalid_response");
         }
-        return { id: item.id, role: item.role, content: item.content, feedback: item.feedback };
+        return {
+          id: item.id,
+          role: item.role,
+          content: item.content,
+          feedback: item.feedback,
+          report: item.report ?? (item.reported === true ? "sent" : null),
+        };
       }),
     };
+  }
+
+  async deleteDialog(dialogId) {
+    let response;
+    try {
+      response = await this.fetchImpl(`/api/v1/dialogs/${encodeURIComponent(dialogId)}`, { method: "DELETE" });
+    } catch {
+      throw new AgentApiError("delete_failed");
+    }
+    if (response.status === 401) throw new AgentApiError("unauthorized");
+    if (response.status === 404) throw new AgentApiError("not_found");
+    if (response.status !== 204) throw new AgentApiError("delete_failed");
   }
 
   async setFeedback(dialogId, messageId, score) {
@@ -137,6 +163,55 @@ export class AgentApi {
 
   async clearFeedback(dialogId, messageId) {
     await this.#sendFeedback(dialogId, messageId, { method: "DELETE" });
+  }
+
+  async getReportNews() {
+    const body = await this.#readJson("/api/v1/reports/news", { notFound: false });
+    if (!Array.isArray(body?.news)) throw new AgentApiError("invalid_response");
+    return body.news.map(item => {
+      if (!Number.isInteger(item?.report_id)
+        || !(item.dialog_id === null || typeof item.dialog_id === "string")
+        || !isTitle(item.dialog_title)) {
+        throw new AgentApiError("invalid_response");
+      }
+      return { reportId: item.report_id, dialogId: item.dialog_id, dialogTitle: item.dialog_title };
+    });
+  }
+
+  async markReportNewsSeen(reportIds) {
+    let response;
+    try {
+      response = await this.fetchImpl("/api/v1/reports/news/seen", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ report_ids: reportIds }),
+      });
+    } catch {
+      throw new AgentApiError("news_failed");
+    }
+    if (response.status === 401) throw new AgentApiError("unauthorized");
+    if (response.status !== 204) throw new AgentApiError("news_failed");
+  }
+
+  // An answer reported before (409) is just as reported: the first report stays.
+  async reportMessage(dialogId, messageId, reason, comment) {
+    const body = comment ? { reason, comment } : { reason };
+    let response;
+    try {
+      response = await this.fetchImpl(
+        `/api/v1/dialogs/${encodeURIComponent(dialogId)}/messages/${encodeURIComponent(messageId)}/report`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+      );
+    } catch {
+      throw new AgentApiError("report_failed");
+    }
+    if (response.status === 401) throw new AgentApiError("unauthorized");
+    if (response.status === 404) throw new AgentApiError("not_found");
+    if (response.status !== 201 && response.status !== 409) throw new AgentApiError("report_failed");
   }
 
   async #sendFeedback(dialogId, messageId, init) {
