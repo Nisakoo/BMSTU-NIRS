@@ -1,7 +1,7 @@
 """Rate answers with a score from 1 to 5 instead of like or dislike.
 
-Revision ID: 0004
-Revises: 0003
+Revision ID: 0006
+Revises: 0005
 Create Date: 2026-10-17
 """
 
@@ -10,8 +10,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0004"
-down_revision: str | None = "0003"
+revision: str = "0006"
+down_revision: str | None = "0005"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

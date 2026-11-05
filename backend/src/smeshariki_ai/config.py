@@ -65,6 +65,20 @@ def load_config(environ: Mapping[str, str] | None = None) -> Config:
         if environment_name in source:
             auth_values[field_name] = source[environment_name]
 
+    rate_limit_values: dict[str, Any] = {}
+    for environment_name, field_name in (
+        ("AUTH_LOGIN_MAX_FAILURES", "login_failures"),
+        ("AUTH_LOGIN_FAILURE_WINDOW_SECONDS", "login_failure_window_seconds"),
+        ("AUTH_LOGIN_MAX_PER_IP", "login_per_ip"),
+        ("AUTH_LOGIN_PER_IP_WINDOW_SECONDS", "login_per_ip_window_seconds"),
+        ("AUTH_REGISTER_MAX_PER_IP", "register_per_ip"),
+        ("AUTH_REGISTER_PER_IP_WINDOW_SECONDS", "register_per_ip_window_seconds"),
+    ):
+        if environment_name in source:
+            rate_limit_values[field_name] = source[environment_name]
+    if rate_limit_values:
+        auth_values["rate_limit"] = rate_limit_values
+
     database_values: dict[str, Any] = {}
     if "DATABASE_URL" in source:
         database_values["url"] = source["DATABASE_URL"]

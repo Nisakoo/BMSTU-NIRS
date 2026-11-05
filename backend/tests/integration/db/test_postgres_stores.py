@@ -151,7 +151,7 @@ async def test_user_store_reads_and_replaces_password_hash(engine: AsyncEngine) 
     assert updated_at == NOW + timedelta(hours=1)
 
 
-async def test_revoke_user_sessions_keeps_one_session_and_other_users(
+async def test_revoke_user_sessions_keeps_one_family_and_other_users(
     engine: AsyncEngine,
 ) -> None:
     users = PostgresUserStore(engine)
@@ -164,8 +164,11 @@ async def test_revoke_user_sessions_keeps_one_session_and_other_users(
     for session in (kept, other, foreign):
         await sessions.create(session)
 
-    await sessions.revoke_user_sessions(krosh.id, kept.id, NOW + timedelta(minutes=5))
+    revoked = await sessions.revoke_user_sessions(
+        krosh.id, kept.family_id, NOW + timedelta(minutes=5)
+    )
 
+    assert revoked == {other.family_id}
     kept_after = await sessions.get_by_token_hash(kept.token_hash)
     other_after = await sessions.get_by_token_hash(other.token_hash)
     foreign_after = await sessions.get_by_token_hash(foreign.token_hash)

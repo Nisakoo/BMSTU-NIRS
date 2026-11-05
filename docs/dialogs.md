@@ -3,7 +3,8 @@
 [← Глобальный каталог](./README.md)
 
 Диалоговый слой связывает HTTP API с независимым runtime агента. Прикладная
-координация находится в `application`, хранение истории — в `dialogs`, а
+координация находится в `application`, контракт хранения истории и реестр
+черновиков — в `dialogs`, PostgreSQL-реализация хранения — в `db`, а
 FastAPI-маршруты только валидируют HTTP-ввод и преобразуют ошибки.
 
 ## Где находится реализация
@@ -38,6 +39,41 @@ FastAPI-маршруты только валидируют HTTP-ввод и пр
 - [`bootstrap.py`](../backend/src/smeshariki_ai/bootstrap.py) — сборка готовых
   зависимостей приложения.
 
+## Жизненный цикл диалога
+
+Диалог попадает в PostgreSQL только после первого успешного ответа агента. До
+этого он остаётся черновиком: клиент знает `dialog_id`, а backend держит в
+памяти процесса владельца и счётчики активности.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Черновик: POST /dialogs
+    Черновик --> Сохранён: первый запуск агента успешен
+    Черновик --> Черновик: ошибка или отмена запуска
+    Черновик --> [*]: DELETE
+    Черновик --> [*]: 30 минут без подписок и запусков
+    Сохранён --> Сохранён: следующий успешный запуск
+    Сохранён --> [*]: DELETE
+```
+
+- Черновик создаёт `DialogDrafts`; PostgreSQL не используется. Рестарт backend
+  теряет черновики, сохранённые диалоги его переживают.
+- Первый успешный запуск одной транзакцией вставляет строку `dialogs` с
+  заголовком и пару сообщений; `message_end` публикуется после фиксации. При
+  ошибке агента, отмене или сбое хранилища в базе ничего не остаётся,
+  подписчики получают `message_error`, а следующий запрос снова считается
+  первым.
+- Черновик без подписок `events` и без активных или ожидающих запусков
+  удаляется через `DRAFT_TTL` (30 минут). Проверка ленивая: срок
+  проверяется при обращении к черновику, а `create` удаляет все истёкшие
+  черновики. Короткое переподключение `EventSource` черновик не теряет.
+- Заголовок — первый пользовательский запрос: пробелы по краям удаляются,
+  последовательности пробельных символов схлопываются в один пробел, текст
+  длиннее 60 символов обрезается до 60 с добавлением `…`. Заголовок задаётся
+  при сохранении и дальше не меняется (`make_title`).
+- После рестарта в сохранённый диалог можно писать: агент получает сохранённую
+  историю как контекст.
+
 ## Внутренние контракты
 
 ```python
@@ -45,6 +81,9 @@ AgentService(
     agent: AgentRunner,
     history_store: HistoryStore,
     event_broker: DialogEventBroker,
+    *,
+    drafts: DialogDrafts | None = None,
+    clock: Callable[[], datetime] | None = None,
 )
 await AgentService.start_dialog(user_id: UUID) -> UUID
 await AgentService.list_dialogs(user_id: UUID) -> tuple[DialogSummary, ...]
@@ -54,11 +93,19 @@ await AgentService.submit(
 ) -> None
 await AgentService.subscribe(user_id: UUID, dialog_id: UUID) -> DialogSubscription
 await AgentService.unsubscribe(subscription: DialogSubscription) -> None
+await AgentService.list_dialogs(
+    user_id: UUID,
+    limit: int,
+    after: DialogCursor | None = None,
+) -> DialogPage            # items, next_cursor
+await AgentService.get_dialog(dialog_id: UUID, user_id: UUID) -> DialogTranscript
+await AgentService.delete_dialog(dialog_id: UUID, user_id: UUID) -> None
 await AgentService.shutdown() -> None
 
 await DialogEventBroker.subscribe(dialog_id: UUID) -> DialogSubscription
 await DialogEventBroker.unsubscribe(subscription: DialogSubscription) -> None
 await DialogEventBroker.publish(dialog_id: UUID, event: DialogEvent) -> None
+await DialogEventBroker.close_dialog(dialog_id: UUID) -> None
 await DialogEventBroker.shutdown() -> None
 ```
 
@@ -74,7 +121,8 @@ UUIDv4. Все операции конкретного диалога получ
 диалоги имеют независимые цепочки и могут выполняться параллельно. Очередь не
 ограничена по длине и не сохраняется после перезапуска.
 
-`AgentService` проверяет существование диалога и состояние lifecycle, после чего
+`AgentService` проверяет существование диалога, его владельца и состояние
+lifecycle, после чего
 делегирует открытие, закрытие и доставку событий внедрённому
 `DialogEventBroker`. Сервис не хранит подписчиков и не знает об устройстве их
 очередей.
@@ -85,14 +133,15 @@ Production composition root создаёт один `InMemoryDialogEventBroker` 
 `message_error`. Очередь каждого подписчика ограничена 64 событиями:
 переполненная или отключённая подписка удаляется и не создаёт backpressure для
 агента. События не сохраняются для replay; подключившийся клиент видит только
-будущие события. Брокер не зависит от FastAPI, агента и `HistoryStore`.
+будущие события. `close_dialog` закрывает все подписки одного диалога после
+доставки уже поставленных в очередь событий; повторный вызов и вызов после
+`shutdown` безопасны. Брокер не зависит от FastAPI, агента и `HistoryStore`.
 
 ```python
 await HistoryStore.create(owner_id: UUID) -> UUID
 await HistoryStore.get(owner_id: UUID, dialog_id: UUID) -> tuple[Message, ...]
 await HistoryStore.append(
-    dialog_id: UUID,
-    messages: Sequence[Message],
+    dialog_id: UUID, messages: Sequence[Message], now: datetime,
 ) -> None
 await HistoryStore.list_dialogs(
     owner_id: UUID, *, limit: int
@@ -127,16 +176,16 @@ sequenceDiagram
     participant History as HistoryStore
 
     Client->>API: GET /dialogs/{dialog_id}/events
-    API->>Service: subscribe(dialog_id)
+    API->>Service: subscribe(dialog_id, user_id)
     Service->>Broker: subscribe(dialog_id)
     Broker-->>API: DialogSubscription
     API-->>Client: SSE ready
     Client->>API: POST /dialogs/{dialog_id}/messages
-    API->>Service: submit(dialog_id, request)
+    API->>Service: submit(dialog_id, user_id, request)
     Service->>Task: создать задачу после хвоста диалога
     Service-->>API: постановка завершена
     API-->>Client: 202 Accepted, пустое тело
-    Task->>History: get(dialog_id)
+    Task->>History: get(dialog_id) для сохранённого диалога
     Service->>Broker: publish(message_start)
     Broker-->>API: message_start
     API-->>Client: SSE message_start
@@ -148,7 +197,7 @@ sequenceDiagram
         API-->>Client: SSE message_delta
     end
     Agent-->>Task: AgentResponse
-    Task->>History: append(user, assistant)
+    Task->>History: create (первый ответ) или append(user, assistant)
     Service->>Broker: publish(message_end)
     Broker-->>API: message_end
     API-->>Client: SSE message_end
@@ -184,6 +233,23 @@ PostgreSQL ручки диалогов отвечают `503 {"detail":"Agent se
 unavailable."}`. Время в ответах — ISO 8601 в UTC. Cookie для выбора диалога
 не создаются и не читаются.
 
+Ручки с телом (`messages`, `feedback`, `report`, `reports/news/seen`) без
+`Content-Type: application/json` отвечают `415 {"detail":"Unsupported media
+type."}` — после проверки токена, поэтому гость по-прежнему получает `401`.
+Небезопасные запросы (`POST`, `PUT`, `DELETE`) с `Sec-Fetch-Site:
+cross-site|same-site` отклоняются `403` до этих ручек — см.
+[аутентификацию](./auth.md). Поток событий перепроверяет access-токен
+подключения на каждом heartbeat (`AuthService.verify_session`): после выхода,
+отзыва семейства, удаления пользователя или недоступности хранилищ он
+завершается без дальнейших событий, а agent loop продолжает работу; истечение
+`exp` поток не закрывает.
+
+Ветка `feat/user-dialog-history` заменила параллельную реализацию истории из
+[dialog-history](../specs/changes/dialog-history/spec.md): черновиков и
+постраничного курсора нет, список отдаёт до 50 непустых диалогов, а удаление
+не отменяет идущую генерацию — её результат не сохраняется, подписчики
+получают `message_error`.
+
 SSE events содержат JSON: `ready` передаёт `dialog_id`, `message_delta` —
 непустой `delta`, `message_error` — безопасные `code` и `message`, а
 `message_start` использует пустой объект, а `message_end` — `{"message_id": <id>}`
@@ -217,6 +283,9 @@ flowchart LR
     Caddy -->|/api/v1 HTTP and SSE| API[FastAPI backend]
     API --> Service[AgentService]
     Service --> Agent[Agent runtime]
+    Service --> Drafts[DialogDrafts]
+    Service --> History[HistoryStore]
+    History --> Postgres[(PostgreSQL)]
     Service --> Broker[DialogEventBroker]
     Broker -->|SSE events| API
 ```
@@ -243,11 +312,16 @@ frontend оставляет форму заблокированной и пов�
 
 ## Наблюдаемость и lifecycle
 
-Сервис журналирует создание диалога, принятие запроса, начало и завершение
+Сервис журналирует создание диалога, отказ в доступе к чужому диалогу
+(`dialog.access.denied` с `dialog_id`, `user_id`, `outcome="foreign"`;
+в HTTP-ответе он неотличим от отсутствующего диалога), принятие запроса, начало и завершение
 фонового запуска, сохранение истории, отмену и тип ошибки с привязкой к
-`dialog_id`. Вместе с событиями runtime это позволяет увидеть каждую итерацию и
-статус инструмента. Текст запроса, история, ответы, tool payload, секреты и текст
-исключения не журналируются.
+`dialog_id`. Сохранение черновика журналируется как `dialog.persisted`,
+удаление — как `dialog.deleted` (`dialog_id`, `user_id`, `draft`), истечение
+черновика — как `dialog.draft.expired`, а ошибка хранилища на HTTP-пути — как
+`dialog.storage.unavailable` с `error_type`. Вместе с событиями runtime это позволяет увидеть каждую итерацию и
+статус инструмента. Текст запроса, заголовки, курсоры, история, ответы, tool payload, секреты и
+текст исключения не журналируются.
 
 При штатном shutdown сервис прекращает принимать новые запросы, отменяет все
 отслеживаемые фоновые задачи и ожидает их завершения, после чего вызывает
@@ -276,6 +350,14 @@ frontend оставляет форму заблокированной и пов�
 - [спецификация постоянной истории](../specs/changes/user-dialog-history/spec.md);
 - [план постоянной истории](../specs/changes/user-dialog-history/plan.md);
 - [результат проверки постоянной истории](../specs/changes/user-dialog-history/verification.md);
+- [усиление аутентификации: спецификация](../specs/changes/auth-hardening/spec.md),
+  [план](../specs/changes/auth-hardening/plan.md),
+  [результат проверки](../specs/changes/auth-hardening/verification.md);
+- [владение диалогами: спецификация](../specs/changes/dialog-ownership/spec.md),
+  [план](../specs/changes/dialog-ownership/plan.md),
+  [результат проверки](../specs/changes/dialog-ownership/verification.md);
+- [постоянная история диалогов: спецификация](../specs/changes/dialog-history/spec.md),
+  [план](../specs/changes/dialog-history/plan.md);
 - [запуск и тестовые HTTP-запросы](../docker/README.md).
 
 ## Жалобы на ответы

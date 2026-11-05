@@ -10,7 +10,7 @@ from smeshariki_ai.agent.prompts import (
     SystemPromptResourceError,
     load_system_prompt,
 )
-from smeshariki_ai.auth import AuthConfig
+from smeshariki_ai.auth import AuthConfig, RateLimitConfig
 from smeshariki_ai.cache import RedisConfig
 from smeshariki_ai.config import Config, load_config
 from smeshariki_ai.db import DatabaseConfig
@@ -281,6 +281,36 @@ def test_load_config_reads_auth_database_and_redis_values() -> None:
     assert config.redis.url.get_secret_value() == REDIS_URL
 
 
+def test_load_config_reads_rate_limit_values() -> None:
+    config = load_config(
+        {
+            **BASE_ENV,
+            "LLM_MODEL": "test/model",
+            "AUTH_LOGIN_MAX_FAILURES": "3",
+            "AUTH_LOGIN_FAILURE_WINDOW_SECONDS": "120",
+            "AUTH_LOGIN_MAX_PER_IP": "7",
+            "AUTH_LOGIN_PER_IP_WINDOW_SECONDS": "30",
+            "AUTH_REGISTER_MAX_PER_IP": "2",
+            "AUTH_REGISTER_PER_IP_WINDOW_SECONDS": "600",
+        }
+    )
+
+    assert config.auth.rate_limit == RateLimitConfig(
+        login_failures=3,
+        login_failure_window_seconds=120,
+        login_per_ip=7,
+        login_per_ip_window_seconds=30,
+        register_per_ip=2,
+        register_per_ip_window_seconds=600,
+    )
+
+
+def test_load_config_uses_rate_limit_defaults() -> None:
+    config = load_config({**BASE_ENV, "LLM_MODEL": "test/model"})
+
+    assert config.auth.rate_limit == RateLimitConfig()
+
+
 def test_load_config_uses_auth_defaults() -> None:
     config = load_config({**BASE_ENV, "LLM_MODEL": "test/model"})
 
@@ -294,6 +324,7 @@ def test_load_config_uses_auth_defaults() -> None:
     [
         {"AUTH_JWT_SECRET": None},
         {"AUTH_JWT_SECRET": "short-secret-marker"},
+        {"AUTH_JWT_SECRET": "replace-with-secret-marker-at-least-32-bytes"},
         {"DATABASE_URL": None},
         {"DATABASE_URL": "mysql://user:secret-db-marker@db/app"},
         {"REDIS_URL": None},
@@ -301,6 +332,8 @@ def test_load_config_uses_auth_defaults() -> None:
         {"AUTH_ACCESS_TTL_SECONDS": "0"},
         {"AUTH_REFRESH_TTL_SECONDS": "abc"},
         {"AUTH_COOKIE_SECURE": "maybe"},
+        {"AUTH_LOGIN_MAX_FAILURES": "0"},
+        {"AUTH_REGISTER_PER_IP_WINDOW_SECONDS": "abc"},
     ],
 )
 def test_load_config_rejects_invalid_auth_environment(
@@ -312,7 +345,12 @@ def test_load_config_rejects_invalid_auth_environment(
     with pytest.raises(ValidationError) as error:
         load_config(environ)
 
-    for marker in ("short-secret-marker", "secret-db-marker", "secret-redis-marker"):
+    for marker in (
+        "short-secret-marker",
+        "replace-with-secret-marker",
+        "secret-db-marker",
+        "secret-redis-marker",
+    ):
         assert marker not in str(error.value)
 
 

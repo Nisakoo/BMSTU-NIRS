@@ -41,7 +41,7 @@ def upgrade() -> None:
         ),
     )
     op.create_index(
-        "ix_dialogs_user_id_updated_at",
+        "dialogs_user_id_updated_at_idx",
         "dialogs",
         ["user_id", sa.text("updated_at DESC")],
     )

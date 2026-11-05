@@ -99,6 +99,7 @@ class RecordingBroker(DialogEventBroker):
         self.subscribed: list[UUID] = []
         self.unsubscribed: list[DialogSubscription] = []
         self.published: list[tuple[UUID, DialogEvent]] = []
+        self.closed_dialogs: list[UUID] = []
         self.shutdown_called = False
         self.shutdown_after_cancellation: bool | None = None
 
@@ -111,6 +112,9 @@ class RecordingBroker(DialogEventBroker):
 
     async def publish(self, dialog_id: UUID, event: DialogEvent) -> None:
         self.published.append((dialog_id, event))
+
+    async def close_dialog(self, dialog_id: UUID) -> None:
+        self.closed_dialogs.append(dialog_id)
 
     async def shutdown(self) -> None:
         self.shutdown_called = True

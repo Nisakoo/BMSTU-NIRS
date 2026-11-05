@@ -36,6 +36,8 @@
    - `make migrate` — применение миграций базы данных через Compose-сервис
      `migrate`;
    - `make test` — запуск полного набора автоматических тестов продукта;
+   - `make test-integration` — запуск backend-тестов на временных PostgreSQL и
+     Redis в отдельном Compose-проекте `smeshariki-ai-test`;
    - `make lint` — проверка Python-кода backend через Ruff;
    - `make format` — автоматическое исправление и форматирование Python-кода
      backend через Ruff.
@@ -80,9 +82,9 @@
 2. Frontend взаимодействует с backend по HTTP. Для потоковой передачи ответов используется SSE, если спецификация конкретного сценария не требует другого транспорта.
 3. Агент работает через отдельный сервисный интерфейс и не должен быть связан напрямую с HTTP-слоем.
 4. Интеграция с LLM скрывается за внутренней абстракцией, чтобы поставщика модели можно было заменить без изменения бизнес-логики и интерфейса RAG.
-5. RAG предоставляется агенту как инструмент `search_knowledge`. Агент самостоятельно решает, когда вызвать этот инструмент.
+5. RAG предоставляется агенту инструментами, перечисленными в `docs/rag.md`; первый из них — `lookup_knowledge`. Агент самостоятельно решает, когда вызвать инструмент.
 6. Внутри RAG разделяются индексация документов и поиск. Загрузка и переиндексация запускаются командой backend, а не отдельным постоянно работающим приложением.
-7. Векторное хранилище является инфраструктурной зависимостью backend и может работать в отдельном контейнере.
+7. Хранилище RAG — PostgreSQL backend, таблицы с префиксом `rag_`; при необходимости используются встроенный полнотекстовый поиск, `pg_trgm` и `pgvector`. Отдельное векторное хранилище не используется.
 8. Для первой версии используется простой цикл tool calling. LangGraph добавляется только при появлении требований к сложным ветвящимся процессам, длительному состоянию, возобновлению выполнения или human-in-the-loop.
 9. LLM, embeddings и внешние хранилища в модульных тестах заменяются детерминированными тестовыми реализациями. Интеграционные тесты отдельно проверяют реальные инфраструктурные адаптеры.
 
@@ -124,8 +126,8 @@
    и текста внешнего исключения. Отмена asyncio-задачи распространяется без
    преобразования.
 9. Runtime не использует LangChain и LangGraph. `FakeLLMProvider` остаётся
-   детерминированной потоковой реализацией без сети для тестов. Инструмент
-   `search_knowledge` реализуется отдельным согласованным изменением.
+   детерминированной потоковой реализацией без сети для тестов. Инструменты
+   RAG реализуются изменениями, перечисленными в `docs/rag.md`.
 
 ## Реализованная конфигурация backend
 
@@ -200,8 +202,10 @@
    брокеру операции. Production bootstrap создаёт брокер и передаёт его сервису.
 7. `GET /api/v1/dialogs/{dialog_id}/events` предоставляет SSE-события `ready`,
    `message_start`, `message_delta`, `message_end` и `message_error`, а также
-   heartbeat. In-memory подписки передают только будущие события и не
-   поддерживают replay через `Last-Event-ID`.
+   heartbeat; на каждом heartbeat сессия перепроверяется
+   (`AuthService.verify_session`, без проверки `exp`), и при отзыве поток
+   закрывается, а agent loop не отменяется. In-memory подписки передают только
+   будущие события и не поддерживают replay через `Last-Event-ID`.
 8. Отключение или переполнение подписчика не отменяет agent loop и не блокирует
    сохранение истории. Успешный `message_end` публикуется после атомарного
    сохранения полного ответа; при ошибке после частичного текста история не
@@ -213,16 +217,26 @@
 10. `GET /agent_test` отдаёт один самодостаточный HTML с минимальным тестовым
    чатом на vanilla JavaScript. Страница использует существующие API и
    `EventSource`, не требует отдельной сборки и выводит сообщения как текст.
-11. Текущая версия не добавляет CORS middleware и не использует cookie для
-    выбора диалога. Bootstrap собирает приложение с настроенным
-    `LiteLLMProvider`, `PostgresHistoryStore` и `InMemoryDialogEventBroker`;
-    fake-провайдер применяется только как явная тестовая зависимость.
+11. Текущая версия не добавляет CORS middleware, отвечает `415` на ручки с телом
+    (`messages`, `feedback`, `report`, `reports/news/seen`) с `Content-Type`,
+    отличным от `application/json`, и не использует cookie для выбора диалога.
+    Bootstrap собирает приложение с настроенным `LiteLLMProvider`,
+    `ToolRegistry` (`get_context` и `lookup_knowledge`),
+    `PostgresHistoryStore` и `InMemoryDialogEventBroker`; fake-провайдер
+    применяется только как явная тестовая зависимость.
+12. Диалог принадлежит создателю: `AgentService` и `HistoryStore` получают
+    `user_id` во всех операциях диалога. Для чужого диалога (в том числе для
+    `admin`) все ручки диалога отвечают `404 Dialog not found.`, как для
+    несуществующего. Поток SSE перепроверяет сессию на каждом heartbeat и
+    закрывается после выхода или отзыва семейства.
 
 ## Реализованный frontend
 
 1. Frontend остаётся vanilla JavaScript приложением в `frontend/src/`.
    Основной Compose запуск собирает его Vite и раздаёт отдельным Nginx
    контейнером через Caddy. Vite dev server остаётся альтернативой для разработки.
+   Nginx настраивается `docker/nginx.conf`: относительные редиректы на каталог
+   (`absolute_redirect off`), `no-cache` для HTML, `immutable` для `/assets/`.
 2. Caddy направляет `/api` в backend без изменения пути, а остальные запросы —
    в Nginx. Браузерный код не содержит cross-origin backend URL. В dev-режиме
    Vite использует `frontend/src/` как root и проксирует `/api`; default target
@@ -293,29 +307,47 @@
    один `refresh` и повтор при `401`). Кнопка «Выйти» в боковой панели чата и в
    боковой панели `/admin/` вызывает `POST /auth/logout` и после `204` открывает
    `/login/`; при ошибке страница остаётся на месте с сообщением.
+10. `refresh` выполняется под блокировкой Web Locks `smeshariki-auth-refresh`:
+    вкладка, дождавшаяся её, сначала повторяет `GET /users/me` и вызывает
+    `refresh` только при `401`; без `navigator.locks` поведение прежнее.
+    `AuthApi` переводит `429` у входа и регистрации в `too_many_attempts`, а
+    `/login/` показывает «Слишком много попыток. Попробуйте позже».
+    Спецификация: `specs/changes/auth-rate-limit/`.
 
 ## Реализованная аутентификация backend
 
 1. Пакет `smeshariki_ai.auth` содержит транспортно-независимый `AuthService` и
-   контракты `UserStore`, `RefreshSessionStore`, `TokenBlacklist`; сервис не
+   контракты `UserStore`, `RefreshSessionStore`, `TokenBlacklist`,
+   `AttemptLimiter`; сервис не
    зависит от FastAPI, SQLAlchemy и redis-py и не читает environment.
    `api/auth.py` реализует HTTP-контракт из `docs/auth.md` и зависимость
    `current_user`.
 2. Access JWT (HS256, 15 минут) и одноразовый refresh-токен (30 дней, в БД
    только SHA-256) передаются только `HttpOnly` cookie. Повторное
-   использование refresh-токена отзывает всё семейство; `logout` заносит `jti`
-   в Redis с TTL до `exp`. Сбой PostgreSQL или Redis даёт `503` (fail closed).
+   использование refresh-токена и `logout` отзывают всё семейство: access JWT
+   содержит claim `fid`, а семейство помечается отозванным в Redis
+   (`auth:revoked-family:<fid>`) с TTL не меньше времени жизни access-токена;
+   `logout` также заносит `jti` в Redis. Токен без `fid` отклоняется. Сбой
+   PostgreSQL или Redis даёт `503` (fail closed).
 3. Пользователи, refresh-сессии и диалоги хранятся в PostgreSQL (`smeshariki_ai.db`,
    SQLAlchemy Core + asyncpg); схема, включая `dialogs` и
    `messages`, описана в `docs/database.md`. Миграции Alembic применяются
    командой `python -m smeshariki_ai.db.migrate` одноразовым Compose-сервисом
    `migrate`.
    `PUT /api/v1/users/me/password` меняет пароль после проверки текущего
-   (`400 wrong_password`, `422 same_password`) и отзывает остальные
-   refresh-сессии пользователя, сохраняя текущую.
+   (`400 wrong_password`, `422 same_password`, `429` после 5 неверных
+   текущих паролей) и сразу отзывает остальные семейства сессий пользователя
+   вместе с их access-токенами, сохраняя семейство текущего входа.
 4. Ручки диалогов подключают `current_user` на уровне роутера и без
    действительного access-токена отвечают `401` раньше `404`/`422`; без
-   `auth_service` — `503`. Диалоги принадлежат создавшему их пользователю.
+   `auth_service` — `503`. Диалог принадлежит создателю
+   (`docs/dialogs.md`).
+   Регистрация, вход и смена пароля принимают только `application/json` (`415`), а
+   `ForbiddenOriginMiddleware` отвечает `403` на небезопасные запросы к
+   `/api/*` с `Sec-Fetch-Site: cross-site|same-site` (`Origin` с `Host` не
+   сравниваются). `AUTH_JWT_SECRET` с префиксом `replace-with-` отклоняется
+   `load_config`, а шаблон `docker/.env.example` оставляет его пустым.
+   Спецификация: `specs/changes/auth-hardening/`.
 5. Роль `admin` не выдаётся через HTTP. `make create-admin LOGIN=<login>`
    запускает `python -m smeshariki_ai.create_admin` в Compose: пароль вводится
    интерактивно, проверяется `Credentials` и хешируется через общую с
@@ -334,6 +366,70 @@
    Пользователь получает о разборе нейтральную новость: `report` в истории
    (`sent`/`reviewed`) и `GET`/`POST /api/v1/reports/news`, просмотр
    хранится в `message_reports.seen_at`.
+8. Вход и регистрация ограничены по частоте счётчиками фиксированного окна в
+   Redis (`RedisAttemptLimiter`, `auth:ratelimit:*`): 5 неудач за 15 минут для
+   пары «логин + IP», 30 входов в минуту и 10 регистраций в час с IP; порядок
+   проверок `403` → `415` → `429` → `422`, ответ `429` с `Retry-After`, при
+   недоступном Redis — `503`. Пороги задаёт `load_config`
+   (`AUTH_LOGIN_*`, `AUTH_REGISTER_*`). IP берётся из `request.client`;
+   Uvicorn доверяет `X-Forwarded-For` только от Caddy (`FORWARDED_ALLOW_IPS`,
+   фиксированный адрес в подсети Compose). `Argon2PasswordHasher`
+   выполняет не более 4 операций одновременно. Неверный текущий пароль при
+   смене пароля считается тем же порогом `login_failures` на пользователя.
+   Спецификация: `specs/changes/auth-rate-limit/`.
+
+## Реализованный каталог знаний
+
+1. Пакет `smeshariki_ai.rag` содержит доменные модели всех сущностей ER-модели
+   из `docs/knowledge.md` (`models.py`), правила целостности над
+   `KnowledgeSet` (`integrity.py`), чтение пакета знаний (`yaml_reader.py`,
+   `package.py`), use case проверки (`services.py`) и команды (`cli.py`).
+2. Источник истины знаний — PostgreSQL (таблицы `rag_*`). Знания поступают
+   пакетами YAML-файлов, которые готовятся вне репозитория: репозиторий
+   публичный, поэтому реальные данные не коммитятся, а тесты и примеры
+   используют синтетические данные.
+3. YAML разбирается по YAML 1.2 core; повторяющиеся ключи, теги и якоря —
+   ошибки. Модели строгие: ослаблены только кортежи и перечисления, которых нет
+   в YAML. Ограничения декларативны и попадают в JSON Schema.
+4. Правила целостности — функции домена, не зависящие от источника набора.
+   Проверка пакета считает отсутствующие сущности внешними ссылками; загрузка в
+   БД применит те же правила к полному набору. Правила линейны по размеру
+   набора и в SQL не дублируются.
+5. `python -m smeshariki_ai.rag check <path> [--format text|json]` и
+   `schema` не читают environment и не задают вопросов; `check` возвращает
+   `0`, `1` или `2`. `make knowledge-check DIR=<path>` запускает проверку.
+   Спецификация: `specs/changes/knowledge-catalog/`.
+6. Таблицы `rag_*` описаны в `rag/tables.py` и создаются миграцией `0003`.
+   Внешние ключи внутри агрегата каскадные, между агрегатами — только на
+   корневые таблицы с `RESTRICT`. Порт `KnowledgeStore` реализуют
+   `PostgresKnowledgeStore` и `InMemoryKnowledgeStore`; оба проходят один
+   контрактный набор тестов.
+7. `python -m smeshariki_ai.rag load <path>` (`make knowledge-load DIR=<path>`
+   в Compose) проверяет пакет и в одной транзакции под advisory lock
+   объединяет его с БД, проверяет правила на полном наборе и пишет только
+   новые и изменённые сущности. Успешные загрузки записываются в `rag_loads`,
+   изменения сущностей — в журнал `rag_revisions` со снимком агрегата.
+   Логическое удаление не используется. Спецификация:
+   `specs/changes/knowledge-postgres-store/`.
+8. Пакет обязательно содержит `package.yaml` с `format_version`, а каждая
+   ревизия хранит версию формата снимка; текущая версия — константа
+   `KNOWLEDGE_FORMAT_VERSION`. Имена нормализуются через NFC и `casefold`.
+   Ошибка конфигурации (`configuration_error`) и данные БД, не проходящие
+   модели (`stored_data_invalid`), различаются. Типы сущностей описаны одним
+   реестром `ENTITY_KINDS`, а преобразование агрегатов в строки БД — в
+   `rag/postgres_mappers.py`. Спецификация: `specs/changes/knowledge-hardening/`.
+9. Инструмент агента `lookup_knowledge` (`rag/tools.py`) получает use case
+   `KnowledgeLookup` (`rag/lookup.py`), который читает через порт
+   `KnowledgeReader` (реализуют `PostgresKnowledgeStore` и
+   `InMemoryKnowledgeStore`). Поиск точный по нормализованному имени, алиасу,
+   названию эпизода (`normalized_title`, миграция `0004`) и slug; ответ —
+   статус `found`/`not_found`/`unavailable` и до 10 карточек с именами вместо
+   slug и без `sources`. Чтение — `REPEATABLE READ READ ONLY` без advisory
+   lock загрузки; ошибки хранилища дают `unavailable`. Bootstrap
+   регистрирует инструмент рядом с `get_context`: production —
+   `PostgresKnowledgeStore` на общем engine, без него — пустой
+   `InMemoryKnowledgeStore`. Спецификация:
+   `specs/changes/knowledge-lookup-tool/`.
 
 ## Согласованные технологии
 
@@ -348,10 +444,11 @@
 - FastAPI и Pydantic — HTTP API, валидация входных и выходных данных и SSE-интерфейс.
 - LiteLLM Python SDK — асинхронная интеграция backend с LLM через внутренний
   адаптер; отдельный LiteLLM Proxy не используется.
-- Qdrant — векторное хранилище и поиск для RAG.
 - PostgreSQL 17, SQLAlchemy (async Core) с asyncpg и Alembic — постоянное
-  хранилище пользователей и истории диалогов и его миграции.
-- Redis — blacklist отозванных access-токенов.
+  хранилище пользователей, истории диалогов, структурированных знаний RAG и
+  его миграции.
+- PyYAML — безопасный разбор пакетов структурированных знаний RAG.
+- Redis — blacklist отозванных access-токенов и счётчики ограничения частоты входа.
 - PyJWT и argon2-cffi — подпись access JWT и хеширование паролей.
 - Pytest — модульные и интеграционные тесты backend.
 - Ruff — линтинг, проверка форматирования и автоформатирование Python-кода.

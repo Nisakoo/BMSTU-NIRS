@@ -13,6 +13,7 @@ from smeshariki_ai.agent import (
     AgentConfig,
     FakeLLMProvider,
     LiteLLMProviderConfig,
+    ToolCall,
 )
 from smeshariki_ai.application import AgentService, InMemoryDialogEventBroker
 from smeshariki_ai.auth import (
@@ -27,11 +28,13 @@ from smeshariki_ai.bootstrap import (
     configure_logging,
     create_application,
 )
-from smeshariki_ai.cache import RedisConfig
+from smeshariki_ai.cache import RedisAttemptLimiter, RedisConfig
 from smeshariki_ai.config import Config
 from smeshariki_ai.db import DatabaseConfig, PostgresHistoryStore
 from smeshariki_ai.dialogs import InMemoryHistoryStore
 from smeshariki_ai.observability import LoggingConfig
+from smeshariki_ai.rag.memory import InMemoryKnowledgeStore
+from smeshariki_ai.rag.postgres import PostgresKnowledgeStore
 
 
 def make_config() -> Config:
@@ -53,12 +56,28 @@ def test_bootstrap_builds_service_with_explicit_provider() -> None:
 
     assert isinstance(service, AgentService)
     assert isinstance(service._event_broker, InMemoryDialogEventBroker)
+    assert isinstance(service._history_store, InMemoryHistoryStore)
     assert isinstance(app, FastAPI)
     assert app.title == "smeshariki-ai"
     assert isinstance(app.state.agent_service, AgentService)
     assert [
         definition.name for definition in service._agent._tool_registry.definitions
-    ] == ["get_context"]
+    ] == ["get_context", "lookup_knowledge"]
+
+
+def knowledge_reader(service: AgentService) -> object:
+    return service._agent._tool_registry.get("lookup_knowledge")._lookup._reader
+
+
+async def test_service_without_knowledge_store_reports_knowledge_unavailable() -> None:
+    service = build_agent_service(make_config(), llm_provider=FakeLLMProvider())
+
+    result = await service._agent._tool_registry.execute(
+        ToolCall(id="call-1", name="lookup_knowledge", arguments={"name": "Крош"})
+    )
+
+    assert isinstance(knowledge_reader(service), InMemoryKnowledgeStore)
+    assert result.output["status"] == "unavailable"
 
 
 def test_production_application_keeps_history_in_postgres() -> None:
@@ -219,7 +238,14 @@ async def test_create_application_wires_auth_and_closes_infrastructure(
     app = create_application(config, llm_provider=FakeLLMProvider())
 
     assert received == {"database": config.database, "redis": config.redis}
+    history_store = app.state.agent_service._history_store
+    assert isinstance(history_store, PostgresHistoryStore)
+    assert history_store._engine is app.state.auth_service._users._engine
+    reader = knowledge_reader(app.state.agent_service)
+    assert isinstance(reader, PostgresKnowledgeStore)
+    assert reader._engine is history_store._engine
     assert isinstance(app.state.auth_service, AuthService)
+    assert isinstance(app.state.auth_service._limiter, RedisAttemptLimiter)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://testserver"
     ) as client:
@@ -252,3 +278,5 @@ def test_create_application_accepts_explicit_auth_service(
     )
 
     assert app.state.auth_service is auth_service
+    assert isinstance(app.state.agent_service._history_store, InMemoryHistoryStore)
+    assert isinstance(knowledge_reader(app.state.agent_service), InMemoryKnowledgeStore)

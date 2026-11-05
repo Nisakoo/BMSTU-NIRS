@@ -397,3 +397,51 @@ async def test_unsupported_reading_time_returns_422(minutes: object) -> None:
     assert response.status_code == 422
     assert agent.calls == []
     await service.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("method", "suffix", "body"),
+    [
+        ("POST", "/messages", b'{"request":"question"}'),
+        ("PUT", "/messages/1/feedback", b'{"score":5}'),
+        ("POST", "/messages/1/report", b'{"reason":"rude"}'),
+    ],
+    ids=["message", "feedback", "report"],
+)
+async def test_body_routes_require_json_media_type(
+    method: str, suffix: str, body: bytes
+) -> None:
+    agent = BlockingAgent()
+    store = InMemoryHistoryStore()
+    service = make_service(agent, store)
+    client = make_client(service)
+
+    async with client:
+        dialog_id = (await client.post("/api/v1/dialogs")).json()["dialog_id"]
+        response = await client.request(
+            method,
+            f"/api/v1/dialogs/{dialog_id}{suffix}",
+            content=body,
+            headers={"Content-Type": "text/plain"},
+        )
+
+    assert response.status_code == 415
+    assert agent.calls == []
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_cross_site_unsafe_request_is_forbidden() -> None:
+    agent = BlockingAgent()
+    service = make_service(agent, InMemoryHistoryStore())
+    client = make_client(service)
+
+    async with client:
+        response = await client.post(
+            "/api/v1/dialogs", headers={"Sec-Fetch-Site": "cross-site"}
+        )
+
+    assert response.status_code == 403
+    assert response.json() == {"error": "forbidden_origin"}
+    await service.shutdown()

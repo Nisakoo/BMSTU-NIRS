@@ -171,21 +171,23 @@ class PostgresRefreshSessionStore(RefreshSessionStore):
     async def revoke_user_sessions(
         self,
         user_id: UUID,
-        keep_session_id: UUID,
+        keep_family_id: UUID,
         now: datetime,
-    ) -> None:
+    ) -> set[UUID]:
         statement = (
             update(refresh_sessions)
             .where(
                 refresh_sessions.c.user_id == user_id,
-                refresh_sessions.c.id != keep_session_id,
+                refresh_sessions.c.family_id != keep_family_id,
                 refresh_sessions.c.revoked_at.is_(None),
             )
             .values(revoked_at=now)
+            .returning(refresh_sessions.c.family_id)
         )
         with _unavailable_on_failure():
             async with self._engine.begin() as connection:
-                await connection.execute(statement)
+                rows = (await connection.execute(statement)).scalars().all()
+        return set(rows)
 
 
 def _insert_session(session: RefreshSession):  # type: ignore[no-untyped-def]

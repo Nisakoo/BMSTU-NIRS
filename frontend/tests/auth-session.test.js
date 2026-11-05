@@ -1,3 +1,4 @@
+import "./no-web-locks.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -79,4 +80,81 @@ test("homeFor sends administrators to the panel and users to the chat", () => {
   assert.equal(homeFor(ADMIN), ADMIN_PATH);
   assert.equal(homeFor(USER), CHAT_PATH);
   assert.deepEqual([LOGIN_PATH, CHAT_PATH, ADMIN_PATH], ["/login/", "/", "/admin/"]);
+});
+
+// Serializes callbacks per lock name, like navigator.locks does across tabs.
+function fakeLocks() {
+  const names = [];
+  let tail = Promise.resolve();
+  return {
+    names,
+    request(name, callback) {
+      names.push(name);
+      const run = tail.then(() => callback({ name }));
+      tail = run.catch(() => {});
+      return run;
+    },
+  };
+}
+
+test("refresh runs under a named lock and re-checks me first", async () => {
+  const locks = fakeLocks();
+  const api = fakeApi({ refresh: resolve(USER) });
+
+  const session = await refreshSession(api, { locks });
+
+  assert.deepEqual(session, { status: SESSION.USER, user: USER });
+  assert.deepEqual(locks.names, ["smeshariki-auth-refresh"]);
+  assert.deepEqual(api.calls, ["me", "refresh"]);
+});
+
+test("a tab that waited for the lock gets the user from me without refresh", async () => {
+  const locks = fakeLocks();
+  let renewed = false;
+  const api = {
+    calls: [],
+    me() {
+      this.calls.push("me");
+      return renewed ? Promise.resolve(USER) : Promise.reject(new AuthApiError("unauthorized"));
+    },
+    refresh() {
+      this.calls.push("refresh");
+      renewed = true;
+      return Promise.resolve(USER);
+    },
+  };
+
+  const results = await Promise.all([
+    refreshSession(api, { locks }),
+    refreshSession(api, { locks }),
+  ]);
+
+  assert.deepEqual(results, [
+    { status: SESSION.USER, user: USER },
+    { status: SESSION.USER, user: USER },
+  ]);
+  assert.equal(api.calls.filter(call => call === "refresh").length, 1);
+});
+
+test("under the lock only an unauthorized me leads to refresh", async () => {
+  const locks = fakeLocks();
+  const api = fakeApi({ me: reject("unavailable") });
+
+  assert.deepEqual(await refreshSession(api, { locks }), { status: SESSION.UNAVAILABLE });
+  assert.deepEqual(api.calls, ["me"]);
+});
+
+test("checkSession passes the lock through to refresh", async () => {
+  const locks = fakeLocks();
+  const api = fakeApi({ refresh: resolve(USER) });
+
+  assert.deepEqual(await checkSession(api, { locks }), { status: SESSION.USER, user: USER });
+  assert.deepEqual(locks.names, ["smeshariki-auth-refresh"]);
+});
+
+test("without Web Locks refresh is called directly", async () => {
+  const api = fakeApi({ refresh: resolve(USER) });
+
+  assert.deepEqual(await refreshSession(api, { locks: null }), { status: SESSION.USER, user: USER });
+  assert.deepEqual(api.calls, ["refresh"]);
 });

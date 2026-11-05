@@ -262,7 +262,7 @@ async def test_score_outside_one_to_five_is_rejected(
 
 
 async def test_migration_turns_likes_into_scores() -> None:
-    await migrate_fresh("0003")
+    await migrate_fresh("0005")
     engine = create_engine(CONFIG)
     try:
         owner = await add_user(engine, "krosh")
@@ -296,7 +296,7 @@ async def test_migration_restores_full_titles_from_the_first_request() -> None:
         "Расскажи  короткую, спокойную\nи уютную историю перед сном про Бараша и Нюшу."
     )
     huge_request = "слово " * 40
-    await migrate_fresh("0004")
+    await migrate_fresh("0006")
     engine = create_engine(CONFIG)
     try:
         owner = await add_user(engine, "krosh")

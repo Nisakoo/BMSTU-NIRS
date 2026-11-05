@@ -602,3 +602,30 @@ async def test_change_password_logs_no_passwords(
     assert "auth.password.changed" in logs
     for secret in (PASSWORD, "wrong-pass", NEW_PASSWORD, "$argon2id$"):
         assert secret not in logs
+
+
+async def test_change_password_requires_a_json_body(client: httpx.AsyncClient) -> None:
+    await register_and_login(client)
+
+    response = await client.put(
+        PASSWORD_ROUTE,
+        content=b'{"current_password":"password123","new_password":"carrot-456"}',
+        headers={"Content-Type": "text/plain"},
+    )
+
+    assert response.status_code == 415
+    assert response.json() == {"error": "unsupported_media_type"}
+
+
+async def test_change_password_limits_wrong_current_passwords(
+    client: httpx.AsyncClient,
+) -> None:
+    await register_and_login(client)
+    for _ in range(5):
+        assert (await change_password(client, current="wrong-pass")).status_code == 400
+
+    blocked = await change_password(client)
+
+    assert blocked.status_code == 429
+    assert blocked.json() == {"error": "too_many_attempts"}
+    assert int(blocked.headers["Retry-After"]) > 0

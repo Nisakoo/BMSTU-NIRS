@@ -48,6 +48,15 @@ SSE-подключение имеет собственный `request_id`; св�
 недоступного PostgreSQL или Redis виден как `http.request.failed` со статусом
 `503`.
 
+## События RAG
+
+`smeshariki_ai.rag.lookup` пишет `rag.lookup.completed` на каждый вызов
+инструмента `lookup_knowledge`: `outcome` (`found`, `not_found`,
+`unavailable`), `match_count`, `started_at` и `duration_ms`. При ошибке
+хранилища событие имеет уровень `WARNING` и `error_type`, при отсутствии
+загруженных знаний — `reason=not_loaded`. Текст запроса и знания в журнал не
+попадают ([страница RAG](./rag.md#инструмент-lookup_knowledge)).
+
 ## Метрики модели
 
 `llm.request.completed` содержит длительность вызова, а при текстовом ответе

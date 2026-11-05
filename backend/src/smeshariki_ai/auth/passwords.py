@@ -13,17 +13,21 @@ class Argon2PasswordHasher:
         time_cost: int = 3,
         memory_cost: int = 64 * 1024,
         parallelism: int = 4,
+        max_concurrency: int = 4,
     ) -> None:
         self._hasher = PasswordHasher(
             time_cost=time_cost,
             memory_cost=memory_cost,
             parallelism=parallelism,
         )
+        # Each operation needs memory_cost KiB, so concurrent ones are bounded.
+        self._semaphore = asyncio.Semaphore(max_concurrency)
         # Verified for unknown logins so their timing matches existing ones.
         self.dummy_hash = self._hasher.hash("dummy-password-for-timing")
 
     async def hash(self, password: str) -> str:
-        return await asyncio.to_thread(self._hasher.hash, password)
+        async with self._semaphore:
+            return await asyncio.to_thread(self._hasher.hash, password)
 
     async def verify(self, password_hash: str, password: str) -> bool:
         def verify() -> bool:
@@ -32,4 +36,5 @@ class Argon2PasswordHasher:
             except (VerificationError, InvalidHashError):
                 return False
 
-        return await asyncio.to_thread(verify)
+        async with self._semaphore:
+            return await asyncio.to_thread(verify)

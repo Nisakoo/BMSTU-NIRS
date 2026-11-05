@@ -72,7 +72,12 @@ dialogs = Table(
     "dialogs",
     metadata,
     Column("id", Uuid, primary_key=True),
-    Column("user_id", Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    Column(
+        "user_id",
+        Uuid,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
     Column("title", Text, nullable=True),
     Column(
         "created_at", DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -81,7 +86,11 @@ dialogs = Table(
         "updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()
     ),
 )
-Index("ix_dialogs_user_id_updated_at", dialogs.c.user_id, dialogs.c.updated_at.desc())
+Index(
+    "dialogs_user_id_updated_at_idx",
+    dialogs.c.user_id,
+    dialogs.c.updated_at.desc(),
+)
 
 messages = Table(
     "messages",

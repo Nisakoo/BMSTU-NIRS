@@ -13,10 +13,20 @@ SCRIPT_LOCATION = "smeshariki_ai.db:migrations"
 def upgrade(engine: AsyncEngine, revision: str = "head") -> None:
     """Upgrade the database; the engine is disposed afterwards."""
 
+    command.upgrade(_alembic_config(engine), revision)
+
+
+def _alembic_config(engine: AsyncEngine) -> AlembicConfig:
     alembic_config = AlembicConfig()
     alembic_config.set_main_option("script_location", SCRIPT_LOCATION)
     alembic_config.attributes["engine"] = engine
-    command.upgrade(alembic_config, revision)
+    return alembic_config
+
+
+def downgrade(engine: AsyncEngine, revision: str) -> None:
+    """Downgrade the database; the engine is disposed afterwards."""
+
+    command.downgrade(_alembic_config(engine), revision)
 
 
 def main(config: DatabaseConfig) -> None:

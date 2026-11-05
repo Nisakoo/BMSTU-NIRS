@@ -127,3 +127,27 @@ specs:
       status: done
     - name: admin-settings-password
       status: done
+    - name: auth-hardening
+      status: done
+    - name: dialog-ownership
+      status: done
+    - name: auth-rate-limit
+      status: done
+    - name: frontend-nginx-config
+      status: done
+    - name: dialog-history
+      status: done
+    - name: rag-architecture
+      status: done
+    - name: knowledge-catalog
+      status: done
+    - name: knowledge-postgres-store
+      status: done
+    - name: knowledge-hardening
+      status: done
+    - name: knowledge-load-json-output
+      status: done
+    - name: postgres-test-env
+      status: done
+    - name: knowledge-lookup-tool
+      status: done

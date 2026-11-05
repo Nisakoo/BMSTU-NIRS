@@ -89,12 +89,21 @@ resource завершает старт контролируемой ошибко
 | `LLM_NUM_RETRIES` | `llm.num_retries` | `0`, целое число не меньше нуля |
 | `LOG_LEVEL` | `logging.level` | `INFO`; `DEBUG`, `INFO`, `WARNING` или `ERROR` |
 | `LOG_FORMAT` | `logging.format` | `human`; `human` или `json` |
-| `AUTH_JWT_SECRET` | `auth.jwt_secret` | Обязательный секрет HS256 не короче 32 байт |
+| `AUTH_JWT_SECRET` | `auth.jwt_secret` | Обязательный секрет HS256 не короче 32 байт; значение с префиксом `replace-with-` отклоняется. В `docker/.env.example` пустой, ошибка не раскрывает значение |
 | `AUTH_ACCESS_TTL_SECONDS` | `auth.access_ttl_seconds` | `900`, целое число больше нуля |
 | `AUTH_REFRESH_TTL_SECONDS` | `auth.refresh_ttl_seconds` | `2592000` (30 дней), целое число больше нуля |
 | `AUTH_COOKIE_SECURE` | `auth.cookie_secure` | `false`; включать вместе с HTTPS |
+| `AUTH_LOGIN_MAX_FAILURES` | `auth.rate_limit.login_failures` | `5`, целое число больше нуля: неудачных входов пары «логин + IP» за окно |
+| `AUTH_LOGIN_FAILURE_WINDOW_SECONDS` | `auth.rate_limit.login_failure_window_seconds` | `900`, целое число больше нуля |
+| `AUTH_LOGIN_MAX_PER_IP` | `auth.rate_limit.login_per_ip` | `30`, целое число больше нуля: запросов `POST /auth/login` с IP за окно |
+| `AUTH_LOGIN_PER_IP_WINDOW_SECONDS` | `auth.rate_limit.login_per_ip_window_seconds` | `60`, целое число больше нуля |
+| `AUTH_REGISTER_MAX_PER_IP` | `auth.rate_limit.register_per_ip` | `10`, целое число больше нуля: запросов `POST /users` с IP за окно |
+| `AUTH_REGISTER_PER_IP_WINDOW_SECONDS` | `auth.rate_limit.register_per_ip_window_seconds` | `3600`, целое число больше нуля |
 | `DATABASE_URL` | `database.url` | Обязательный URL `postgresql+asyncpg://...` |
 | `REDIS_URL` | `redis.url` | Обязательный URL `redis://` или `rediss://` |
+
+Переменная `FORWARDED_ALLOW_IPS` не входит в `Config`: её читает Uvicorn
+(см. [доверие к `X-Forwarded-For`](./auth.md#ограничение-частоты-попыток)).
 
 Docker Compose загружает локальный `docker/.env` и передаёт значения процессу
 backend. Python-код не читает `.env` как файл и не использует
@@ -110,7 +119,8 @@ backend. Python-код не читает `.env` как файл и не испо
   настройки адаптера LiteLLM.
 - `LoggingConfig` принадлежит модулю `observability`; формат и поля описаны
   на [странице логирования](./logging.md).
-- `AuthConfig` принадлежит пакету [`auth`](./auth.md), `DatabaseConfig` —
+- `AuthConfig` (с вложенной `RateLimitConfig`) принадлежит пакету
+  [`auth`](./auth.md), `DatabaseConfig` —
   [`db`](./database.md), `RedisConfig` — `cache`. Bootstrap передаёт
   `AuthService` только `config.auth`, engine — только `config.database`,
   Redis-клиенту — только `config.redis`.

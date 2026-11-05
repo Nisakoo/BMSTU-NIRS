@@ -18,7 +18,10 @@ make run
 Перед первым запуском скопируйте `docker/.env.example` в `docker/.env`, выберите
 поддерживаемую LiteLLM модель в `LLM_MODEL` и при необходимости задайте
 `LLM_API_KEY` и `LLM_BASE_URL`. Также обязательны `AUTH_JWT_SECRET` (не короче
-32 байт, например `openssl rand -base64 48`) и `POSTGRES_PASSWORD`. Локальный `docker/.env` не отслеживается Git;
+32 байт; в шаблоне он пустой, сгенерируйте его командой
+`openssl rand -base64 48` — без него `make run` останавливается сообщением
+`Set AUTH_JWT_SECRET in docker/.env`, а значения с префиксом `replace-with-`
+backend отклоняет) и `POSTGRES_PASSWORD`. Локальный `docker/.env` не отслеживается Git;
 реальные секреты не должны попадать в `.env.example`.
 
 После запуска frontend доступен на `http://localhost:8080/`, demo-макет панели
@@ -28,6 +31,18 @@ make run
 порт. Compose публикует только порт Caddy на `127.0.0.1`; backend и Nginx
 доступны лишь внутри его сети. Локальный вход использует HTTP: публичный домен
 и HTTPS этим изменением не настроены.
+
+Лимиты попыток входа и регистрации (`AUTH_LOGIN_MAX_FAILURES`,
+`AUTH_LOGIN_FAILURE_WINDOW_SECONDS`, `AUTH_LOGIN_MAX_PER_IP`,
+`AUTH_LOGIN_PER_IP_WINDOW_SECONDS`, `AUTH_REGISTER_MAX_PER_IP`,
+`AUTH_REGISTER_PER_IP_WINDOW_SECONDS`) имеют значения по умолчанию в
+`.env.example` и описаны в [`docs/configuration.md`](../docs/configuration.md).
+Для определения IP клиента сеть Compose использует подсеть `172.31.250.0/24`,
+Caddy получает в ней фиксированный адрес `172.31.250.250`, а backend доверяет
+`X-Forwarded-For` только от него (`FORWARDED_ALLOW_IPS`). Если подсеть
+пересекается с вашей локальной сетью Docker, измените её и адрес в
+`compose.yaml` согласованно. Без Docker Uvicorn по умолчанию доверяет только
+`127.0.0.1`.
 
 Backend использует LiteLLM Python SDK внутри своего процесса. `LLM_MODEL`
 обязателен. Таймаут одного запроса задаётся `LLM_TIMEOUT_SECONDS` (по умолчанию
@@ -98,12 +113,46 @@ curl -i -X POST http://localhost:8080/api/v1/dialogs/<dialog_id>/messages \
   Caddy;
 - `Dockerfile` — Python 3.12 образ backend с зависимостями из `backend/uv.lock`;
 - `frontend.Dockerfile` — Node.js 22 build frontend и runtime Nginx;
+- `nginx.conf` — конфиг Nginx: относительные редиректы на каталог
+  (`absolute_redirect off`, `/login` → `/login/` без потери порта Caddy),
+  `Cache-Control: no-cache` для HTML и `immutable` для хешированных
+  `/assets/`; несуществующие пути — `404` без SPA fallback
+  ([spec](../specs/changes/frontend-nginx-config/spec.md),
+  [verification](../specs/changes/frontend-nginx-config/verification.md));
 - `Caddyfile` — маршруты `/api` к backend и остальных запросов к Nginx;
 - `.env.example` — несекретный шаблон порта, агента, LiteLLM-провайдера, логов,
   аутентификации и PostgreSQL.
+- `compose.test.yaml` и `test-integration.sh` — временные PostgreSQL и Redis
+  для `make test-integration`.
 
 `make frontend` по-прежнему запускает отдельный Vite dev server при разработке;
 для основного запуска он не нужен.
+
+## Интеграционные тесты
+
+`make test` не требует Docker и пропускает тесты PostgreSQL и Redis. Полный
+backend-набор на настоящих хранилищах запускает команда:
+
+```sh
+make test-integration
+make test-integration PYTEST_ARGS="backend/tests/integration/rag -x"
+```
+
+Команда поднимает отдельный Compose-проект `smeshariki-ai-test` из
+`compose.test.yaml` (`postgres:17-alpine` и `redis:7-alpine`), ждёт
+healthcheck и запускает pytest на хосте через `uv` с `TEST_DATABASE_URL` и
+`TEST_REDIS_URL`. Проект не читает `docker/.env`, не использует тома и сеть
+основного стека и может работать рядом с `make run`. Порты выбираются Docker
+динамически и публикуются только на `127.0.0.1`; данные хранятся в `tmpfs`
+(PostgreSQL — до 512 МБ), поэтому каждый запуск начинается с пустой БД и не
+пишет на диск. Учётные данные фиксированные тестовые (`test`/`test`).
+
+`PYTEST_ARGS` заменяет аргументы pytest (по умолчанию `backend`). Код
+возврата — код pytest. Контейнеры, сеть и тома проекта удаляются после
+успеха, падения, ошибки запуска и `Ctrl+C`, а остатки прерванного запуска —
+перед стартом. Без Docker команда завершается с ошибкой и pytest не
+запускает. Подробности — в
+[`spec.md`](../specs/changes/postgres-test-env/spec.md).
 
 RAG остаётся будущим внутренним инструментом backend и пока не добавлен в
 Compose.

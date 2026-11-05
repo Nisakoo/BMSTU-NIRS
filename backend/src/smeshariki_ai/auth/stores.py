@@ -78,10 +78,14 @@ class RefreshSessionStore(ABC):
     async def revoke_user_sessions(
         self,
         user_id: UUID,
-        keep_session_id: UUID,
+        keep_family_id: UUID,
         now: datetime,
-    ) -> None:
-        """Revoke every active session of a user except ``keep_session_id``."""
+    ) -> set[UUID]:
+        """Revoke active sessions of a user outside ``keep_family_id``.
+
+        Returns the families that lost a session, so their access tokens can be
+        rejected as well.
+        """
 
 
 class TokenBlacklist(ABC):
@@ -92,3 +96,31 @@ class TokenBlacklist(ABC):
     @abstractmethod
     async def contains(self, jti: str) -> bool:
         """Return whether the access token was revoked."""
+
+    @abstractmethod
+    async def revoke_family(self, family_id: UUID, until: datetime) -> None:
+        """Reject every access token of a session family until ``until``."""
+
+    @abstractmethod
+    async def family_revoked(self, family_id: UUID) -> bool:
+        """Return whether the session family was revoked."""
+
+
+class AttemptLimiter(ABC):
+    """Fixed-window counters keyed by opaque strings built by the service."""
+
+    @abstractmethod
+    async def hit(self, key: str, limit: int, window_seconds: int) -> int | None:
+        """Count one request; return seconds until the window ends if over ``limit``."""
+
+    @abstractmethod
+    async def blocked(self, key: str, limit: int) -> int | None:
+        """Return seconds until the window ends if failures reached ``limit``."""
+
+    @abstractmethod
+    async def record_failure(self, key: str, window_seconds: int) -> None:
+        """Count one failure; the window starts at the first failure."""
+
+    @abstractmethod
+    async def reset(self, key: str) -> None:
+        """Forget the counter of ``key``."""

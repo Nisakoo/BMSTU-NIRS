@@ -1,3 +1,4 @@
+import "./no-web-locks.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -1937,6 +1938,7 @@ test("every other password answer gets its own message", async () => {
   const cases = [
     [{ status: 422, body: { error: "same_password" } }, "Новый пароль совпадает с текущим"],
     [{ status: 422, body: { error: "invalid_fields" } }, "Пароль должен быть от 8 до 128 символов"],
+    [{ status: 429, body: { error: "too_many_attempts" } }, "Слишком много попыток. Попробуйте позже"],
     [{ status: 503, body: { error: "unavailable" } }, "Не удалось сменить пароль. Попробуйте ещё раз"],
     [{ status: 500 }, "Не удалось сменить пароль. Попробуйте ещё раз"],
     [new TypeError("Failed to fetch"), "Не удалось сменить пароль. Попробуйте ещё раз"],

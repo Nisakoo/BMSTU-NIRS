@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequence
 from contextlib import asynccontextmanager, contextmanager
 from datetime import UTC, datetime
@@ -9,6 +10,7 @@ from uuid import UUID
 
 from fastapi import (
     APIRouter,
+    Cookie,
     Depends,
     FastAPI,
     HTTPException,
@@ -23,7 +25,12 @@ from pydantic import BaseModel, ValidationError
 from smeshariki_ai.admin import AdminReportsService, AdminStatsService
 from smeshariki_ai.agent import UserRequest
 from smeshariki_ai.api.admin import install_admin
-from smeshariki_ai.api.auth import current_user, install_auth, install_auth_errors
+from smeshariki_ai.api.auth import (
+    ACCESS_COOKIE,
+    current_user,
+    install_auth,
+    install_auth_errors,
+)
 from smeshariki_ai.api.schemas import (
     DialogListResponse,
     DialogMessageResponse,
@@ -38,20 +45,28 @@ from smeshariki_ai.api.schemas import (
     StartDialogResponse,
     SubmitMessageRequest,
 )
+from smeshariki_ai.api.security import ForbiddenOriginMiddleware, has_json_body
 from smeshariki_ai.application import (
     AgentService,
     AgentServiceUnavailableError,
     DialogEvent,
     DialogEventType,
 )
-from smeshariki_ai.auth import AuthService, User
+from smeshariki_ai.auth import (
+    AuthService,
+    AuthUnavailableError,
+    UnauthorizedError,
+    User,
+)
 from smeshariki_ai.dialogs import (
     DialogNotFoundError,
     DialogStoreUnavailableError,
     MessageNotFoundError,
     ReportExistsError,
 )
-from smeshariki_ai.observability import RequestLogMiddleware
+from smeshariki_ai.observability import RequestLogMiddleware, log_event
+
+logger = logging.getLogger(__name__)
 
 CurrentUser = Annotated[User, Depends(current_user)]
 
@@ -83,6 +98,8 @@ def create_app(
                 await close()
 
     app = FastAPI(title="smeshariki-ai", lifespan=lifespan)
+    # Added first, so it runs inside the request log and its 403 is logged.
+    app.add_middleware(ForbiddenOriginMiddleware)
     app.add_middleware(RequestLogMiddleware)
     app.state.agent_service = agent_service
     install_auth_errors(app)
@@ -254,7 +271,10 @@ def create_app(
 
     @router.get("/dialogs/{dialog_id}/events")
     async def stream_dialog_events(
-        user: CurrentUser, dialog_id: UUID
+        user: CurrentUser,
+        dialog_id: UUID,
+        request: Request,
+        access_token: Annotated[str | None, Cookie(alias=ACCESS_COOKIE)] = None,
     ) -> StreamingResponse:
         with _dialog_errors():
             subscription = await agent_service.subscribe(user.id, dialog_id)
@@ -272,6 +292,13 @@ def create_app(
                             timeout=heartbeat_seconds,
                         )
                     except TimeoutError:
+                        # The router dependency guarantees the service and token.
+                        if not await _session_is_active(
+                            request.app.state.auth_service,
+                            access_token or "",
+                            dialog_id,
+                        ):
+                            return
                         yield ": keep-alive\n\n"
                         continue
 
@@ -323,9 +350,37 @@ def _utc(value: datetime) -> datetime:
     return value.astimezone(UTC)
 
 
+async def _session_is_active(
+    auth_service: AuthService, access_token: str, dialog_id: UUID
+) -> bool:
+    """Re-check the session of an open stream; ``exp`` is deliberately ignored."""
+
+    try:
+        await auth_service.verify_session(access_token)
+    except UnauthorizedError:
+        outcome = "revoked"
+    except AuthUnavailableError:
+        outcome = "unavailable"
+    else:
+        return True
+    log_event(
+        logger,
+        logging.INFO,
+        "dialog.subscription.revoked",
+        dialog_id=str(dialog_id),
+        outcome=outcome,
+    )
+    return False
+
+
 async def _read_body[Body: BaseModel](request: Request, model: type[Body]) -> Body:
     # Parsed here rather than by FastAPI, which rejects malformed JSON before
     # running the authentication dependency.
+    if not has_json_body(request):
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Unsupported media type.",
+        )
     try:
         return model.model_validate_json(await request.body())
     except ValidationError as error:

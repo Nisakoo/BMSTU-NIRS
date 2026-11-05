@@ -1,3 +1,4 @@
+import "./no-web-locks.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -240,6 +241,8 @@ test("API errors show a message, keep the login and clear passwords", async () =
     ["register", "login_taken", "Этот логин уже занят"],
     ["login", "invalid_credentials", "Неверный логин или пароль"],
     ["login", "invalid_fields", "Проверьте логин и пароль"],
+    ["login", "too_many_attempts", "Слишком много попыток. Попробуйте позже"],
+    ["register", "too_many_attempts", "Слишком много попыток. Попробуйте позже"],
     ["login", "unavailable", "Сервис временно недоступен. Попробуйте позже"],
     ["login", "invalid_response", "Сервис временно недоступен. Попробуйте позже"],
   ];

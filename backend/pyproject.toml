@@ -16,6 +16,7 @@ dependencies = [
     "litellm>=1.101.0,<2",
     "pydantic>=2.13.5,<3",
     "pyjwt>=2.15.1,<3",
+    "pyyaml>=6.0.3,<7",
     "redis>=8.1.0,<9",
     "sqlalchemy[asyncio]>=2.1.4,<3",
     "uvicorn>=0.52.4,<1",

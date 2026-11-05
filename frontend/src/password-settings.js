@@ -10,6 +10,7 @@ const PASSWORD_ERRORS = {
   wrong_password: "Неверный текущий пароль",
   same_password: PASSWORD_SAME_ERROR,
   invalid_fields: PASSWORD_LENGTH_ERROR,
+  too_many_attempts: "Слишком много попыток. Попробуйте позже",
 };
 const PASSWORD_FAILED = "Не удалось сменить пароль. Попробуйте ещё раз";
 const PASSWORD_CHANGED = "Пароль изменён. На других устройствах нужно войти заново";
