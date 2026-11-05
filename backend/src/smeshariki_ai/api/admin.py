@@ -18,6 +18,7 @@ from smeshariki_ai.admin import (
     UserStats,
 )
 from smeshariki_ai.api.auth import AuthHTTPError, current_admin, unavailable
+from smeshariki_ai.api.schemas import DbIdPath
 from smeshariki_ai.auth import User
 
 # The role check runs before query validation, so guests get 401 and users 403.
@@ -80,7 +81,7 @@ async def list_reports(
 )
 async def set_report_status(
     request: Request,
-    report_id: int,
+    report_id: DbIdPath,
     body: ReportStatusRequest,
     admin: Annotated[User, Depends(current_admin)],
 ) -> Response:

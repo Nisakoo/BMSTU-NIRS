@@ -139,6 +139,10 @@ async def test_only_own_answers_can_be_rated(case: str) -> None:
     ("message_id", "body"),
     [
         ("abc", {"score": 3}),
+        ("0", {"score": 3}),
+        ("-1", {"score": 3}),
+        (str(2**63), {"score": 3}),
+        ("99999999999999999999", {"score": 3}),
         ("{answer}", {"score": 0}),
         ("{answer}", {"score": 6}),
         ("{answer}", {"score": 2.5}),
@@ -157,6 +161,19 @@ async def test_invalid_feedback_returns_422(message_id: str, body: object) -> No
         response = await http.put(
             url(dialog_id, message_id.format(answer=answer_id)), json=body
         )
+
+    assert response.status_code == 422
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("message_id", ["0", str(2**63)])
+async def test_out_of_range_message_id_is_422_without_storage(message_id: str) -> None:
+    # The store would answer 503, so a 422 proves it was never called.
+    service, dialog_id, _, _ = await prepared(UnavailableFeedbackStore())
+
+    async with client(service) as http:
+        response = await http.delete(url(dialog_id, message_id))
 
     assert response.status_code == 422
     await service.shutdown()

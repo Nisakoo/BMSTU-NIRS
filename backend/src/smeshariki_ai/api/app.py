@@ -32,6 +32,7 @@ from smeshariki_ai.api.auth import (
     install_auth_errors,
 )
 from smeshariki_ai.api.schemas import (
+    DbIdPath,
     DialogListResponse,
     DialogMessageResponse,
     DialogMessagesResponse,
@@ -203,7 +204,7 @@ def create_app(
         response_class=Response,
     )
     async def set_feedback(
-        user: CurrentUser, dialog_id: UUID, message_id: int, request: Request
+        user: CurrentUser, dialog_id: UUID, message_id: DbIdPath, request: Request
     ) -> Response:
         body = await _read_body(request, FeedbackRequest)
         with _dialog_errors():
@@ -216,7 +217,7 @@ def create_app(
         response_class=Response,
     )
     async def clear_feedback(
-        user: CurrentUser, dialog_id: UUID, message_id: int
+        user: CurrentUser, dialog_id: UUID, message_id: DbIdPath
     ) -> Response:
         with _dialog_errors():
             await agent_service.clear_feedback(user.id, dialog_id, message_id)
@@ -228,7 +229,7 @@ def create_app(
         response_model=ReportResponse,
     )
     async def report_message(
-        user: CurrentUser, dialog_id: UUID, message_id: int, request: Request
+        user: CurrentUser, dialog_id: UUID, message_id: DbIdPath, request: Request
     ) -> ReportResponse:
         body = await _read_body(request, ReportRequest)
         with _dialog_errors():

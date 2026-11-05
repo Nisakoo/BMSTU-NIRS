@@ -248,6 +248,8 @@ async def test_unknown_report_is_404(
     [
         ("GET", "/api/v1/admin/reports?status=open", None),
         ("PATCH", "/api/v1/admin/reports/abc", {"status": "resolved"}),
+        ("PATCH", "/api/v1/admin/reports/0", {"status": "resolved"}),
+        ("PATCH", f"/api/v1/admin/reports/{2**63}", {"status": "resolved"}),
         ("PATCH", "/api/v1/admin/reports/1", {"status": "closed"}),
         ("PATCH", "/api/v1/admin/reports/1", {}),
         ("PATCH", "/api/v1/admin/reports/1", {"status": "new", "extra": 1}),

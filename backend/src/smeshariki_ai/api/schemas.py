@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
+from fastapi import Path
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -24,6 +25,11 @@ from smeshariki_ai.dialogs import (
 )
 
 RequestText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+# Message and report ids are PostgreSQL BIGINT identities.
+MAX_DB_ID = 2**63 - 1
+DbId = Annotated[StrictInt, Field(ge=1, le=MAX_DB_ID)]
+DbIdPath = Annotated[int, Path(ge=1, le=MAX_DB_ID)]
 
 
 class ApiModel(BaseModel):
@@ -114,6 +120,4 @@ class ReportNewsResponse(ApiModel):
 
 
 class ReportNewsSeenRequest(ApiModel):
-    report_ids: Annotated[
-        list[StrictInt], Field(min_length=1, max_length=REPORT_NEWS_LIMIT)
-    ]
+    report_ids: Annotated[list[DbId], Field(min_length=1, max_length=REPORT_NEWS_LIMIT)]

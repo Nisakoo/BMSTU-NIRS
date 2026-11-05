@@ -151,3 +151,5 @@ specs:
       status: done
     - name: knowledge-lookup-tool
       status: done
+    - name: dialog-history-repair
+      status: done

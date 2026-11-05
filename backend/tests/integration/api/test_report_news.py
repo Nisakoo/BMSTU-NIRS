@@ -180,6 +180,8 @@ async def test_new_story_has_no_report_and_no_news() -> None:
         {"report_ids": ["1"]},
         {"report_ids": [1.5]},
         {"report_ids": [True]},
+        {"report_ids": [0]},
+        {"report_ids": [2**63]},
         {"report_ids": [1], "extra": 1},
     ],
 )

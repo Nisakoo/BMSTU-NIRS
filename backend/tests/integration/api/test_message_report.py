@@ -200,6 +200,8 @@ async def test_report_on_missing_dialog_is_404() -> None:
     ("message_id", "body"),
     [
         ("abc", {"reason": "rude"}),
+        ("0", {"reason": "rude"}),
+        (str(2**63), {"reason": "rude"}),
         ("{answer}", {"reason": "boring"}),
         ("{answer}", {"reason": None}),
         ("{answer}", {}),
