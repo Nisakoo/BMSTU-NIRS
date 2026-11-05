@@ -45,6 +45,22 @@ class InMemoryUserStore(UserStore):
             record = self._users.get(user_id)
             return None if record is None else record.user
 
+    async def get_password_hash(self, user_id: UUID) -> str | None:
+        async with self._lock:
+            record = self._users.get(user_id)
+            return None if record is None else record.password_hash
+
+    async def set_password_hash(
+        self,
+        user_id: UUID,
+        password_hash: str,
+        updated_at: datetime,
+    ) -> None:
+        async with self._lock:
+            record = self._users.get(user_id)
+            if record is not None:
+                self._users[user_id] = replace(record, password_hash=password_hash)
+
     def set_role(self, user_id: UUID, role: Role) -> None:
         record = self._users[user_id]
         self._users[user_id] = replace(record, user=replace(record.user, role=role))
@@ -99,6 +115,21 @@ class InMemoryRefreshSessionStore(RefreshSessionStore):
         async with self._lock:
             for session_id, session in self._sessions.items():
                 if session.family_id == family_id and session.revoked_at is None:
+                    self._sessions[session_id] = replace(session, revoked_at=now)
+
+    async def revoke_user_sessions(
+        self,
+        user_id: UUID,
+        keep_session_id: UUID,
+        now: datetime,
+    ) -> None:
+        async with self._lock:
+            for session_id, session in self._sessions.items():
+                if (
+                    session.user_id == user_id
+                    and session_id != keep_session_id
+                    and session.revoked_at is None
+                ):
                     self._sessions[session_id] = replace(session, revoked_at=now)
 
 

@@ -10,8 +10,10 @@ from smeshariki_ai.auth.models import (
     IssuedTokens,
     RefreshSession,
     Role,
+    SamePasswordError,
     UnauthorizedError,
     User,
+    WrongPasswordError,
 )
 from smeshariki_ai.auth.passwords import Argon2PasswordHasher
 from smeshariki_ai.auth.stores import RefreshSessionStore, TokenBlacklist, UserStore
@@ -82,6 +84,43 @@ class AuthService:
         if user is None:
             raise UnauthorizedError
         return user
+
+    async def change_password(
+        self,
+        access_token: str,
+        current_password: str,
+        new_password: str,
+    ) -> None:
+        """Replace the password and sign out every other session of the user.
+
+        The current password is checked before the new one is compared to it,
+        so ``SamePasswordError`` never confirms an unverified guess.
+        """
+
+        now = self._clock()
+        claims = self._codec.decode_access(access_token, now)
+        if await self._blacklist.contains(claims.jti):
+            raise UnauthorizedError
+        password_hash = await self._users.get_password_hash(claims.user_id)
+        if password_hash is None:
+            raise UnauthorizedError
+        if not await self._hasher.verify(password_hash, current_password):
+            self._log_rejected("auth.password.rejected", claims.user_id)
+            raise WrongPasswordError
+        if new_password == current_password:
+            raise SamePasswordError
+
+        new_hash = await self._hasher.hash(new_password)
+        await self._users.set_password_hash(claims.user_id, new_hash, now)
+        await self._sessions.revoke_user_sessions(
+            claims.user_id, claims.session_id, now
+        )
+        log_event(
+            logger,
+            logging.INFO,
+            "auth.password.changed",
+            user_id=str(claims.user_id),
+        )
 
     async def refresh(self, refresh_token: str) -> AuthResult:
         now = self._clock()

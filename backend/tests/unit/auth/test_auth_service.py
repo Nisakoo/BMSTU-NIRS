@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -14,7 +15,9 @@ from smeshariki_ai.auth import (
     InvalidCredentialsError,
     LoginTakenError,
     Role,
+    SamePasswordError,
     UnauthorizedError,
+    WrongPasswordError,
 )
 
 SECRET = "test-secret-with-at-least-32-bytes!!"
@@ -284,3 +287,106 @@ async def test_unavailable_blacklist_fails_closed(
         await service.authenticate(tokens.access_token)
     with pytest.raises(AuthUnavailableError):
         await service.logout(tokens.access_token, None)
+
+
+async def test_change_password_replaces_hash_for_later_logins(
+    clock: Clock,
+    sessions: InMemoryRefreshSessionStore,
+    hasher: CountingHasher,
+) -> None:
+    users = InMemoryUserStore()
+    service = make_service(clock, sessions, hasher, users=users)
+    user = await service.register("Krosh", "password123")
+    tokens = (await service.login("Krosh", "password123")).tokens
+
+    await service.change_password(tokens.access_token, "password123", "carrot-456")
+
+    with pytest.raises(InvalidCredentialsError):
+        await service.login("Krosh", "password123")
+    assert (await service.login("Krosh", "carrot-456")).user == user
+    stored = await users.get_by_login("Krosh")
+    assert stored is not None
+    assert stored.password_hash.startswith("$argon2id$")
+    assert "carrot-456" not in stored.password_hash
+
+
+async def test_change_password_keeps_current_session_and_revokes_others(
+    service: AuthService,
+    clock: Clock,
+) -> None:
+    await service.register("Krosh", "password123")
+    await service.register("Nyusha", "password123")
+    current = (await service.login("Krosh", "password123")).tokens
+    other = (await service.login("Krosh", "password123")).tokens
+    stranger = (await service.login("Nyusha", "password123")).tokens
+
+    await service.change_password(current.access_token, "password123", "carrot-456")
+
+    clock.advance(minutes=1)
+    assert (await service.refresh(current.refresh_token)).user.login == "Krosh"
+    with pytest.raises(UnauthorizedError):
+        await service.refresh(other.refresh_token)
+    assert (await service.refresh(stranger.refresh_token)).user.login == "Nyusha"
+
+
+async def test_change_password_rejects_wrong_current_password(
+    service: AuthService,
+) -> None:
+    await service.register("Krosh", "password123")
+    current = (await service.login("Krosh", "password123")).tokens
+    other = (await service.login("Krosh", "password123")).tokens
+
+    with pytest.raises(WrongPasswordError):
+        await service.change_password(current.access_token, "wrong-pass", "carrot-456")
+
+    assert (await service.login("Krosh", "password123")).user.login == "Krosh"
+    assert (await service.refresh(other.refresh_token)).user.login == "Krosh"
+
+
+async def test_change_password_rejects_the_same_password_after_checking_it(
+    service: AuthService,
+) -> None:
+    await service.register("Krosh", "password123")
+    tokens = (await service.login("Krosh", "password123")).tokens
+
+    with pytest.raises(WrongPasswordError):
+        await service.change_password(tokens.access_token, "wrong-pass", "wrong-pass")
+    with pytest.raises(SamePasswordError):
+        await service.change_password(tokens.access_token, "password123", "password123")
+
+
+async def test_change_password_requires_a_valid_access_token(
+    service: AuthService,
+) -> None:
+    await service.register("Krosh", "password123")
+    tokens = (await service.login("Krosh", "password123")).tokens
+    await service.logout(tokens.access_token, None)
+
+    for token in (tokens.access_token, "garbage"):
+        with pytest.raises(UnauthorizedError):
+            await service.change_password(token, "password123", "carrot-456")
+
+
+async def test_change_password_logs_events_without_passwords(
+    service: AuthService,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    user = await service.register("Krosh", "password123")
+    tokens = (await service.login("Krosh", "password123")).tokens
+
+    with caplog.at_level(logging.INFO, logger="smeshariki_ai"):
+        with pytest.raises(WrongPasswordError):
+            await service.change_password(tokens.access_token, "wrong-pass", "x" * 8)
+        await service.change_password(tokens.access_token, "password123", "carrot-456")
+
+    events = {getattr(record, "event", None): record for record in caplog.records}
+    assert "auth.password.rejected" in events
+    assert "auth.password.changed" in events
+    for record in caplog.records:
+        rendered = f"{record.getMessage()} {record.__dict__}"
+        for secret in ("password123", "wrong-pass", "carrot-456", "$argon2id$"):
+            assert secret not in rendered
+    assert events["auth.password.changed"].log_fields["user_id"] == str(user.id)
+    rejected = events["auth.password.rejected"].log_fields
+    assert rejected["user_id"] == str(user.id)
+    assert rejected["outcome"] == "rejected"

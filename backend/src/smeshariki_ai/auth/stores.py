@@ -31,6 +31,19 @@ class UserStore(ABC):
     async def get_by_id(self, user_id: UUID) -> User | None:
         """Return the current state of a user."""
 
+    @abstractmethod
+    async def get_password_hash(self, user_id: UUID) -> str | None:
+        """Return the stored password hash of a user, if the user exists."""
+
+    @abstractmethod
+    async def set_password_hash(
+        self,
+        user_id: UUID,
+        password_hash: str,
+        updated_at: datetime,
+    ) -> None:
+        """Replace the password hash of an existing user."""
+
 
 class RefreshSessionStore(ABC):
     @abstractmethod
@@ -60,6 +73,15 @@ class RefreshSessionStore(ABC):
     @abstractmethod
     async def revoke_family(self, family_id: UUID, now: datetime) -> None:
         """Revoke every active session of a rotation family."""
+
+    @abstractmethod
+    async def revoke_user_sessions(
+        self,
+        user_id: UUID,
+        keep_session_id: UUID,
+        now: datetime,
+    ) -> None:
+        """Revoke every active session of a user except ``keep_session_id``."""
 
 
 class TokenBlacklist(ABC):
