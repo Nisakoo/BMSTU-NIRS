@@ -455,3 +455,177 @@ async def test_cookie_secure_flag_follows_config(
     for headers in (set_cookie_headers(response), set_cookie_headers(logout)):
         assert "; secure" in headers["access_token"].lower()
         assert "; secure" in headers["refresh_token"].lower()
+
+
+PASSWORD_ROUTE = "/api/v1/users/me/password"
+NEW_PASSWORD = "carrot-456"
+
+
+async def change_password(
+    client: httpx.AsyncClient, current: str = PASSWORD, new: str = NEW_PASSWORD
+) -> httpx.Response:
+    return await client.put(
+        PASSWORD_ROUTE, json={"current_password": current, "new_password": new}
+    )
+
+
+async def test_change_password_switches_login_to_the_new_password(
+    client: httpx.AsyncClient,
+) -> None:
+    await register_and_login(client)
+
+    response = await change_password(client)
+    old = await client.post(
+        "/api/v1/auth/login", json={"login": "Krosh", "password": PASSWORD}
+    )
+    new = await client.post(
+        "/api/v1/auth/login", json={"login": "Krosh", "password": NEW_PASSWORD}
+    )
+
+    assert response.status_code == 204
+    assert response.content == b""
+    assert "set-cookie" not in response.headers
+    assert old.status_code == 401
+    assert old.json() == {"error": "invalid_credentials"}
+    assert new.status_code == 200
+
+
+async def test_change_password_signs_out_other_sessions_only(
+    client: httpx.AsyncClient,
+) -> None:
+    other = (await register_and_login(client)).cookies["refresh_token"]
+    await client.post(
+        "/api/v1/auth/login", json={"login": "Krosh", "password": PASSWORD}
+    )
+
+    assert (await change_password(client)).status_code == 204
+    assert (await client.get("/api/v1/users/me")).status_code == 200
+    assert (await client.post("/api/v1/auth/refresh")).status_code == 200
+
+    client.cookies.clear()
+    client.cookies.set("refresh_token", other, path="/api/v1/auth")
+    stale = await client.post("/api/v1/auth/refresh")
+    assert stale.status_code == 401
+    assert stale.json() == {"error": "unauthorized"}
+
+
+async def test_change_password_rejects_wrong_current_password(
+    client: httpx.AsyncClient,
+) -> None:
+    await register_and_login(client)
+
+    response = await change_password(client, current="wrong-pass")
+    login = await client.post(
+        "/api/v1/auth/login", json={"login": "Krosh", "password": PASSWORD}
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"error": "wrong_password"}
+    assert login.status_code == 200
+
+
+async def test_change_password_rejects_the_same_password(
+    client: httpx.AsyncClient,
+) -> None:
+    await register_and_login(client)
+
+    response = await change_password(client, new=PASSWORD)
+
+    assert response.status_code == 422
+    assert response.json() == {"error": "same_password"}
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b"",
+        b"{broken",
+        b'{"current_password":"password123"}',
+        b'{"current_password":"password123","new_password":"short"}',
+        b'{"current_password":"password123","new_password":"' + b"x" * 129 + b'"}',
+        b'{"current_password":"password123","new_password":12345678}',
+        b'{"current_password":"password123","new_password":"carrot-456","x":1}',
+    ],
+)
+async def test_change_password_invalid_body_returns_422_without_echo(
+    client: httpx.AsyncClient,
+    body: bytes,
+) -> None:
+    await register_and_login(client)
+
+    response = await client.put(
+        PASSWORD_ROUTE, content=body, headers={"Content-Type": "application/json"}
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"error": "invalid_fields"}
+
+
+async def test_change_password_requires_session_before_validation(
+    client: httpx.AsyncClient,
+) -> None:
+    response = await client.put(PASSWORD_ROUTE, content=b"{broken")
+
+    assert response.status_code == 401
+    assert response.json() == {"error": "unauthorized"}
+
+
+async def test_change_password_fails_closed_when_storage_is_unavailable(
+    client: httpx.AsyncClient,
+    blacklist: SwitchableBlacklist,
+) -> None:
+    await register_and_login(client)
+    blacklist.available = False
+
+    response = await change_password(client)
+
+    assert response.status_code == 503
+    assert response.json() == {"error": "unavailable"}
+    blacklist.available = True
+    login = await client.post(
+        "/api/v1/auth/login", json={"login": "Krosh", "password": PASSWORD}
+    )
+    assert login.status_code == 200
+
+
+async def test_change_password_logs_no_passwords(
+    client: httpx.AsyncClient,
+    log_output: StringIO,
+) -> None:
+    await register_and_login(client)
+
+    await change_password(client, current="wrong-pass")
+    await change_password(client)
+
+    logs = log_output.getvalue()
+    assert "auth.password.rejected" in logs
+    assert "auth.password.changed" in logs
+    for secret in (PASSWORD, "wrong-pass", NEW_PASSWORD, "$argon2id$"):
+        assert secret not in logs
+
+
+async def test_change_password_requires_a_json_body(client: httpx.AsyncClient) -> None:
+    await register_and_login(client)
+
+    response = await client.put(
+        PASSWORD_ROUTE,
+        content=b'{"current_password":"password123","new_password":"carrot-456"}',
+        headers={"Content-Type": "text/plain"},
+    )
+
+    assert response.status_code == 415
+    assert response.json() == {"error": "unsupported_media_type"}
+
+
+async def test_change_password_limits_wrong_current_passwords(
+    client: httpx.AsyncClient,
+) -> None:
+    await register_and_login(client)
+    for _ in range(5):
+        assert (await change_password(client, current="wrong-pass")).status_code == 400
+
+    blocked = await change_password(client)
+
+    assert blocked.status_code == 429
+    assert blocked.json() == {"error": "too_many_attempts"}
+    assert int(blocked.headers["Retry-After"]) > 0

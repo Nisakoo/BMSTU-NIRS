@@ -22,10 +22,12 @@
         <a href="#overview" data-admin-nav aria-current="location"><span aria-hidden="true">◈</span>Обзор</a>
         <a href="#activity" data-admin-nav><span aria-hidden="true">⌁</span>Активность</a>
         <a href="#users" data-admin-nav><span aria-hidden="true">◎</span>Пользователи</a>
+        <a href="#reports" data-admin-nav><span aria-hidden="true">⚑</span>Жалобы<b class="adm-nav-badge" id="adminReportsBadge" hidden></b></a>
       </nav>
 
       <div class="adm-sidebar-foot">
-        <a class="adm-chat-link" href="/">Открыть пользовательский чат <span aria-hidden="true">↗</span></a>
+        <a class="adm-chat-link" href="/">Пользовательский чат <span aria-hidden="true">↗</span></a>
+        <button class="adm-settings-button" id="adminSettingsButton" type="button" aria-haspopup="dialog" aria-controls="adminSettings" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>Настройки</button>
         <button class="adm-logout" id="adminLogout" type="button">Выйти</button>
         <p class="adm-logout-error" id="adminLogoutError" role="alert" hidden></p>
       </div>
@@ -35,7 +37,7 @@
       <header class="adm-topbar">
         <div>
           <p class="adm-eyebrow">Центр управления</p>
-          <h1>Добрый вечер, администратор</h1>
+          <h1 id="adminGreeting">Здравствуйте</h1>
           <p class="adm-lead">Следите за активностью аудитории и качеством работы агента.</p>
         </div>
       </header>
@@ -73,7 +75,6 @@
                 <p class="adm-section-kicker">Динамика</p>
                 <h2 id="activityTitle">Активность диалогов</h2>
               </div>
-              <span class="adm-agent-demo" title="Статистика агента пока не сохраняется">демо-данные</span>
             </div>
             <div class="adm-chart" id="adminActivity" aria-hidden="true"></div>
             <p class="adm-sr-only" id="adminChartDescription"></p>
@@ -85,12 +86,10 @@
                 <p class="adm-section-kicker">Состояние агента</p>
                 <h2 id="qualityTitle">Качество ответов</h2>
               </div>
-              <span class="adm-agent-demo" title="Статистика агента пока не сохраняется">демо-данные</span>
             </div>
             <div class="adm-quality" id="adminQuality"></div>
           </section>
         </div>
-        <p class="adm-demo-hint">Диалоги, сообщения, активность и качество ответов показаны на демо-данных: статистика агента пока не сохраняется.</p>
 
         <section class="adm-panel adm-users-panel" id="users" aria-labelledby="usersTitle">
           <div class="adm-panel-heading">
@@ -101,9 +100,26 @@
             <span class="adm-caption">по последней активности</span>
           </div>
           <div class="adm-user-head" aria-hidden="true">
-            <span>Пользователь</span><span>Активность</span><span>Диалоги</span><span>Статус</span>
+            <span>Пользователь</span><span>Активность</span><span>Диалоги</span><span>Регистрация</span>
           </div>
           <div class="adm-users" id="adminUsers" role="list"></div>
+        </section>
+
+        <section class="adm-panel adm-reports-panel" id="reports" aria-labelledby="reportsTitle">
+          <div class="adm-panel-heading">
+            <div>
+              <p class="adm-section-kicker">Безопасность</p>
+              <h2 id="reportsTitle">Жалобы на ответы</h2>
+            </div>
+            <div class="adm-periods adm-report-filters" role="group" aria-label="Статус жалоб">
+              <button type="button" data-report-filter="new" aria-pressed="true">Новые</button>
+              <button type="button" data-report-filter="resolved" aria-pressed="false">Рассмотренные</button>
+              <button type="button" data-report-filter="dismissed" aria-pressed="false">Отклонённые</button>
+              <button type="button" data-report-filter="all" aria-pressed="false">Все</button>
+            </div>
+          </div>
+          <p class="adm-reports-error" id="adminReportsError" role="alert" hidden></p>
+          <div class="adm-reports" id="adminReports" role="list"></div>
         </section>
       </div>
 
@@ -111,6 +127,29 @@
         <p class="adm-error">Для отображения панели необходим JavaScript.</p>
       </noscript>
     </main>
+  </div>
+
+  <div class="adm-settings" id="adminSettings" hidden>
+    <div class="adm-settings-card" role="dialog" aria-modal="true" aria-labelledby="adminSettingsTitle">
+      <div class="adm-settings-head">
+        <h2 id="adminSettingsTitle">Настройки</h2>
+        <button class="adm-settings-close" id="adminSettingsClose" type="button" aria-label="Закрыть" title="Закрыть">×</button>
+      </div>
+      <form class="adm-password" id="adminPasswordForm" novalidate>
+        <h3 class="adm-password-title">Сменить пароль</h3>
+        <label class="adm-password-field">Текущий пароль
+          <input id="adminCurrentPassword" type="password" autocomplete="current-password" required />
+        </label>
+        <label class="adm-password-field">Новый пароль
+          <input id="adminNewPassword" type="password" autocomplete="new-password" required />
+        </label>
+        <label class="adm-password-field">Повторите новый пароль
+          <input id="adminRepeatPassword" type="password" autocomplete="new-password" required />
+        </label>
+        <p class="adm-password-status" id="adminPasswordStatus" aria-live="polite"></p>
+        <button class="adm-password-save" id="adminPasswordSave" type="submit">Сохранить</button>
+      </form>
+    </div>
   </div>
 
   <script type="module" src="./admin.js"></script>

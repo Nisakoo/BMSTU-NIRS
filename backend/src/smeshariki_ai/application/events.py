@@ -19,6 +19,8 @@ class DialogEvent(BaseModel):
     delta: str | None = None
     code: str | None = None
     message: str | None = None
+    # Id of the saved assistant answer, sent with message_end.
+    message_id: int | None = None
 
 
 class DialogSubscription(Protocol):

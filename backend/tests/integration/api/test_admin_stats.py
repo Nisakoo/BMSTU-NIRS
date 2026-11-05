@@ -11,6 +11,7 @@ from smeshariki_ai.admin import (
     AdminStatsService,
     AdminStatsStore,
     AdminStatsUnavailableError,
+    FeedbackStats,
     RecentUser,
     UserStatsSnapshot,
 )
@@ -44,7 +45,14 @@ class FakeStatsStore(AdminStatsStore):
         self.available = True
         self.calls: list[datetime] = []
 
-    async def user_stats(self, since: datetime, limit: int) -> UserStatsSnapshot:
+    async def user_stats(
+        self,
+        since: datetime,
+        limit: int,
+        *,
+        bucket: timedelta = timedelta(days=1),
+        buckets: int = 7,
+    ) -> UserStatsSnapshot:
         self.calls.append(since)
         if not self.available:
             raise AdminStatsUnavailableError
@@ -52,6 +60,13 @@ class FakeStatsStore(AdminStatsStore):
             users_total=3,
             new_users=1,
             active_users=2,
+            reports_new=4,
+            dialogs=3,
+            messages=14,
+            activity=(0, 1, 0, 0, 0, 0, 0, 0, 0, 2),
+            feedback=FeedbackStats(
+                answers_total=10, rated_answers=5, counts=(1, 0, 0, 1, 3)
+            ),
             recent_users=(
                 RecentUser(
                     id=UUID(int=1),
@@ -59,6 +74,7 @@ class FakeStatsStore(AdminStatsStore):
                     role=Role.USER,
                     registered_at=NOW - timedelta(days=1),
                     last_active_at=NOW - timedelta(hours=2),
+                    dialogs=3,
                 ),
                 RecentUser(
                     id=UUID(int=2),
@@ -163,6 +179,7 @@ async def test_admin_receives_user_statistics(
                 "registered_at": "2026-10-15T12:00:00Z",
                 "last_active_at": "2026-10-16T10:00:00Z",
                 "status": "new",
+                "dialogs": 3,
             },
             {
                 "id": str(UUID(int=2)),
@@ -171,7 +188,25 @@ async def test_admin_receives_user_statistics(
                 "registered_at": "2026-08-17T12:00:00Z",
                 "last_active_at": None,
                 "status": "inactive",
+                "dialogs": 0,
             },
+        ],
+        "feedback": {
+            "answers_total": 10,
+            "rated_answers": 5,
+            "counts": [1, 0, 0, 1, 3],
+        },
+        "reports_new": 4,
+        "dialogs": 3,
+        "messages": 14,
+        "activity": [
+            {
+                "start": (NOW - timedelta(days=30 - 3 * index))
+                .isoformat()
+                .replace("+00:00", "Z"),
+                "dialogs": count,
+            }
+            for index, count in enumerate((0, 1, 0, 0, 0, 0, 0, 0, 0, 2))
         ],
     }
 

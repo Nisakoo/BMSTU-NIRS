@@ -398,3 +398,55 @@ async def test_controlled_failure_is_logged_without_request(
     assert caplog.records[-1].getMessage().startswith("agent.run.failed ")
     assert "error_type=InvalidLLMResponseError" in caplog.records[-1].getMessage()
     assert "private request" not in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("minutes", "words"), [(2, 300), (5, 750), (10, 1500)])
+async def test_reading_time_adds_a_length_system_message(
+    minutes: int, words: int
+) -> None:
+    provider = ScriptedLLMProvider([LLMResponse(content="История")])
+    history = (Message(role=MessageRole.USER, content="earlier"),)
+
+    await collect_agent_events(
+        make_agent(provider),
+        history,
+        UserRequest(content="Крош строит ракету", reading_minutes=minutes),
+    )
+
+    messages, _ = provider.calls[0]
+    assert messages[0] == Message(
+        role=MessageRole.SYSTEM, content="You are a Smeshariki expert."
+    )
+    assert messages[1] == Message(
+        role=MessageRole.SYSTEM,
+        content=(
+            f"Объём ответа: история примерно на {minutes} минут чтения — "
+            f"около {words} слов."
+        ),
+    )
+    assert messages[2:] == (
+        *history,
+        Message(role=MessageRole.USER, content="Крош строит ракету"),
+    )
+
+
+@pytest.mark.asyncio
+async def test_no_reading_time_adds_no_length_message() -> None:
+    provider = ScriptedLLMProvider([LLMResponse(content="История")])
+
+    await collect_agent_events(
+        make_agent(provider), (), UserRequest(content="Крош строит ракету")
+    )
+
+    messages, _ = provider.calls[0]
+    assert [message.role for message in messages] == [
+        MessageRole.SYSTEM,
+        MessageRole.USER,
+    ]
+
+
+@pytest.mark.parametrize("minutes", [0, 3, 7, 15])
+def test_reading_time_accepts_only_supported_values(minutes: int) -> None:
+    with pytest.raises(ValueError):
+        UserRequest(content="Крош", reading_minutes=minutes)

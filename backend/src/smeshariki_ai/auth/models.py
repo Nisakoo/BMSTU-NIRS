@@ -26,6 +26,15 @@ class Credentials(BaseModel):
     password: Password
 
 
+class PasswordChange(BaseModel):
+    """Current and new password of the signed-in user; nothing else is allowed."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    current_password: Password
+    new_password: Password
+
+
 @dataclass(frozen=True, slots=True)
 class User:
     id: UUID
@@ -88,6 +97,16 @@ class LoginTakenError(AuthError):
 class InvalidCredentialsError(AuthError):
     def __init__(self) -> None:
         super().__init__("Invalid login or password.")
+
+
+class WrongPasswordError(AuthError):
+    def __init__(self) -> None:
+        super().__init__("Current password is wrong.")
+
+
+class SamePasswordError(AuthError):
+    def __init__(self) -> None:
+        super().__init__("New password equals the current one.")
 
 
 class UnauthorizedError(AuthError):

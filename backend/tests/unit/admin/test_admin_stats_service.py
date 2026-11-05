@@ -4,8 +4,10 @@ from uuid import UUID
 import pytest
 
 from smeshariki_ai.admin import (
+    ActivityPoint,
     AdminStatsService,
     AdminStatsStore,
+    FeedbackStats,
     RecentUser,
     StatsPeriod,
     UserStatsSnapshot,
@@ -20,9 +22,18 @@ class RecordingStore(AdminStatsStore):
     def __init__(self, snapshot: UserStatsSnapshot) -> None:
         self.snapshot = snapshot
         self.calls: list[tuple[datetime, int]] = []
+        self.buckets: list[tuple[timedelta, int]] = []
 
-    async def user_stats(self, since: datetime, limit: int) -> UserStatsSnapshot:
+    async def user_stats(
+        self,
+        since: datetime,
+        limit: int,
+        *,
+        bucket: timedelta = timedelta(days=1),
+        buckets: int = 7,
+    ) -> UserStatsSnapshot:
         self.calls.append((since, limit))
+        self.buckets.append((bucket, buckets))
         return self.snapshot
 
 
@@ -108,3 +119,47 @@ async def test_longer_period_turns_older_activity_into_active() -> None:
     stats = await service.user_stats(StatsPeriod.DAYS_30)
 
     assert stats.recent_users[0].status is UserStatus.ACTIVE
+
+
+async def test_feedback_figures_are_passed_through() -> None:
+    feedback = FeedbackStats(answers_total=10, rated_answers=5, counts=(1, 0, 0, 1, 3))
+    service, _ = make_service(UserStatsSnapshot(0, 0, 0, (), feedback=feedback))
+
+    stats = await service.user_stats(StatsPeriod.DAYS_30)
+
+    assert stats.feedback == feedback
+
+
+async def test_feedback_defaults_to_zero() -> None:
+    service, _ = make_service(UserStatsSnapshot(0, 0, 0, ()))
+
+    stats = await service.user_stats(StatsPeriod.DAYS_7)
+
+    assert stats.feedback == FeedbackStats(0, 0, (0, 0, 0, 0, 0))
+
+
+@pytest.mark.parametrize(
+    ("period", "days", "buckets"),
+    [
+        (StatsPeriod.DAYS_7, 1, 7),
+        (StatsPeriod.DAYS_30, 3, 10),
+        (StatsPeriod.DAYS_90, 10, 9),
+    ],
+)
+async def test_activity_buckets_split_the_window_evenly(
+    period: StatsPeriod, days: int, buckets: int
+) -> None:
+    snapshot = UserStatsSnapshot(
+        0, 0, 0, (), dialogs=buckets, messages=40, activity=(1,) * buckets
+    )
+    service, store = make_service(snapshot)
+
+    stats = await service.user_stats(period)
+
+    assert store.buckets == [(timedelta(days=days), buckets)]
+    since = NOW - timedelta(days=period.days)
+    assert stats.activity == tuple(
+        ActivityPoint(start=since + timedelta(days=days) * index, dialogs=1)
+        for index in range(buckets)
+    )
+    assert (stats.dialogs, stats.messages) == (buckets, 40)

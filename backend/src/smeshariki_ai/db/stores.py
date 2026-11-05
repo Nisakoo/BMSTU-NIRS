@@ -77,6 +77,27 @@ class PostgresUserStore(UserStore):
                 row = (await connection.execute(statement)).first()
         return None if row is None else _user(row)
 
+    async def get_password_hash(self, user_id: UUID) -> str | None:
+        statement = select(users.c.password_hash).where(users.c.id == user_id)
+        with _unavailable_on_failure():
+            async with self._engine.connect() as connection:
+                return (await connection.execute(statement)).scalar_one_or_none()
+
+    async def set_password_hash(
+        self,
+        user_id: UUID,
+        password_hash: str,
+        updated_at: datetime,
+    ) -> None:
+        statement = (
+            update(users)
+            .where(users.c.id == user_id)
+            .values(password_hash=password_hash, updated_at=updated_at)
+        )
+        with _unavailable_on_failure():
+            async with self._engine.begin() as connection:
+                await connection.execute(statement)
+
 
 class PostgresRefreshSessionStore(RefreshSessionStore):
     def __init__(self, engine: AsyncEngine) -> None:
@@ -146,6 +167,27 @@ class PostgresRefreshSessionStore(RefreshSessionStore):
         with _unavailable_on_failure():
             async with self._engine.begin() as connection:
                 await connection.execute(statement)
+
+    async def revoke_user_sessions(
+        self,
+        user_id: UUID,
+        keep_family_id: UUID,
+        now: datetime,
+    ) -> set[UUID]:
+        statement = (
+            update(refresh_sessions)
+            .where(
+                refresh_sessions.c.user_id == user_id,
+                refresh_sessions.c.family_id != keep_family_id,
+                refresh_sessions.c.revoked_at.is_(None),
+            )
+            .values(revoked_at=now)
+            .returning(refresh_sessions.c.family_id)
+        )
+        with _unavailable_on_failure():
+            async with self._engine.begin() as connection:
+                rows = (await connection.execute(statement)).scalars().all()
+        return set(rows)
 
 
 def _insert_session(session: RefreshSession):  # type: ignore[no-untyped-def]

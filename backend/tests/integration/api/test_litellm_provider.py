@@ -72,7 +72,7 @@ async def test_background_litellm_failure_keeps_accepted_history_unchanged(
 
         assert message_response.status_code == 202
         assert message_response.content == b""
-        assert await store.list(TEST_USER.id, 10, None) == ()
+        assert await store.get(TEST_USER.id, dialog_id) == ()
 
         release_request.set()
 
@@ -85,7 +85,7 @@ async def test_background_litellm_failure_keeps_accepted_history_unchanged(
 
         await asyncio.wait_for(wait_for_failure(), timeout=1)
 
-    assert await store.list(TEST_USER.id, 10, None) == ()
+    assert await store.get(TEST_USER.id, dialog_id) == ()
     assert any(
         record.getMessage().startswith("llm.request.failed ")
         and record.error_type == "RuntimeError"

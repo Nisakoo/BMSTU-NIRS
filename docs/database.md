@@ -6,17 +6,18 @@ Backend хранит постоянные данные в PostgreSQL 17. Баз�
 зависимость backend: она работает в отдельном Compose-контейнере `postgres`, но
 подключение, схема и миграции принадлежат пакету `smeshariki_ai.db`.
 
-Схема сразу спроектирована с учётом постоянной истории диалогов: таблицы
-аутентификации создаёт миграция `0001`, `dialogs` и `messages` — миграция
-`0002`.
+Схема включает таблицы аутентификации (миграция `0001`), постоянную историю
+диалогов пользователя (миграция `0002`) и знания RAG (миграции `0003`, `0004`).
 
 | Таблица | Назначение | Состояние |
 | --- | --- | --- |
 | `users` | Учётные записи и роли | Реализовано, миграция `0001` |
 | `refresh_sessions` | Refresh-токены и их ротация | Реализовано, миграция `0001` |
-| `dialogs` | Диалоги пользователя | Реализовано, миграция `0002` |
+| `dialogs` | Диалоги пользователя | Реализовано, миграции `0002`, `0007` |
 | `messages` | Сообщения диалога | Реализовано, миграция `0002` |
 | `rag_*` | Структурированные знания RAG и журнал их загрузок: схема описана в [модели знаний](./knowledge.md#физическая-схема) | Реализовано, миграции `0003` и `0004` |
+| `message_feedback` | Оценки ответов ассистента (1–5) | Реализовано, миграции `0005`, `0006` |
+| `message_reports` | Жалобы на ответы ассистента | Реализовано, миграции `0008`, `0009` |
 
 ## Где находится реализация
 
@@ -25,7 +26,9 @@ Backend хранит постоянные данные в PostgreSQL 17. Баз�
 - [`db/stores.py`](../backend/src/smeshariki_ai/db/stores.py) —
   `PostgresUserStore` и `PostgresRefreshSessionStore`;
 - [`db/history.py`](../backend/src/smeshariki_ai/db/history.py) —
-  `PostgresHistoryStore`;
+  `PostgresHistoryStore` (контракт `HistoryStore` из [диалогов](./dialogs.md));
+- [`db/reports.py`](../backend/src/smeshariki_ai/db/reports.py) —
+  `PostgresReportStore` (контракт `ReportStore` из [панели администратора](./admin.md));
 - [`db/engine.py`](../backend/src/smeshariki_ai/db/engine.py) — ленивый async
   engine (`asyncpg`);
 - [`db/migrations/`](../backend/src/smeshariki_ai/db/migrations/) — Alembic
@@ -116,11 +119,12 @@ erDiagram
 | `title` | `text` | `NULL` |
 | `created_at`, `updated_at` | `timestamptz` | `NOT NULL DEFAULT now()` |
 
-Индекс `dialogs_user_id_updated_at_idx` на `(user_id, updated_at DESC)` —
-список диалогов пользователя от новых к старым. Строка `dialogs` появляется
-только вместе с первыми сообщениями, после первого успешного ответа агента:
-черновики в базу не записываются. `title` остаётся `NULL`-able, но при
-сохранении всегда заполняется (правило — в [диалогах](./dialogs.md#жизненный-цикл-диалога)).
+Индекс `dialogs_user_id_updated_at_idx` — `(user_id, updated_at DESC)` для
+списка диалогов пользователя от новых к старым. `title` задаётся из первого
+запроса при первом сохранении сообщений (в одну строку, целиком до 200
+символов) и затем не меняется; миграция `0007` пересчитала из первого
+запроса названия, обрезанные прежним лимитом в 60 символов; `updated_at`
+обновляется при каждом добавлении сообщений.
 
 ### `messages`
 
@@ -134,8 +138,53 @@ erDiagram
 | `created_at` | `timestamptz` | `NOT NULL DEFAULT now()` |
 
 `position` задаёт порядок и делает атомарное добавление пары «пользователь —
-ассистент» проверяемым на конфликт. Как и в текущем `HistoryStore`, tool calls
-и tool results не хранятся.
+ассистент» проверяемым на конфликт (`messages_dialog_id_position_key`).
+Добавление выполняется одной транзакцией: `SELECT ... FOR UPDATE` строки
+диалога сериализует параллельные добавления, новые позиции продолжают
+максимальную, а `updated_at` и `title` диалога обновляются в той же
+транзакции. Tool calls и tool results не хранятся.
+
+### `message_feedback`
+
+| Столбец | Тип | Ограничения |
+| --- | --- | --- |
+| `message_id` | `bigint` | PK, FK `messages(id) ON DELETE CASCADE` |
+| `score` | `smallint` | `NOT NULL`, `CHECK score BETWEEN 1 AND 5` |
+| `created_at`, `updated_at` | `timestamptz` | `NOT NULL DEFAULT now()` |
+
+Балл 1–5 соответствует мордашкам от грустного Ёжика до Кроша в восторге.
+Миграция `0006` заменила столбец `value` (`like`/`dislike`) на `score`,
+перенеся `like` → 5 и `dislike` → 1; её downgrade возвращает `value`
+(3–5 → `like`, 1–2 → `dislike`). Оценка одна на ответ: её ставит владелец диалога, повторная оценка
+заменяет прежнюю (`INSERT ... ON CONFLICT DO UPDATE`), снятие удаляет строку.
+Перед записью хранилище проверяет, что сообщение — ответ ассистента в
+диалоге этого пользователя. Удаление пользователя каскадно удаляет и оценки.
+
+### `message_reports`
+
+| Столбец | Тип | Ограничения |
+| --- | --- | --- |
+| `id` | `bigint` | PK, `GENERATED ALWAYS AS IDENTITY` |
+| `message_id` | `bigint` | `UNIQUE`, FK `messages(id) ON DELETE SET NULL`, nullable |
+| `user_id` | `uuid` | `NOT NULL`, FK `users(id) ON DELETE CASCADE` |
+| `reason` | `text` | `NOT NULL`, `CHECK reason IN ('scary','rude','wrong','other')` |
+| `comment` | `text` | nullable, `CHECK char_length(comment) <= 500` |
+| `request_text` | `text` | nullable: копия запроса пользователя перед ответом |
+| `answer_text` | `text` | `NOT NULL`: копия ответа |
+| `status` | `text` | `NOT NULL DEFAULT 'new'`, `CHECK status IN ('new','resolved','dismissed')` |
+| `created_at` | `timestamptz` | `NOT NULL DEFAULT now()` |
+| `resolved_at` | `timestamptz` | nullable |
+| `resolved_by` | `uuid` | FK `users(id) ON DELETE SET NULL`, nullable |
+| `seen_at` | `timestamptz` | nullable: когда пользователь закрыл новость о разборе (миграция `0009`) |
+
+Индекс `ix_message_reports_status_created_at (status, created_at DESC)` служит
+списку жалоб администратора. Тексты копируются при подаче
+(`INSERT ... SELECT`), поэтому удаление диалога пользователем лишь обнуляет
+`message_id`. Повторная жалоба на тот же ответ не вставляет строку
+(`ON CONFLICT (message_id) DO NOTHING`) и даёт `ReportExistsError`. Закрытие
+жалобы записывает `resolved_at` и `resolved_by`, возврат в `new` обнуляет их
+и `seen_at`. Новости пользователя — его жалобы со статусом не `new` и
+`seen_at IS NULL`; название истории берётся через `messages` → `dialogs`.
 
 ## Решения
 
@@ -144,28 +193,11 @@ erDiagram
 - UUID генерирует приложение, поэтому идентификаторы известны до вставки и
   совпадают с уже опубликованным форматом API.
 - Удаление пользователя каскадно удаляет его refresh-сессии, диалоги и
-  сообщения; удаление диалога каскадно удаляет сообщения.
+  сообщения.
 - Ошибки подключения и SQL адаптеры аутентификации превращают в
-  `AuthUnavailableError`, адаптер истории — в `HistoryUnavailableError`;
-  engine создаётся с `hide_parameters=True`, чтобы хеши и тексты сообщений не
-  попадали в текст исключений.
-
-## PostgresHistoryStore
-
-`PostgresHistoryStore(engine)` реализует контракт `HistoryStore` из
-[диалогов](./dialogs.md#внутренние-контракты) на том же engine, что и
-аутентификация. Время (`created_at`, `updated_at`) передаёт `AgentService`, а не
-`now()` базы.
-
-- `create` — одна транзакция: `INSERT dialogs` и `INSERT messages` с позициями
-  0 и 1.
-- `append` — одна транзакция: `SELECT ... FOR UPDATE` строки диалога
-  (блокировка сериализует параллельные добавления), следующая
-  `position = coalesce(max(position), -1) + 1`, вставка сообщений и
-  `UPDATE dialogs SET updated_at`.
-- `list` — keyset-условие `(updated_at, id) < (:updated_at, :id)` с
-  `ORDER BY updated_at DESC, id DESC`.
-- `delete` — `DELETE ... RETURNING id`; сообщения удаляет каскад.
+  `AuthUnavailableError`, адаптер истории — в `DialogStoreUnavailableError`;
+  engine создаётся с `hide_parameters=True`, чтобы хеши не попадали в текст
+  исключений.
 
 ## Миграции
 
@@ -188,6 +220,8 @@ environment, что и backend; Compose передаёт его общим YAML-
 ## SDD-артефакты
 
 - [спецификация](../specs/changes/backend-auth-jwt/spec.md);
+- [спецификация постоянной истории](../specs/changes/user-dialog-history/spec.md),
+  [план](../specs/changes/user-dialog-history/plan.md);
 - [план](../specs/changes/backend-auth-jwt/plan.md),
   [результат проверки](../specs/changes/backend-auth-jwt/verification.md);
 - постоянная история диалогов: [спецификация](../specs/changes/dialog-history/spec.md),

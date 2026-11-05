@@ -15,6 +15,7 @@ from sqlalchemy import (
     Integer,
     LargeBinary,
     MetaData,
+    SmallInteger,
     Table,
     Text,
     UniqueConstraint,
@@ -109,4 +110,68 @@ messages = Table(
     ),
     UniqueConstraint("dialog_id", "position", name="messages_dialog_id_position_key"),
     CheckConstraint("role IN ('user', 'assistant')", name="messages_role_valid"),
+)
+
+message_feedback = Table(
+    "message_feedback",
+    metadata,
+    Column(
+        "message_id",
+        BigInteger,
+        ForeignKey("messages.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column("score", SmallInteger, nullable=False),
+    Column(
+        "created_at", DateTime(timezone=True), nullable=False, server_default=func.now()
+    ),
+    Column(
+        "updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()
+    ),
+    CheckConstraint("score BETWEEN 1 AND 5", name="message_feedback_score_valid"),
+)
+
+# A report keeps copies of the texts: the user may delete the dialog later.
+message_reports = Table(
+    "message_reports",
+    metadata,
+    Column("id", BigInteger, Identity(always=True), primary_key=True),
+    Column(
+        "message_id",
+        BigInteger,
+        ForeignKey("messages.id", ondelete="SET NULL"),
+        nullable=True,
+        unique=True,
+    ),
+    Column("user_id", Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    Column("reason", Text, nullable=False),
+    Column("comment", Text, nullable=True),
+    Column("request_text", Text, nullable=True),
+    Column("answer_text", Text, nullable=False),
+    Column("status", Text, nullable=False, server_default=text("'new'")),
+    Column(
+        "created_at", DateTime(timezone=True), nullable=False, server_default=func.now()
+    ),
+    Column("resolved_at", DateTime(timezone=True), nullable=True),
+    Column(
+        "resolved_by", Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    ),
+    # When the user dismissed the news that the report was reviewed.
+    Column("seen_at", DateTime(timezone=True), nullable=True),
+    CheckConstraint(
+        "reason IN ('scary', 'rude', 'wrong', 'other')",
+        name="message_reports_reason_valid",
+    ),
+    CheckConstraint(
+        "status IN ('new', 'resolved', 'dismissed')",
+        name="message_reports_status_valid",
+    ),
+    CheckConstraint(
+        "char_length(comment) <= 500", name="message_reports_comment_length"
+    ),
+)
+Index(
+    "ix_message_reports_status_created_at",
+    message_reports.c.status,
+    message_reports.c.created_at.desc(),
 )

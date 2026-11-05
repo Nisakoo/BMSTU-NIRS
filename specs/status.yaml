@@ -55,6 +55,78 @@ specs:
       status: done
     - name: admin-user-stats
       status: done
+    - name: user-dialog-history
+      status: done
+    - name: login-fullbleed-scene
+      status: done
+    - name: chat-sidebar-layout
+      status: done
+    - name: chat-krosh-empty-state
+      status: done
+    - name: story-length-option
+      status: done
+    - name: answer-feedback
+      status: done
+    - name: answer-rating-faces
+      status: done
+    - name: story-length-picker-style
+      status: done
+    - name: chat-round-buttons
+      status: done
+    - name: login-card-scale
+      status: done
+    - name: story-length-popover
+      status: done
+    - name: chat-rect-buttons
+      status: done
+    - name: length-button-plain-open
+      status: done
+    - name: dialog-full-title
+      status: done
+    - name: logout-button-size
+      status: done
+    - name: dialog-delete
+      status: done
+    - name: chat-chips-and-current-story
+      status: done
+    - name: sidebar-user-size
+      status: done
+    - name: message-copy
+      status: done
+    - name: message-report
+      status: done
+    - name: report-feedback-to-user
+      status: done
+    - name: copy-button-steady-width
+      status: done
+    - name: report-flag-own-line
+      status: done
+    - name: feedback-phrase-inline
+      status: done
+    - name: admin-real-dialog-stats
+      status: done
+    - name: admin-user-registered-column
+      status: done
+    - name: admin-greeting-by-time
+      status: done
+    - name: report-other-needs-comment
+      status: done
+    - name: chat-admin-link
+      status: done
+    - name: admin-sidebar-font
+      status: done
+    - name: change-password
+      status: done
+    - name: settings-above-divider
+      status: done
+    - name: login-card-larger
+      status: done
+    - name: admin-nav-scroll-spy
+      status: done
+    - name: admin-quality-numbers
+      status: done
+    - name: admin-settings-password
+      status: done
     - name: auth-hardening
       status: done
     - name: dialog-ownership

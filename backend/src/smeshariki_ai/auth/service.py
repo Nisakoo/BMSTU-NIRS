@@ -13,9 +13,11 @@ from smeshariki_ai.auth.models import (
     IssuedTokens,
     RefreshSession,
     Role,
+    SamePasswordError,
     TooManyAttemptsError,
     UnauthorizedError,
     User,
+    WrongPasswordError,
 )
 from smeshariki_ai.auth.passwords import Argon2PasswordHasher
 from smeshariki_ai.auth.stores import (
@@ -135,6 +137,57 @@ class AuthService:
             access_token, self._clock(), verify_expiry=False
         )
         return await self._resolve(claims)
+
+    async def change_password(
+        self,
+        access_token: str,
+        current_password: str,
+        new_password: str,
+    ) -> None:
+        """Replace the password and sign out every other session of the user.
+
+        The current password is checked before the new one is compared to it,
+        so ``SamePasswordError`` never confirms an unverified guess.
+        """
+
+        now = self._clock()
+        claims = self._codec.decode_access(access_token, now)
+        await self._resolve(claims)
+        # Wrong current passwords are limited per user, like failed logins.
+        failure_key = f"password-fail:{claims.user_id}"
+        retry_after = await self._limiter.blocked(
+            failure_key, self._limits.login_failures
+        )
+        if retry_after is not None:
+            self._log_rate_limited("password_failures")
+            raise TooManyAttemptsError("password_failures", retry_after)
+        password_hash = await self._users.get_password_hash(claims.user_id)
+        if password_hash is None:
+            raise UnauthorizedError
+        if not await self._hasher.verify(password_hash, current_password):
+            await self._limiter.record_failure(
+                failure_key, self._limits.login_failure_window_seconds
+            )
+            self._log_rejected("auth.password.rejected", claims.user_id)
+            raise WrongPasswordError
+        await self._limiter.reset(failure_key)
+        if new_password == current_password:
+            raise SamePasswordError
+
+        new_hash = await self._hasher.hash(new_password)
+        await self._users.set_password_hash(claims.user_id, new_hash, now)
+        # Other devices lose their refresh sessions and access tokens at once.
+        families = await self._sessions.revoke_user_sessions(
+            claims.user_id, claims.family_id, now
+        )
+        for family_id in families:
+            await self._blacklist.revoke_family(family_id, now + self._access_ttl)
+        log_event(
+            logger,
+            logging.INFO,
+            "auth.password.changed",
+            user_id=str(claims.user_id),
+        )
 
     async def refresh(self, refresh_token: str) -> AuthResult:
         now = self._clock()

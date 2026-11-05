@@ -80,6 +80,30 @@ async def test_service_without_knowledge_store_reports_knowledge_unavailable() -
     assert result.output["status"] == "unavailable"
 
 
+def test_production_application_keeps_history_in_postgres() -> None:
+    config = make_config()
+    provider = FakeLLMProvider()
+
+    production = create_application(config, llm_provider=provider)
+    with_auth = create_application(
+        config,
+        llm_provider=provider,
+        auth_service=AuthService(
+            users=InMemoryUserStore(),
+            sessions=InMemoryRefreshSessionStore(),
+            blacklist=InMemoryTokenBlacklist(),
+            config=config.auth,
+        ),
+    )
+
+    assert isinstance(
+        production.state.agent_service._history_store, PostgresHistoryStore
+    )
+    assert isinstance(
+        with_auth.state.agent_service._history_store, InMemoryHistoryStore
+    )
+
+
 def test_bootstrap_passes_exact_component_configs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

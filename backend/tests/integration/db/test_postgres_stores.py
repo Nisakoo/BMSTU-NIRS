@@ -127,3 +127,52 @@ async def test_unreachable_database_is_unavailable() -> None:
             await PostgresUserStore(engine).get_by_login("Krosh")
     finally:
         await engine.dispose()
+
+
+async def test_user_store_reads_and_replaces_password_hash(engine: AsyncEngine) -> None:
+    store = PostgresUserStore(engine)
+    user = await store.create(uuid4(), "Krosh", "$argon2id$old", Role.USER, NOW)
+
+    assert await store.get_password_hash(user.id) == "$argon2id$old"
+    assert await store.get_password_hash(uuid4()) is None
+
+    await store.set_password_hash(user.id, "$argon2id$new", NOW + timedelta(hours=1))
+
+    assert await store.get_password_hash(user.id) == "$argon2id$new"
+    found = await store.get_by_login("krosh")
+    assert found is not None
+    assert found.password_hash == "$argon2id$new"
+    async with engine.connect() as connection:
+        updated_at = (
+            await connection.execute(
+                text("SELECT updated_at FROM users WHERE id = :id"), {"id": user.id}
+            )
+        ).scalar_one()
+    assert updated_at == NOW + timedelta(hours=1)
+
+
+async def test_revoke_user_sessions_keeps_one_family_and_other_users(
+    engine: AsyncEngine,
+) -> None:
+    users = PostgresUserStore(engine)
+    sessions = PostgresRefreshSessionStore(engine)
+    krosh = await users.create(uuid4(), "Krosh", "$argon2id$h", Role.USER, NOW)
+    nyusha = await users.create(uuid4(), "Nyusha", "$argon2id$h", Role.USER, NOW)
+    kept = make_session(krosh.id, token=b"a" * 32)
+    other = make_session(krosh.id, token=b"b" * 32)
+    foreign = make_session(nyusha.id, token=b"c" * 32)
+    for session in (kept, other, foreign):
+        await sessions.create(session)
+
+    revoked = await sessions.revoke_user_sessions(
+        krosh.id, kept.family_id, NOW + timedelta(minutes=5)
+    )
+
+    assert revoked == {other.family_id}
+    kept_after = await sessions.get_by_token_hash(kept.token_hash)
+    other_after = await sessions.get_by_token_hash(other.token_hash)
+    foreign_after = await sessions.get_by_token_hash(foreign.token_hash)
+    assert kept_after is not None and kept_after.revoked_at is None
+    assert other_after is not None
+    assert other_after.revoked_at == NOW + timedelta(minutes=5)
+    assert foreign_after is not None and foreign_after.revoked_at is None

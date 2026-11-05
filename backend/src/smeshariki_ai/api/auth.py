@@ -20,10 +20,13 @@ from smeshariki_ai.auth import (
     InvalidCredentialsError,
     IssuedTokens,
     LoginTakenError,
+    PasswordChange,
     Role,
+    SamePasswordError,
     TooManyAttemptsError,
     UnauthorizedError,
     User,
+    WrongPasswordError,
 )
 
 ACCESS_COOKIE = "access_token"
@@ -217,6 +220,40 @@ def _create_router(auth_service: AuthService, *, cookie_secure: bool) -> APIRout
     async def me(request: Request) -> JSONResponse:
         user = await current_user(request, request.cookies.get(ACCESS_COOKIE))
         return JSONResponse(_user_body(user))
+
+    @router.put("/users/me/password", status_code=status.HTTP_204_NO_CONTENT)
+    async def change_password(
+        request: Request,
+        _: Annotated[User, Depends(current_user)],
+        access_token: Annotated[str | None, Cookie(alias=ACCESS_COOKIE)] = None,
+    ) -> Response:
+        # The session is checked first, so a guest gets 401 before 422.
+        if not access_token:
+            raise _unauthorized()
+        _require_json(request)
+        try:
+            change = PasswordChange.model_validate_json(await request.body())
+        except ValidationError as error:
+            raise _invalid_fields() from error
+        try:
+            await auth_service.change_password(
+                access_token, change.current_password, change.new_password
+            )
+        except WrongPasswordError as error:
+            raise AuthHTTPError(
+                status.HTTP_400_BAD_REQUEST, "wrong_password"
+            ) from error
+        except SamePasswordError as error:
+            raise AuthHTTPError(
+                status.HTTP_422_UNPROCESSABLE_CONTENT, "same_password"
+            ) from error
+        except TooManyAttemptsError as error:
+            raise _too_many_attempts(error) from error
+        except UnauthorizedError as error:
+            raise _unauthorized() from error
+        except AuthUnavailableError as error:
+            raise unavailable() from error
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     return router
 

@@ -17,17 +17,11 @@ FastAPI-маршруты только валидируют HTTP-ввод и пр
 - [`application/events.py`](../backend/src/smeshariki_ai/application/events.py)
   — типы событий и потребительский контракт подписки;
 - [`dialogs/history.py`](../backend/src/smeshariki_ai/dialogs/history.py) —
-  контракт `HistoryStore` и in-memory реализация;
-- [`dialogs/drafts.py`](../backend/src/smeshariki_ai/dialogs/drafts.py) —
-  process-local реестр черновиков `DialogDrafts`;
-- [`dialogs/models.py`](../backend/src/smeshariki_ai/dialogs/models.py),
-  [`dialogs/title.py`](../backend/src/smeshariki_ai/dialogs/title.py),
-  [`dialogs/errors.py`](../backend/src/smeshariki_ai/dialogs/errors.py) —
-  модели списка и курсора, правило заголовка, ошибки;
+  контракт истории и in-memory реализация для тестов;
+- [`dialogs/models.py`](../backend/src/smeshariki_ai/dialogs/models.py) —
+  сводка диалога, сохранённое сообщение и правило названия;
 - [`db/history.py`](../backend/src/smeshariki_ai/db/history.py) —
-  `PostgresHistoryStore`;
-- [`api/cursor.py`](../backend/src/smeshariki_ai/api/cursor.py) — кодирование
-  курсора списка;
+  production-реализация `PostgresHistoryStore`;
 - [`api/app.py`](../backend/src/smeshariki_ai/api/app.py) — HTTP-маршруты и
   shutdown lifecycle;
 - [`api/schemas.py`](../backend/src/smeshariki_ai/api/schemas.py) — схемы HTTP-
@@ -92,12 +86,12 @@ AgentService(
     clock: Callable[[], datetime] | None = None,
 )
 await AgentService.start_dialog(user_id: UUID) -> UUID
+await AgentService.list_dialogs(user_id: UUID) -> tuple[DialogSummary, ...]
+await AgentService.transcript(user_id: UUID, dialog_id: UUID) -> DialogTranscript
 await AgentService.submit(
-    dialog_id: UUID,
-    user_id: UUID,
-    request: UserRequest,
+    user_id: UUID, dialog_id: UUID, request: UserRequest
 ) -> None
-await AgentService.subscribe(dialog_id: UUID, user_id: UUID) -> DialogSubscription
+await AgentService.subscribe(user_id: UUID, dialog_id: UUID) -> DialogSubscription
 await AgentService.unsubscribe(subscription: DialogSubscription) -> None
 await AgentService.list_dialogs(
     user_id: UUID,
@@ -115,20 +109,12 @@ await DialogEventBroker.close_dialog(dialog_id: UUID) -> None
 await DialogEventBroker.shutdown() -> None
 ```
 
-`start_dialog` создаёт черновик без обращения к `HistoryStore` и возвращает
-UUIDv4. Владелец ищется сначала среди черновиков, потом в `HistoryStore`.
-Возврат из `submit` означает только то, что фоновая задача создана в текущем
-процессе; метод не ждёт ответа агента. `get_dialog` для черновика возвращает
-`title=None` и пустой список сообщений. `list_dialogs` запрашивает у хранилища
-`limit + 1` элементов: лишний элемент означает, что следующая страница есть, и
-курсором становится последний возвращённый.
-
-`delete_dialog` проверяет владельца и без гонок выполняет шаги: помечает диалог
-удаляемым (`submit` и `subscribe` отвечают `DialogNotFoundError`), отменяет и
-дожидается всех задач диалога (отменённые запуски публикуют `message_error`),
-удаляет черновик либо строку в базе и вызывает `DialogEventBroker.close_dialog`.
-Поэтому первое сохранение черновика не может завершиться после удаления.
-Сервис хранит множество задач каждого диалога, а не только хвост цепочки.
+`start_dialog` создаёт пустой диалог, принадлежащий пользователю, и возвращает
+UUIDv4. Все операции конкретного диалога получают `user_id` и передают его
+хранилищу: чужой и несуществующий диалог одинаково дают
+`DialogNotFoundError`. `list_dialogs` возвращает не более 50 диалогов. Возврат из `submit`
+означает только то, что фоновая задача создана в текущем процессе; метод не ждёт
+ответа агента.
 
 Для одного `dialog_id` сервис хранит хвост цепочки `asyncio.Task`: следующий
 запуск ожидает предыдущий и только затем читает обновлённую историю. Разные
@@ -152,36 +138,30 @@ Production composition root создаёт один `InMemoryDialogEventBroker` 
 `shutdown` безопасны. Брокер не зависит от FastAPI, агента и `HistoryStore`.
 
 ```python
-await HistoryStore.create(
-    dialog_id: UUID, owner_id: UUID, title: str | None,
-    messages: Sequence[Message], now: datetime,
-) -> None                                          # диалог + первые сообщения
-await HistoryStore.owner(dialog_id: UUID) -> UUID
-await HistoryStore.get(dialog_id: UUID) -> tuple[Message, ...]   # контекст агента
-await HistoryStore.read(dialog_id: UUID) -> DialogTranscript     # title + сообщения с created_at
+await HistoryStore.create(owner_id: UUID) -> UUID
+await HistoryStore.get(owner_id: UUID, dialog_id: UUID) -> tuple[Message, ...]
 await HistoryStore.append(
     dialog_id: UUID, messages: Sequence[Message], now: datetime,
 ) -> None
-await HistoryStore.list(
-    owner_id: UUID, limit: int, after: DialogCursor | None,
+await HistoryStore.list_dialogs(
+    owner_id: UUID, *, limit: int
 ) -> tuple[DialogSummary, ...]
-await HistoryStore.delete(dialog_id: UUID) -> None
+await HistoryStore.transcript(owner_id: UUID, dialog_id: UUID) -> DialogTranscript
 ```
 
-`HistoryStore` хранит только сохранённые диалоги; черновиков в нём нет.
-`owner`, `get`, `read`, `append` и `delete` бросают `DialogNotFoundError` для
-неизвестного диалога. `create` и `append` атомарны; время передаёт
-`AgentService` из внедрённых часов. Сообщения получают последовательные
-`position`. При ошибке агента история не меняется; tool calls и tool results в
-историю диалога не попадают. `list` сортирует по `(updated_at, dialog_id)` по
-убыванию и принимает keyset-курсор `DialogCursor(updated_at, dialog_id)`.
-`DialogDrafts` (`create`, `owner`, `attach`/`detach`, `run_started`/
-`run_finished`, `discard`) принимает внедряемые часы и `ttl`.
+`get` возвращает неизменяемый снимок. `append` атомарно добавляет группу
+сообщений и обновляет `updated_at`; первое сообщение пользователя задаёт
+название диалога: пробельные последовательности заменяются одним пробелом,
+название хранится целиком до 200 символов (длиннее — обрезается до 200 с `…`), позже не меняется. Обрезку по ширине делает страница, полный текст — в подсказке ([dialog-full-title](../specs/changes/dialog-full-title/spec.md)).
+`list_dialogs` возвращает только диалоги с сообщениями, от недавно
+обновлённых к старым. Сбой хранилища — `DialogStoreUnavailableError`.
 
-`InMemoryHistoryStore` выполняет тот же контракт для тестов без PostgreSQL;
-`PostgresHistoryStore` описан в [базе данных](./database.md#postgreshistorystore).
-Ошибки подключения и SQL превращаются в `HistoryUnavailableError`
-(наследник `DialogError`) без текста запроса и параметров.
+Production bootstrap использует `PostgresHistoryStore` на общем с
+аутентификацией engine (схема — в [базе данных](./database.md)); история
+переживает рестарт backend. `InMemoryHistoryStore` поддерживает тот же
+контракт и используется в тестах. После успешного запуска сервис сохраняет одной операцией только
+пользовательское и финальное сообщения ассистента. При ошибке агента история не
+меняется; tool calls и tool results в историю диалога не попадают.
 
 ## Поток сообщения
 
@@ -233,52 +213,47 @@ sequenceDiagram
 
 | Запрос | Успешный ответ | Ошибки |
 | --- | --- | --- |
-| `POST /api/v1/dialogs` без тела | `201 Created`, `Location: /api/v1/dialogs/<uuid>`, JSON `{"dialog_id":"<uuid>"}` | `503 Service Unavailable`, если сервис больше не принимает запросы |
-| `POST /api/v1/dialogs/{dialog_id}/messages` с JSON `{"request":"<непустой текст>"}` | Немедленный `202 Accepted` с пустым телом после создания фоновой задачи | `415 Unsupported Media Type` (`{"detail":"Unsupported media type."}`), если `Content-Type` не `application/json`; `404 Not Found` для неизвестного или чужого диалога; `422 Unprocessable Entity` для некорректного UUID, пустого текста или лишних полей; `503 Service Unavailable`, если задачу нельзя принять или сохранённый диалог нельзя найти из-за недоступной базы |
-| `GET /api/v1/dialogs/{dialog_id}/events` | `200 OK`, `text/event-stream`, начальное `ready`, heartbeat и будущие `message_*` events; на каждом heartbeat сессия перепроверяется, при отзыве поток закрывается | `404 Not Found` для неизвестного или чужого диалога; `422 Unprocessable Entity` для некорректного UUID; `503 Service Unavailable` после остановки сервиса |
-| `GET /api/v1/dialogs?limit=<n>&cursor=<c>` | `200 OK`, JSON `{"items":[{"dialog_id","title","created_at","updated_at"}],"next_cursor":"<строка>"\|null}` | `422` для `limit` вне 1–50 (по умолчанию 20) и для `cursor`, который не декодируется; `503` `{"detail":"Dialog storage is unavailable."}` |
-| `GET /api/v1/dialogs/{dialog_id}/messages` | `200 OK`, JSON `{"dialog_id","title","messages":[{"role","content","created_at"}]}` в порядке `position`; для черновика `"title":null` и `"messages":[]` | `404 Not Found` для неизвестного или чужого диалога; `422` для некорректного UUID; `503` как выше |
-| `DELETE /api/v1/dialogs/{dialog_id}` | `204 No Content`, пустое тело | `403` для `Sec-Fetch-Site: cross-site\|same-site`; `404 Not Found` для неизвестного или чужого диалога; `422` для некорректного UUID; `503` |
+| `POST /api/v1/dialogs` без тела | `201 Created`, `Location: /api/v1/dialogs/<uuid>`, JSON `{"dialog_id":"<uuid>"}`; владелец — текущий пользователь | `503 Service Unavailable`, если сервис больше не принимает запросы или хранилище недоступно |
+| `POST /api/v1/dialogs/{dialog_id}/messages` с JSON `{"request":"<непустой текст>"}` и необязательным `"reading_minutes": 2\|5\|10` (длина истории в минутах чтения; в историю не сохраняется) | Немедленный `202 Accepted` с пустым телом после создания фоновой задачи | `404 Not Found` для неизвестного или чужого диалога; `422 Unprocessable Entity` для некорректного UUID, пустого текста, лишних полей или `reading_minutes` вне 2/5/10 (включая явный `null`); `503 Service Unavailable`, если задачу нельзя принять |
+| `DELETE /api/v1/dialogs/{dialog_id}` | `204 No Content`: диалог пользователя удалён вместе с сообщениями и оценками (каскад в PostgreSQL); генерация по нему не сохраняется и завершается `message_error`; событие журнала `dialog.deleted` с `dialog_id` | `404 {"detail":"Dialog not found."}` для чужого или несуществующего диалога (чужой не удаляется); `422` для некорректного UUID; `503` при сбое хранилища |
+| `GET /api/v1/dialogs` | `200 OK`, JSON `{"dialogs":[{"dialog_id","title","created_at","updated_at"}]}`: до 50 непустых диалогов пользователя от недавно обновлённых | `503 Service Unavailable` при сбое хранилища |
+| `GET /api/v1/dialogs/{dialog_id}/messages` | `200 OK`, JSON `{"dialog_id","title","messages":[{"id","role","content","created_at","feedback","reported","report"}]}` в порядке сообщений (`id` — число, `feedback` — целый балл 1–5 или `null`, `report` — `null`, `"sent"` (жалоба ждёт разбора) или `"reviewed"` (разобрана, без различия «рассмотрено»/«отклонено»), `reported` — `report !== null`); у нового диалога `title` равен `null`, `messages` пуст | `404 Not Found` для неизвестного или чужого диалога; `422` для некорректного UUID; `503` при сбое хранилища |
+| `PUT /api/v1/dialogs/{dialog_id}/messages/{message_id}/feedback` с JSON `{"score": 1–5}` (строгое целое); `DELETE` по тому же адресу | `204 No Content`: оценка поставлена, изменена или снята (снятие отсутствующей оценки тоже `204`) | `404 {"detail":"Message not found."}` для чужого или несуществующего диалога, несуществующего сообщения, сообщения другого диалога и сообщения пользователя; `422` для некорректного `message_id` или тела, в том числе `"other"` без комментария; `503` при сбое хранилища |
+| `POST /api/v1/dialogs/{dialog_id}/messages/{message_id}/report` с JSON `{"reason":"scary"\|"rude"\|"wrong"\|"other"}` и `"comment"` (до 500 символов, обрезается по краям, пустой — как отсутствующий; обязателен только для `"other"`, [report-other-needs-comment](../specs/changes/report-other-needs-comment/spec.md)) | `201 Created`, `{"report_id": n}`: жалоба сохранена с копией текста ответа и запроса перед ним; событие журнала `dialog.report.created` с `dialog_id`, `message_id`, `report_id`, `reason` | `409 {"detail":"Already reported."}` — на этот ответ уже есть жалоба (первая не меняется); `404 {"detail":"Message not found."}` — как у оценки; `422` для некорректного `message_id` или тела; `503` при сбое хранилища |
+| `GET /api/v1/reports/news` | `200 OK`, `{"news":[{"report_id","dialog_id","dialog_title"}]}`: до 20 разобранных и ещё не закрытых пользователем жалоб, от недавно разобранных; у удалённой истории `dialog_id` и `dialog_title` равны `null`. Статус, причина и тексты не возвращаются | `503` при сбое хранилища |
+| `POST /api/v1/reports/news/seen` с JSON `{"report_ids":[…]}` (1–20 целых) | `204 No Content`: новости отмечены просмотренными; чужие, неразобранные, уже просмотренные и несуществующие id пропускаются; событие журнала `dialog.report.news_seen` с `count` | `422` для некорректного тела; `503` при сбое хранилища |
+| `GET /api/v1/dialogs/{dialog_id}/events` | `200 OK`, `text/event-stream`, начальное `ready`, heartbeat и будущие `message_*` events | `404 Not Found` для неизвестного или чужого диалога; `422 Unprocessable Entity` для некорректного UUID; `503 Service Unavailable` после остановки сервиса или при сбое хранилища |
 | `GET /agent_test` | `200 OK`, один самодостаточный HTML с тестовым чатом | Стандартная ошибка FastAPI при недоступности приложения |
 
-`415` у `messages` возвращается после проверки токена, поэтому гость
-по-прежнему получает `401`. Поток событий перепроверяет access-токен из
+`dialog_id` всегда передаётся в URL и не является средством авторизации:
+диалог принадлежит создавшему его пользователю, и для чужого диалога все
+ручки отвечают `404 {"detail":"Dialog not found."}`, не раскрывая его
+существование; роль `admin` доступа к чужим диалогам не даёт. При сбое
+PostgreSQL ручки диалогов отвечают `503 {"detail":"Agent service is
+unavailable."}`. Время в ответах — ISO 8601 в UTC. Cookie для выбора диалога
+не создаются и не читаются.
+
+Ручки с телом (`messages`, `feedback`, `report`, `reports/news/seen`) без
+`Content-Type: application/json` отвечают `415 {"detail":"Unsupported media
+type."}` — после проверки токена, поэтому гость по-прежнему получает `401`.
+Небезопасные запросы (`POST`, `PUT`, `DELETE`) с `Sec-Fetch-Site:
+cross-site|same-site` отклоняются `403` до этих ручек — см.
+[аутентификацию](./auth.md). Поток событий перепроверяет access-токен
 подключения на каждом heartbeat (`AuthService.verify_session`): после выхода,
 отзыва семейства, удаления пользователя или недоступности хранилищ он
-завершается без дальнейших событий, а agent loop продолжает работу;
-истечение `exp` поток не закрывает. Небезопасные запросы (`POST`, `DELETE`) с `Sec-Fetch-Site:
-cross-site|same-site` отклоняются `403` до этих ручек — см.
-[аутентификацию](./auth.md#защита-от-межсайтовых-запросов).
+завершается без дальнейших событий, а agent loop продолжает работу; истечение
+`exp` поток не закрывает.
 
-`dialog_id` всегда передаётся в URL и не является средством авторизации.
-Диалог принадлежит пользователю, создавшему его через `POST /dialogs`
-(`user.id` из `current_user`). Для чужого диалога или черновика, включая запрос
-администратора, `messages` (GET и POST), `events` и `DELETE` отвечают так же,
-как для несуществующего: `404` `{"detail":"Dialog not found."}`; запрос не
-ставится в очередь, поток не открывается, диалог не меняется. Cookie для выбора диалога не создаются и не
-читаются.
-
-**Список и курсор.** В `items` попадают только сохранённые диалоги текущего
-пользователя от новых к старым: порядок `updated_at` по убыванию, при равенстве —
-`dialog_id` по убыванию. `next_cursor` — непрозрачная строка (base64url без
-`=` от JSON `{"u": updated_at, "d": dialog_id}`, `api/cursor.py`) последнего
-элемента страницы; `null` означает последнюю страницу. Пагинация keyset по
-`(updated_at, dialog_id)`, `offset` не используется. Сообщения диалога
-отдаются целиком, без пагинации.
-
-**Удаление.** `DELETE` удаляет сохранённый диалог вместе с сообщениями либо
-черновик из памяти. Активные и ожидающие запуски диалога отменяются, ничего не
-сохраняется, подписчики `events` получают `message_error`, после чего поток
-закрывается. Запуски других диалогов не затрагиваются.
-
-**Недоступная база.** `HistoryUnavailableError` превращается в `503`
-`{"detail":"Dialog storage is unavailable."}` обработчиком приложения. Создание
-черновика и работа с ним до сохранения от базы не зависят; сбой в фоновом
-запуске даёт подписчикам `message_error` и не меняет историю.
+Ветка `feat/user-dialog-history` заменила параллельную реализацию истории из
+[dialog-history](../specs/changes/dialog-history/spec.md): черновиков и
+постраничного курсора нет, список отдаёт до 50 непустых диалогов, а удаление
+не отменяет идущую генерацию — её результат не сохраняется, подписчики
+получают `message_error`.
 
 SSE events содержат JSON: `ready` передаёт `dialog_id`, `message_delta` —
 непустой `delta`, `message_error` — безопасные `code` и `message`, а
-`message_start` и `message_end` используют пустой объект. Tool calls, tool
+`message_start` использует пустой объект, а `message_end` — `{"message_id": <id>}`
+сохранённого ответа ассистента, чтобы его можно было сразу оценить. Tool calls, tool
 results и история через поток не выдаются. `Last-Event-ID` не поддерживается:
 после переподключения replay отсутствует. CORS middleware не реализован.
 
@@ -316,7 +291,11 @@ flowchart LR
 ```
 
 При загрузке страницы frontend создаёт новый диалог, открывает один
-`EventSource` и блокирует форму до `ready`. При ошибке создания диалога
+`EventSource`, блокирует форму до `ready` и загружает список историй
+`GET /api/v1/dialogs` для боковой панели. Выбор истории загружает
+`GET /api/v1/dialogs/{dialog_id}/messages` и переключает `EventSource` на
+выбранный диалог только после успешной загрузки; после `message_end` список
+перезагружается. При ошибке создания диалога
 frontend оставляет форму заблокированной и повторяет запрос через три секунды;
 после успешного создания повтор прекращается. После успешного `202 Accepted`
 пользовательское сообщение добавляется в чат, а события `message_delta`
@@ -324,8 +303,9 @@ frontend оставляет форму заблокированной и пов�
 буферизуются, чтобы ответ агента не оказался выше сообщения пользователя.
 Одновременно допускается только один незавершённый запрос.
 
-Пользовательский текст, delta и сообщения ошибок добавляются через
-`textContent`. `dialog_id` не сохраняется в cookie или `localStorage`; полная
+Пользовательский текст, delta, названия историй и сообщения ошибок
+добавляются через `textContent`. `dialog_id` не сохраняется в cookie,
+`localStorage` или URL; полная
 перезагрузка создаёт новый диалог. Ошибка EventSource блокирует форму, пока
 браузер пытается переподключиться, но потерянные события не восстанавливаются,
 так как backend не поддерживает replay.
@@ -346,9 +326,9 @@ frontend оставляет форму заблокированной и пов�
 При штатном shutdown сервис прекращает принимать новые запросы, отменяет все
 отслеживаемые фоновые задачи и ожидает их завершения, после чего вызывает
 `DialogEventBroker.shutdown()`. Брокер закрывает подписки и разблокирует
-ожидающих потребителей. Повторные unsubscribe и shutdown безопасны. Очередь запусков, брокер событий и
-черновики находятся только в памяти процесса и после перезапуска теряются;
-сохранённые диалоги хранятся в PostgreSQL.
+ожидающих потребителей. Повторные unsubscribe и shutdown безопасны. История
+диалогов хранится в PostgreSQL, а очереди запусков и SSE-события находятся
+только в памяти процесса и после перезапуска теряются.
 
 ## Где искать подробности
 
@@ -367,6 +347,9 @@ frontend оставляет форму заблокированной и пов�
 - [спецификация frontend-интеграции](../specs/changes/frontend-agent-integration/spec.md);
 - [план frontend-интеграции](../specs/changes/frontend-agent-integration/plan.md);
 - [результат проверки frontend-интеграции](../specs/changes/frontend-agent-integration/verification.md);
+- [спецификация постоянной истории](../specs/changes/user-dialog-history/spec.md);
+- [план постоянной истории](../specs/changes/user-dialog-history/plan.md);
+- [результат проверки постоянной истории](../specs/changes/user-dialog-history/verification.md);
 - [усиление аутентификации: спецификация](../specs/changes/auth-hardening/spec.md),
   [план](../specs/changes/auth-hardening/plan.md),
   [результат проверки](../specs/changes/auth-hardening/verification.md);
@@ -376,3 +359,24 @@ frontend оставляет форму заблокированной и пов�
 - [постоянная история диалогов: спецификация](../specs/changes/dialog-history/spec.md),
   [план](../specs/changes/dialog-history/plan.md);
 - [запуск и тестовые HTTP-запросы](../docker/README.md).
+
+## Жалобы на ответы
+
+Пользователь может пожаловаться на ответ ассистента в своём диалоге, если тот
+не подходит для детей. `HistoryStore.report` проверяет владельца так же, как
+оценка, и сохраняет в жалобу копии текста ответа и ближайшего предыдущего
+запроса пользователя: удаление истории обнуляет у жалобы `message_id`, но
+жалоба с текстами остаётся у администратора. На один ответ — одна жалоба
+(`UNIQUE(message_id)`).
+
+Когда администратор закрывает жалобу (`resolved` или `dismissed`), она
+становится новостью для пользователя: при открытии чата Крош в плашке
+сообщает, что взрослые посмотрели жалобу, а под ответом флажок меняется на
+«Взрослые посмотрели — спасибо!». Различие «рассмотрено»/«отклонено»
+пользователю не раскрывается. «Хорошо» или «Открыть историю» отмечают
+новость (`seen_at`); возврат жалобы в `new` снова делает её новостью после
+следующего закрытия
+([report-feedback-to-user](../specs/changes/report-feedback-to-user/spec.md)).
+Разбор жалоб — в [панели администратора](./admin.md#жалобы-на-ответы),
+схема — в [базе данных](./database.md#message_reports)
+([message-report](../specs/changes/message-report/spec.md)).

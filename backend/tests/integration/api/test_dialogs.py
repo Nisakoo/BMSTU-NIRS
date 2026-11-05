@@ -7,13 +7,7 @@ from uuid import UUID, uuid4
 
 import httpx
 import pytest
-from api_auth_support import (
-    ADMIN_COOKIES,
-    AUTH_COOKIES,
-    OTHER_COOKIES,
-    TEST_USER,
-    static_auth_service,
-)
+from api_auth_support import AUTH_COOKIES, TEST_USER, static_auth_service
 
 from smeshariki_ai.agent import (
     AgentResponse,
@@ -28,11 +22,7 @@ from smeshariki_ai.application import (
     AgentServiceUnavailableError,
     InMemoryDialogEventBroker,
 )
-from smeshariki_ai.dialogs import (
-    DialogDrafts,
-    DialogNotFoundError,
-    InMemoryHistoryStore,
-)
+from smeshariki_ai.dialogs import InMemoryHistoryStore
 from smeshariki_ai.observability import EventFormatter
 
 
@@ -84,11 +74,7 @@ async def wait_for_history_size(
 ) -> tuple[Message, ...]:
     async def wait() -> tuple[Message, ...]:
         while True:
-            try:
-                history = await store.get(dialog_id)
-            except DialogNotFoundError:
-                # A draft is not stored until its first answer.
-                history = ()
+            history = await store.get(TEST_USER.id, dialog_id)
             if len(history) == expected_size:
                 return history
             await asyncio.sleep(0)
@@ -113,7 +99,7 @@ async def test_create_dialog_returns_201_uuid4_and_location() -> None:
     assert UUID(response.headers["x-request-id"]).version == 4
     assert "set-cookie" not in response.headers
     assert "access-control-allow-origin" not in response.headers
-    assert await store.list(TEST_USER.id, 10, None) == ()
+    assert await store.get(TEST_USER.id, dialog_id) == ()
     await service.shutdown()
 
 
@@ -140,7 +126,7 @@ async def test_message_returns_empty_202_before_agent_finishes() -> None:
     assert response.content == b""
     assert "content-type" not in response.headers
     assert not agent.release.is_set()
-    assert await store.list(TEST_USER.id, 10, None) == ()
+    assert await store.get(TEST_USER.id, dialog_id) == ()
 
     agent.release.set()
     history = await wait_for_history_size(store, dialog_id, 2)
@@ -208,8 +194,8 @@ async def test_json_logs_link_http_request_and_background_run() -> None:
 async def test_unhandled_api_error_returns_request_id_without_private_exception() -> (
     None
 ):
-    class FailingDrafts(DialogDrafts):
-        def create(self, owner_id: UUID) -> UUID:
+    class FailingStore(InMemoryHistoryStore):
+        async def create(self, owner_id: UUID) -> UUID:
             raise RuntimeError("private failure detail")
 
     logger = logging.getLogger("smeshariki_ai")
@@ -219,12 +205,7 @@ async def test_unhandled_api_error_returns_request_id_without_private_exception(
     handler.setFormatter(EventFormatter("json"))
     logger.addHandler(handler)
     logger.setLevel(logging.INFO)
-    service = AgentService(
-        BlockingAgent(),
-        InMemoryHistoryStore(),
-        InMemoryDialogEventBroker(),
-        drafts=FailingDrafts(),
-    )
+    service = AgentService(BlockingAgent(), FailingStore(), InMemoryDialogEventBroker())
     client = make_client(service)
     try:
         async with client:
@@ -373,61 +354,94 @@ async def test_application_lifespan_shuts_service_down() -> None:
         pass
 
     with pytest.raises(AgentServiceUnavailableError):
-        await service.submit(dialog_id, TEST_USER.id, UserRequest(content="question"))
+        await service.submit(TEST_USER.id, dialog_id, UserRequest(content="question"))
 
 
 @pytest.mark.asyncio
-async def test_created_dialog_belongs_to_authenticated_user() -> None:
+@pytest.mark.parametrize("minutes", [None, 2, 5, 10])
+async def test_reading_time_is_optional_and_reaches_the_agent(
+    minutes: int | None,
+) -> None:
+    agent = BlockingAgent(response="ok")
+    agent.release.set()
     store = InMemoryHistoryStore()
-    service = make_service(BlockingAgent(), store)
-    client = make_client(service)
+    service = make_service(agent, store)
+    dialog_id = await service.start_dialog(TEST_USER.id)
+    body: dict[str, object] = {"request": "question"}
+    if minutes is not None:
+        body["reading_minutes"] = minutes
 
-    async with client:
-        response = await client.post("/api/v1/dialogs")
+    async with make_client(service) as client:
+        response = await client.post(f"/api/v1/dialogs/{dialog_id}/messages", json=body)
+    history = await wait_for_history_size(store, dialog_id, 2)
 
-    dialog_id = UUID(response.json()["dialog_id"])
-    assert (await service.get_dialog(dialog_id, TEST_USER.id)).messages == ()
-    with pytest.raises(DialogNotFoundError):
-        await service.get_dialog(dialog_id, UUID(int=2))
+    assert response.status_code == 202
+    assert agent.calls[0][1].reading_minutes == minutes
+    assert history[0].content == "question"
     await service.shutdown()
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("cookies", [OTHER_COOKIES, ADMIN_COOKIES])
-async def test_foreign_dialog_is_indistinguishable_from_missing(
-    cookies: dict[str, str],
-    caplog: pytest.LogCaptureFixture,
+@pytest.mark.parametrize("minutes", [0, 3, 7, "5", 5.5, None, True])
+async def test_unsupported_reading_time_returns_422(minutes: object) -> None:
+    agent = BlockingAgent()
+    service = make_service(agent, InMemoryHistoryStore())
+    dialog_id = await service.start_dialog(TEST_USER.id)
+
+    async with make_client(service) as client:
+        response = await client.post(
+            f"/api/v1/dialogs/{dialog_id}/messages",
+            json={"request": "question", "reading_minutes": minutes},
+        )
+
+    assert response.status_code == 422
+    assert agent.calls == []
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("method", "suffix", "body"),
+    [
+        ("POST", "/messages", b'{"request":"question"}'),
+        ("PUT", "/messages/1/feedback", b'{"score":5}'),
+        ("POST", "/messages/1/report", b'{"reason":"rude"}'),
+    ],
+    ids=["message", "feedback", "report"],
+)
+async def test_body_routes_require_json_media_type(
+    method: str, suffix: str, body: bytes
 ) -> None:
-    caplog.set_level(logging.INFO, logger="smeshariki_ai.application.agent_service")
     agent = BlockingAgent()
     store = InMemoryHistoryStore()
     service = make_service(agent, store)
-    dialog_id = await service.start_dialog(TEST_USER.id)
-    client = make_client(service, cookies=cookies)
+    client = make_client(service)
 
     async with client:
-        foreign = await client.post(
-            f"/api/v1/dialogs/{dialog_id}/messages",
-            json={"request": "private request"},
+        dialog_id = (await client.post("/api/v1/dialogs")).json()["dialog_id"]
+        response = await client.request(
+            method,
+            f"/api/v1/dialogs/{dialog_id}{suffix}",
+            content=body,
+            headers={"Content-Type": "text/plain"},
         )
-        missing = await client.post(
-            f"/api/v1/dialogs/{uuid4()}/messages",
-            json={"request": "private request"},
-        )
-        foreign_events = await client.get(f"/api/v1/dialogs/{dialog_id}/events")
-        missing_events = await client.get(f"/api/v1/dialogs/{uuid4()}/events")
 
-    for response in (foreign, missing, foreign_events, missing_events):
-        assert response.status_code == 404
-        assert response.json() == {"detail": "Dialog not found."}
+    assert response.status_code == 415
     assert agent.calls == []
-    assert await store.list(TEST_USER.id, 10, None) == ()
-    denied = [
-        record
-        for record in caplog.records
-        if record.getMessage().split()[0] == "dialog.access.denied"
-    ]
-    assert [record.outcome for record in denied] == ["foreign", "foreign"]
-    assert all(record.dialog_id == str(dialog_id) for record in denied)
-    assert "private request" not in caplog.text
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_cross_site_unsafe_request_is_forbidden() -> None:
+    agent = BlockingAgent()
+    service = make_service(agent, InMemoryHistoryStore())
+    client = make_client(service)
+
+    async with client:
+        response = await client.post(
+            "/api/v1/dialogs", headers={"Sec-Fetch-Site": "cross-site"}
+        )
+
+    assert response.status_code == 403
+    assert response.json() == {"error": "forbidden_origin"}
     await service.shutdown()

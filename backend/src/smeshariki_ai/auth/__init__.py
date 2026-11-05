@@ -13,12 +13,15 @@ from smeshariki_ai.auth.models import (
     InvalidCredentialsError,
     IssuedTokens,
     LoginTakenError,
+    PasswordChange,
     RefreshSession,
     Role,
+    SamePasswordError,
     TooManyAttemptsError,
     UnauthorizedError,
     User,
     UserWithPassword,
+    WrongPasswordError,
 )
 from smeshariki_ai.auth.passwords import Argon2PasswordHasher
 from smeshariki_ai.auth.service import AuthService
@@ -45,14 +48,17 @@ __all__ = [
     "InvalidCredentialsError",
     "IssuedTokens",
     "LoginTakenError",
+    "PasswordChange",
     "RateLimitConfig",
     "RefreshSession",
     "RefreshSessionStore",
     "Role",
+    "SamePasswordError",
     "TokenBlacklist",
     "TooManyAttemptsError",
     "UnauthorizedError",
     "User",
     "UserStore",
     "UserWithPassword",
+    "WrongPasswordError",
 ]

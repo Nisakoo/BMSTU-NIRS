@@ -4,6 +4,7 @@ from enum import StrEnum
 from uuid import UUID
 
 from smeshariki_ai.auth import Role
+from smeshariki_ai.dialogs import ReportReason
 
 
 class AdminStatsUnavailableError(Exception):
@@ -18,6 +19,12 @@ class StatsPeriod(StrEnum):
     @property
     def days(self) -> int:
         return int(self.value)
+
+    @property
+    def buckets(self) -> int:
+        """Columns of the activity chart: buckets of 1, 3 or 10 days."""
+
+        return {"7": 7, "30": 10, "90": 9}[self.value]
 
 
 class UserStatus(StrEnum):
@@ -34,6 +41,23 @@ class RecentUser:
     registered_at: datetime
     # Creation time of the latest refresh session: a login or a session renewal.
     last_active_at: datetime | None
+    # Stories of the user, all time: dialogs with at least one message.
+    dialogs: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class FeedbackStats:
+    """Ratings of assistant answers created in the window.
+
+    ``counts[i]`` is the number of answers rated ``i + 1`` out of 5.
+    """
+
+    answers_total: int
+    rated_answers: int
+    counts: tuple[int, ...]
+
+
+NO_FEEDBACK = FeedbackStats(answers_total=0, rated_answers=0, counts=(0,) * 5)
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +68,14 @@ class UserStatsSnapshot:
     new_users: int
     active_users: int
     recent_users: tuple[RecentUser, ...]
+    feedback: FeedbackStats = NO_FEEDBACK
+    # Reports waiting for review, whatever the window.
+    reports_new: int = 0
+    # Stories created and messages sent in the window; empty dialogs do not count.
+    dialogs: int = 0
+    messages: int = 0
+    # Stories created in each equal bucket of the window, oldest first.
+    activity: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,3 +91,44 @@ class UserStats:
     new_users: int
     active_users: int
     recent_users: tuple[RecentUserStats, ...]
+    feedback: FeedbackStats = NO_FEEDBACK
+    reports_new: int = 0
+    dialogs: int = 0
+    messages: int = 0
+    activity: tuple["ActivityPoint", ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ActivityPoint:
+    """Stories created in the bucket of the window that starts at ``start``."""
+
+    start: datetime
+    dialogs: int
+
+
+class ReportStatus(StrEnum):
+    NEW = "new"
+    RESOLVED = "resolved"
+    DISMISSED = "dismissed"
+
+
+class ReportNotFoundError(Exception):
+    def __init__(self, report_id: int) -> None:
+        self.report_id = report_id
+        super().__init__(f"Report not found: {report_id}")
+
+
+@dataclass(frozen=True, slots=True)
+class MessageReport:
+    """A report as the administrator sees it: texts, but not its author."""
+
+    id: int
+    reason: ReportReason
+    comment: str | None
+    request_text: str | None
+    answer_text: str
+    status: ReportStatus
+    created_at: datetime
+    resolved_at: datetime | None
+    # The user deleted the dialog; the copied texts remain.
+    dialog_deleted: bool

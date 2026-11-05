@@ -150,6 +150,50 @@ test("the client never touches browser storage", async () => {
   }
 });
 
+test("changePassword puts both passwords to the current user and accepts 204", async () => {
+  const { api, calls } = recordingApi(response(204));
+
+  assert.equal(
+    await api.changePassword({ currentPassword: "carrot123", newPassword: "radish456" }),
+    undefined,
+  );
+  assert.deepEqual(calls, [[
+    "/api/v1/users/me/password",
+    {
+      method: "PUT",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ current_password: "carrot123", new_password: "radish456" }),
+    },
+  ]]);
+});
+
+test("changePassword maps its errors to stable codes", async () => {
+  const cases = [
+    [400, { error: "wrong_password" }, "wrong_password"],
+    [422, { error: "same_password" }, "same_password"],
+    [422, { error: "invalid_fields" }, "invalid_fields"],
+    [422, null, "invalid_fields"],
+    [401, { error: "unauthorized" }, "unauthorized"],
+    [429, { error: "too_many_attempts" }, "too_many_attempts"],
+    [503, { error: "unavailable" }, "unavailable"],
+    [500, {}, "unavailable"],
+  ];
+
+  for (const [status, body, code] of cases) {
+    const { api } = recordingApi(response(status, body, { invalidJson: body === null }));
+    await assertAuthError(
+      api.changePassword({ currentPassword: "carrot123", newPassword: "radish456" }),
+      code,
+    );
+  }
+  const { api } = recordingApi(new TypeError("Failed to fetch"));
+  await assertAuthError(
+    api.changePassword({ currentPassword: "carrot123", newPassword: "radish456" }),
+    "unavailable",
+  );
+});
+
 test("fetchImpl must be a function", () => {
   assert.throws(() => new AuthApi({ fetchImpl: null }), TypeError);
 });
