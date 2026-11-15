@@ -173,6 +173,11 @@ erDiagram
   удаление персонажа, на которого ссылаются эпизоды, локации или отношения,
   запрещено.
 
+Для нечётких подсказок имён миграция `0012` включает `pg_trgm` и создаёт
+GIN-индексы `gin_trgm_ops` на нормализованных именах персонажей, локаций,
+артефактов и названиях эпизодов. Это индекс поиска, а не доменное правило;
+`downgrade` удаляет индексы, но оставляет расширение как общую инфраструктуру.
+
 Поэтому загрузка заменяет дочерние строки изменённого агрегата и обновляет его
 корень на месте, не затрагивая чужие агрегаты. Ограничения PostgreSQL —
 вторая линия защиты после правил приложения: формат `id`, непустые строки,
@@ -185,19 +190,38 @@ erDiagram
 
 ### Журнал
 
-- `rag_loads` — каждая успешная загрузка: начало, конец, длительность, число
-  сущностей в БД и счётчики по типам. Отменённая загрузка записей не
-  оставляет.
-- `rag_revisions` — журнал только на добавление: при каждом добавлении или
-  изменении сущности — номер ревизии, операция, загрузка, версия формата и
-  снимок агрегата в `jsonb` в формате файла пакета. Журнал не ссылается на
-  таблицы сущностей, поэтому переживает их удаление; снимок можно снова
-  загрузить как пакет. По версии формата снимок, записанный до изменения
-  формата, распознаётся и преобразуется, а не молча перестаёт читаться.
+- `rag_loads` — журнал операций: `operation` (`load`, `delete` или
+  `restore`), начало, конец, длительность, число сущностей в БД и счётчики по
+  типам. У загрузки и восстановления счётчики `added`/`updated`/`unchanged`, у
+  удаления — `deleted`. Отменённая операция записей не оставляет.
+- `rag_revisions` — журнал только на добавление: при каждом добавлении,
+  изменении или удалении сущности — номер ревизии, операция
+  (`create`/`update`/`delete`), операция журнала, версия формата и снимок
+  агрегата в `jsonb` в формате файла пакета. Журнал не ссылается на таблицы
+  сущностей, поэтому переживает их удаление; снимок можно снова загрузить как
+  пакет. По версии формата снимок, записанный до изменения формата,
+  распознаётся и преобразуется, а не молча перестаёт читаться.
 
-Логическое удаление (`deleted_at`) не используется: удаление в
-`knowledge-maintenance` будет физическим, а последняя версия агрегата останется
-в журнале ревизий.
+### Выгрузка, удаление и блокировка
+
+- `export` читает текущее состояние в read-only снимке и пишет обычный пакет.
+  В `package.yaml` попадают ревизии выгруженных сущностей; пакет можно
+  отредактировать и загрузить обратно. Непустой каталог не перезаписывается.
+- `delete` проверяет ссылки на полном наборе и физически удаляет выбранные
+  агрегаты. Дочерние строки удаляются раньше корней, поэтому взаимные
+  отношения двух персонажей не мешают. Для каждой сущности остаётся ревизия
+  `delete` со снимком; `rag_loads` получает операцию `delete`.
+- `restore` выбирает последнюю или указанную ревизию, проверяет снимок
+  доменной моделью и целостность полного набора. `--apply` пишет
+  `create`/`update` и операцию `restore`; если снимок совпадает с текущей
+  сущностью, новая ревизия не появляется.
+- `load` сравнивает `revisions` пакета с текущими ревизиями в той же
+  транзакции. Конфликт отменяет весь пакет с кодом `revision_mismatch`;
+  пакет без `revisions` загружается по прежним правилам.
+
+Логическое удаление (`deleted_at`) не используется: удаление физическое, а
+последняя версия агрегата остаётся в журнале ревизий. Отдельной команды
+восстановления пока нет; снимок можно загрузить как пакет.
 
 ## Источники
 
@@ -234,10 +258,11 @@ erDiagram
 └── artifacts/<id>.yaml      артефакты с создателями
 ```
 
-- `package.yaml` обязателен и содержит только `format_version`; текущая и
-  единственная поддерживаемая версия — `1`. Он делает изменение формата явным:
-  пакет старого формата отвергается с понятной ошибкой, а не множеством
-  ошибок схемы.
+- `package.yaml` обязателен и содержит `format_version`; текущая и единственная
+  поддерживаемая версия — `1`. Необязательное поле `revisions` хранит текущие
+  ревизии выгруженных сущностей для оптимистичной блокировки загрузки:
+  `revisions: {characters: {pin: 3}}`. Пакет без `revisions` валиден и
+  загружается по прежним правилам. Поле не меняет формат файлов сущностей.
 - Один файл — одна сущность целиком; имя файла без `.yaml` совпадает с `id`.
 - Файлы и каталоги, имя которых начинается с точки (`.git`, `.DS_Store`),
   пропускаются; символьные ссылки отвергаются без чтения содержимого; другие
@@ -276,6 +301,14 @@ erDiagram
 ```yaml
 # package.yaml
 format_version: 1
+```
+
+```yaml
+# package.yaml, созданный export: необязательные ревизии блокировки
+format_version: 1
+revisions:
+  characters:
+    pin: 3
 ```
 
 ```yaml
@@ -389,7 +422,13 @@ creators: [pin]
 ```sh
 python -m smeshariki_ai.rag check <пакет> [--format text|json]
 python -m smeshariki_ai.rag schema
+python -m smeshariki_ai.rag export <каталог> [--type characters] [--format text|json]
+python -m smeshariki_ai.rag delete characters/pin [--apply] [--format text|json]
+python -m smeshariki_ai.rag restore characters/pin [--revision N] [--apply] [--format text|json]
 make knowledge-check DIR=<пакет>
+make knowledge-export DIR=<каталог>
+make knowledge-delete REFS="characters/pin" [APPLY=1]
+make knowledge-restore REF=characters/pin [REVISION=N] [APPLY=1]
 ```
 
 Команды не требуют environment, БД и сети и не задают вопросов. Код возврата
@@ -437,7 +476,8 @@ JSON-вывод (`--format json`) предназначен для агента �
 | YAML | `invalid_encoding`, `yaml_syntax`, `duplicate_key`, `yaml_tag`, `yaml_anchor`, `not_a_mapping` |
 | Схема | `missing_field`, `extra_field`, `invalid_type`, `empty_value`, `invalid_value`, `invalid_id`, `invalid_timecode`, `duplicate_value`, `invalid_source`, `schema_error` |
 | Целостность | `unknown_reference` (только при загрузке), `overlapping_versions`, `self_reference`, `continuity_mismatch`, `duplicate_relationship`, `interaction_participant`, `duplicate_interaction`, `duplicate_name`, `duplicate_episode_number`, `film_episode_count` |
-| Загрузка | `configuration_error` (не загружен конфиг backend), `database_unavailable`, `schema_not_ready` (не применены миграции), `stored_data_invalid` (данные в БД не проходят модели) |
+| Загрузка | `configuration_error` (не загружен конфиг backend), `database_unavailable`, `schema_not_ready` (не применены миграции), `stored_data_invalid` (данные в БД не проходят модели), `revision_mismatch` (конфликт ревизий) |
+| Обслуживание | `empty_store`, `empty_selection`, `destination_not_empty`, `export_failed`, `entity_not_found`, `unknown_revision_entity`, `invalid_revision`, `revision_not_found`, `revision_invalid`, `unsupported_revision_format` |
 
 Из двух конфликтующих сущностей ошибку получает та, чей `id` идёт позже; при
 нескольких эпизодах фильма ошибку получает каждый.
@@ -479,4 +519,13 @@ JSON-вывод (`--format json`) предназначен для агента �
 - надёжность и рефакторинг:
   [спецификация](../specs/changes/knowledge-hardening/spec.md),
   [план](../specs/changes/knowledge-hardening/plan.md),
-  [результат проверки](../specs/changes/knowledge-hardening/verification.md).
+  [результат проверки](../specs/changes/knowledge-hardening/verification.md);
+- выгрузка, удаление и блокировка:
+  [export spec](../specs/changes/knowledge-export/spec.md),
+  [export verify](../specs/changes/knowledge-export/verification.md),
+  [delete spec](../specs/changes/knowledge-delete/spec.md),
+  [delete verify](../specs/changes/knowledge-delete/verification.md),
+  [restore spec](../specs/changes/knowledge-restore/spec.md),
+  [restore verify](../specs/changes/knowledge-restore/verification.md),
+  [lock spec](../specs/changes/knowledge-optimistic-lock/spec.md),
+  [lock verify](../specs/changes/knowledge-optimistic-lock/verification.md).

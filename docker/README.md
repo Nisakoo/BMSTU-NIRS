@@ -154,8 +154,9 @@ healthcheck и запускает pytest на хосте через `uv` с `TES
 запускает. Подробности — в
 [`spec.md`](../specs/changes/postgres-test-env/spec.md).
 
-RAG остаётся будущим внутренним инструментом backend и пока не добавлен в
-Compose.
+RAG является внутренним инструментом backend; его команды `check`, `schema` и
+`load` выполняются через `uv` или Compose, а `export`, `delete` и `restore` —
+через Compose-сервис `migrate`. Отдельного RAG-сервиса в Compose нет.
 
 Контракт единого запуска описан в
 [`spec.md`](../specs/changes/compose-caddy-nginx-stack/spec.md), порядок

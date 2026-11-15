@@ -52,10 +52,19 @@ SSE-подключение имеет собственный `request_id`; св�
 
 `smeshariki_ai.rag.lookup` пишет `rag.lookup.completed` на каждый вызов
 инструмента `lookup_knowledge`: `outcome` (`found`, `not_found`,
-`unavailable`), `match_count`, `started_at` и `duration_ms`. При ошибке
-хранилища событие имеет уровень `WARNING` и `error_type`, при отсутствии
-загруженных знаний — `reason=not_loaded`. Текст запроса и знания в журнал не
-попадают ([страница RAG](./rag.md#инструмент-lookup_knowledge)).
+`unavailable`), `match_count`, `suggestion_count`, `started_at` и
+`duration_ms`. При ошибке хранилища событие имеет уровень `WARNING` и
+`error_type`, при отсутствии загруженных знаний — `reason=not_loaded`. Текст
+запроса, подсказки и знания в журнал не попадают
+([страница RAG](./rag.md#инструмент-lookup_knowledge)).
+
+Обслуживание знаний пишет `rag.export.completed`, `rag.delete.completed`,
+`rag.restore.completed` и `rag.load.completed` с `outcome`, `started_at`,
+`duration_ms` и числовыми счётчиками `entity_count`, `deleted_count` или
+`conflict_count`. При отказе есть `reason` или `error_type`; `id` сущностей,
+номера ревизий, пути и содержимое знаний в журнал не попадают. Все
+перечисленные поля входят в безопасный список
+`observability._SAFE_FIELDS`.
 
 ## Метрики модели
 

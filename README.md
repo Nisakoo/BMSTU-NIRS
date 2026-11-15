@@ -53,9 +53,11 @@ Docker Compose проектом. Агент и RAG входят в состав 
 администратора — на [`http://localhost:8080/admin/`](http://localhost:8080/admin/), а
 страница входа и регистрации — на [`http://localhost:8080/login/`](http://localhost:8080/login/).
 Настройки и примеры HTTP-запросов описаны в
-[`docker/README.md`](docker/README.md). Backend использует
-настраиваемый LiteLLM-провайдер и in-memory историю; RAG и постоянное хранилище
-пока не реализованы.
+[`docker/README.md`](docker/README.md). Backend использует настраиваемый
+LiteLLM-провайдер, PostgreSQL для пользователей, истории диалогов и знаний RAG,
+а также Redis для аутентификации. RAG предоставляет агенту инструмент
+`lookup_knowledge`, а знания загружаются, выгружаются и удаляются командами из
+корня репозитория.
 
 ## Документация
 

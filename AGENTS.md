@@ -382,8 +382,9 @@
 
 1. Пакет `smeshariki_ai.rag` содержит доменные модели всех сущностей ER-модели
    из `docs/knowledge.md` (`models.py`), правила целостности над
-   `KnowledgeSet` (`integrity.py`), чтение пакета знаний (`yaml_reader.py`,
-   `package.py`), use case проверки (`services.py`) и команды (`cli.py`).
+   `KnowledgeSet` (`integrity.py`), чтение и запись пакета знаний
+   (`yaml_reader.py`, `package.py`), use cases проверки, загрузки, выгрузки и
+   удаления (`services.py`, `maintenance.py`) и команды (`cli.py`).
 2. Источник истины знаний — PostgreSQL (таблицы `rag_*`). Знания поступают
    пакетами YAML-файлов, которые готовятся вне репозитория: репозиторий
    публичный, поэтому реальные данные не коммитятся, а тесты и примеры
@@ -397,39 +398,61 @@
    набора и в SQL не дублируются.
 5. `python -m smeshariki_ai.rag check <path> [--format text|json]` и
    `schema` не читают environment и не задают вопросов; `check` возвращает
-   `0`, `1` или `2`. `make knowledge-check DIR=<path>` запускает проверку.
-   Спецификация: `specs/changes/knowledge-catalog/`.
-6. Таблицы `rag_*` описаны в `rag/tables.py` и создаются миграцией `0003`.
-   Внешние ключи внутри агрегата каскадные, между агрегатами — только на
-   корневые таблицы с `RESTRICT`. Порт `KnowledgeStore` реализуют
+   `0`, `1` или `2`. `export`, `delete`, `restore` и `load` читают конфиг
+   только при выполнении. `make knowledge-check`, `knowledge-export`,
+   `knowledge-delete` и `knowledge-restore` запускают команды из корня;
+   `make` при ошибке возвращает свой код `2`. Спецификации:
+   `knowledge-catalog`, `knowledge-export`, `knowledge-delete`,
+   `knowledge-restore`.
+6. Таблицы `rag_*` описаны в `rag/tables.py` и создаются миграциями
+   `0003`, `0004`, `0010`–`0012`. Внешние ключи внутри агрегата каскадные,
+   между агрегатами — только на корневые таблицы с `RESTRICT`. Порт
+   `KnowledgeStore` реализуют
    `PostgresKnowledgeStore` и `InMemoryKnowledgeStore`; оба проходят один
-   контрактный набор тестов.
+   контрактный набор тестов. Порт умеет `snapshot()`, `revision_history()`
+   без advisory lock и `transaction()` под ним.
 7. `python -m smeshariki_ai.rag load <path>` (`make knowledge-load DIR=<path>`
    в Compose) проверяет пакет и в одной транзакции под advisory lock
    объединяет его с БД, проверяет правила на полном наборе и пишет только
-   новые и изменённые сущности. Успешные загрузки записываются в `rag_loads`,
-   изменения сущностей — в журнал `rag_revisions` со снимком агрегата.
-   Логическое удаление не используется. Спецификация:
-   `specs/changes/knowledge-postgres-store/`.
+   новые и изменённые сущности. `rag_loads` хранит операцию
+   (`load`/`delete`/`restore`), изменения сущностей — в `rag_revisions` со
+   снимком агрегата. Удаление физическое, ревизия `delete` сохраняется.
+   Спецификации: `knowledge-postgres-store`, `knowledge-delete`,
+   `knowledge-restore`.
 8. Пакет обязательно содержит `package.yaml` с `format_version`, а каждая
    ревизия хранит версию формата снимка; текущая версия — константа
-   `KNOWLEDGE_FORMAT_VERSION`. Имена нормализуются через NFC и `casefold`.
-   Ошибка конфигурации (`configuration_error`) и данные БД, не проходящие
-   модели (`stored_data_invalid`), различаются. Типы сущностей описаны одним
-   реестром `ENTITY_KINDS`, а преобразование агрегатов в строки БД — в
-   `rag/postgres_mappers.py`. Спецификация: `specs/changes/knowledge-hardening/`.
+   `KNOWLEDGE_FORMAT_VERSION`. Необязательное `revisions` в manifest хранит
+   ревизии для оптимистичной блокировки; пакет без него загружается по старым
+   правилам. Имена нормализуются через NFC и `casefold`. Ошибка конфигурации
+   (`configuration_error`) и данные БД, не проходящие модели
+   (`stored_data_invalid`), различаются. Типы сущностей описаны одним реестром
+   `ENTITY_KINDS`, а преобразование агрегатов в строки БД — в
+   `rag/postgres_mappers.py`. Спецификации: `knowledge-hardening`,
+   `knowledge-optimistic-lock`.
 9. Инструмент агента `lookup_knowledge` (`rag/tools.py`) получает use case
    `KnowledgeLookup` (`rag/lookup.py`), который читает через порт
    `KnowledgeReader` (реализуют `PostgresKnowledgeStore` и
    `InMemoryKnowledgeStore`). Поиск точный по нормализованному имени, алиасу,
-   названию эпизода (`normalized_title`, миграция `0004`) и slug; ответ —
-   статус `found`/`not_found`/`unavailable` и до 10 карточек с именами вместо
-   slug и без `sources`. Чтение — `REPEATABLE READ READ ONLY` без advisory
-   lock загрузки; ошибки хранилища дают `unavailable`. Bootstrap
+   названию эпизода (`normalized_title`, миграция `0004`) и slug; при
+   отсутствии точных совпадений `suggest` возвращает до 5 компактных подсказок
+   по `pg_trgm` (миграция `0012`, порог `0.3`). Ответ — статус
+   `found`/`not_found`/`unavailable`, до 10 карточек с именами вместо slug и
+   без `sources` и отдельное поле `suggestions`. Чтение —
+   `REPEATABLE READ READ ONLY` без advisory lock загрузки; ошибки хранилища
+   дают `unavailable`. Bootstrap
    регистрирует инструмент рядом с `get_context`: production —
    `PostgresKnowledgeStore` на общем engine, без него — пустой
    `InMemoryKnowledgeStore`. Спецификация:
    `specs/changes/knowledge-lookup-tool/`.
+10. `python -m smeshariki_ai.rag export <path>` выгружает знания в обычный
+    пакет в read-only снимке; `delete <type>/<id>...` по умолчанию делает
+    dry-run, а с `--apply` удаляет в одной транзакции после проверки ссылок и
+    пишет ревизию `delete`; `restore <type>/<id>` выбирает последнюю или
+    указанную ревизию, проверяет снимок и целостность и с `--apply` пишет
+    `create`/`update` с операцией `restore`. `load` сравнивает необязательные
+    `revisions` из `package.yaml` с текущими ревизиями и при конфликте отменяет
+    весь пакет. Спецификации: `knowledge-export`, `knowledge-delete`,
+    `knowledge-restore`, `knowledge-optimistic-lock`.
 
 ## Согласованные технологии
 
