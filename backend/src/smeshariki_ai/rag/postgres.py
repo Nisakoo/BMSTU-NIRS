@@ -29,6 +29,7 @@ from sqlalchemy import (
     text,
     update,
 )
+from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.dialects.postgresql import insert as upsert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
@@ -46,16 +47,21 @@ from smeshariki_ai.rag.models import (
     references_of,
 )
 from smeshariki_ai.rag.ports import (
+    SUGGESTION_LIMIT,
+    SUGGESTION_THRESHOLD,
     EntityChange,
     FoundKnowledge,
+    JournalOperation,
     KnowledgeDataInvalidError,
     KnowledgeReader,
     KnowledgeSchemaNotReadyError,
+    KnowledgeSnapshot,
     KnowledgeStore,
     KnowledgeStoreUnavailableError,
     KnowledgeTransaction,
     LoadRecord,
     LoadSummary,
+    LookupSuggestion,
     Revision,
 )
 from smeshariki_ai.rag.postgres_mappers import MAPPERS, Grouped, Row
@@ -90,6 +96,47 @@ async def _rows(
         statement = statement.where(table.c[column].in_(ids))
     result = await connection.execute(statement)
     return [dict(row) for row in result.mappings()]
+
+
+async def _revision_index(connection: AsyncConnection) -> dict[EntityRef, int]:
+    statement = select(
+        tables.revisions.c.entity_type,
+        tables.revisions.c.entity_id,
+        func.max(tables.revisions.c.revision),
+    ).group_by(tables.revisions.c.entity_type, tables.revisions.c.entity_id)
+    rows = await connection.execute(statement)
+    try:
+        return {
+            EntityRef(type=EntityType(entity_type), id=entity_id): revision
+            for entity_type, entity_id, revision in rows
+        }
+    except ValueError as error:
+        # The rows are not shown: they may hold anything.
+        raise KnowledgeDataInvalidError from error
+
+
+async def _read_revisions(
+    connection: AsyncConnection, ref: EntityRef
+) -> tuple[Revision, ...]:
+    statement = (
+        select(tables.revisions)
+        .where(
+            tables.revisions.c.entity_type == ref.type.value,
+            tables.revisions.c.entity_id == ref.id,
+        )
+        .order_by(tables.revisions.c.revision)
+    )
+    rows = (await connection.execute(statement)).mappings()
+    return tuple(
+        Revision(
+            revision=row["revision"],
+            operation=row["operation"],
+            load_id=row["load_id"],
+            format_version=row["format_version"],
+            payload=row["payload"],
+        )
+        for row in rows
+    )
 
 
 async def _read_aggregates(
@@ -148,6 +195,47 @@ _NAMES: dict[EntityType, tuple[Table, str, str]] = {
 }
 
 
+def _name_suggestions(table: Table, owner: str, key: str, limit: int) -> Select:
+    name = table.alias("name")
+    canonical = table.alias("canonical")
+    score = func.similarity(name.c.normalized, key)
+    return (
+        select(
+            name.c[owner],
+            canonical.c.value,
+            score.label("score"),
+        )
+        .join(
+            canonical,
+            (canonical.c[owner] == name.c[owner]) & (canonical.c.position == 0),
+        )
+        .where(
+            name.c.normalized.op("%")(key),
+            score >= SUGGESTION_THRESHOLD,
+        )
+        .ext(distinct_on(name.c[owner]))
+        .order_by(name.c[owner], score.desc())
+        .limit(limit)
+    )
+
+
+def _episode_suggestions(key: str, limit: int) -> Select:
+    score = func.similarity(tables.episodes.c.normalized_title, key)
+    return (
+        select(
+            tables.episodes.c.id,
+            tables.episodes.c.title,
+            score.label("score"),
+        )
+        .where(
+            tables.episodes.c.normalized_title.op("%")(key),
+            score >= SUGGESTION_THRESHOLD,
+        )
+        .order_by(score.desc(), tables.episodes.c.id)
+        .limit(limit)
+    )
+
+
 class PostgresKnowledgeStore(KnowledgeStore, KnowledgeReader):
     def __init__(self, engine: AsyncEngine) -> None:
         self._engine = engine
@@ -160,6 +248,21 @@ class PostgresKnowledgeStore(KnowledgeStore, KnowledgeReader):
                     select(func.pg_advisory_xact_lock(_LOAD_LOCK_KEY))
                 )
                 yield _PostgresTransaction(connection)
+
+    async def snapshot(self) -> KnowledgeSnapshot:
+        async with self._snapshot() as connection:
+            knowledge = KnowledgeSet(
+                **{
+                    ENTITY_FIELDS[kind]: await _read_aggregates(connection, kind)
+                    for kind in MAPPERS
+                }
+            )
+            revisions = await _revision_index(connection)
+        return KnowledgeSnapshot(knowledge=knowledge, revisions=revisions)
+
+    async def revision_history(self, ref: EntityRef) -> tuple[Revision, ...]:
+        async with self._snapshot() as connection:
+            return await _read_revisions(connection, ref)
 
     @asynccontextmanager
     async def _snapshot(self) -> AsyncIterator[AsyncConnection]:
@@ -207,6 +310,31 @@ class PostgresKnowledgeStore(KnowledgeStore, KnowledgeReader):
                 names[kind] = {entity_id: name for entity_id, name in rows}
         return FoundKnowledge(entities=found, names=names)
 
+    async def suggest(
+        self, key: str, limit: int = SUGGESTION_LIMIT
+    ) -> tuple[LookupSuggestion, ...]:
+        if limit <= 0:
+            return ()
+        async with self._snapshot() as connection:
+            await connection.execute(
+                text(f"SET LOCAL pg_trgm.similarity_threshold = {SUGGESTION_THRESHOLD}")
+            )
+            rows: list[tuple[float, EntityType, str, str]] = []
+            for kind, (_, names, owner) in _NAMED.items():
+                statement = _name_suggestions(names, owner, key, limit)
+                for entity_id, name, score in await connection.execute(statement):
+                    rows.append((float(score), kind, entity_id, name))
+            for entity_id, title, score in await connection.execute(
+                _episode_suggestions(key, limit)
+            ):
+                rows.append((float(score), EntityType.EPISODE, entity_id, title))
+        order = {kind: index for index, kind in enumerate(EntityType)}
+        rows.sort(key=lambda item: (-item[0], order[item[1]], item[2]))
+        return tuple(
+            LookupSuggestion(type=kind, id=entity_id, name=name)
+            for _, kind, entity_id, name in rows[:limit]
+        )
+
     async def has_knowledge(self) -> bool:
         async with self._snapshot() as connection:
             return bool(
@@ -228,22 +356,30 @@ class _PostgresTransaction(KnowledgeTransaction):
             }
         )
 
-    async def start_load(self, started_at: datetime) -> int:
+    async def revision_index(self) -> dict[EntityRef, int]:
+        return await _revision_index(self._connection)
+
+    async def start_load(
+        self, started_at: datetime, operation: JournalOperation = "load"
+    ) -> int:
         return await self._connection.scalar(
             insert(tables.loads)
-            .values(started_at=started_at)
+            .values(started_at=started_at, operation=operation)
             .returning(tables.loads.c.id)
         )
 
     async def save(self, load_id: int, changes: Sequence[EntityChange]) -> None:
         if not changes:
             return
-        by_type: dict[EntityType, list[KnowledgeEntity]] = defaultdict(list)
+        writes: dict[EntityType, list[KnowledgeEntity]] = defaultdict(list)
+        deletes: dict[EntityType, list[KnowledgeEntity]] = defaultdict(list)
         for change in changes:
-            by_type[ENTITY_TYPES[type(change.entity)]].append(change.entity)
+            kind = ENTITY_TYPES[type(change.entity)]
+            target = deletes if change.operation == "delete" else writes
+            target[kind].append(change.entity)
 
         # Child rows go first, so a name may move between aggregates of one load.
-        for kind, entities in by_type.items():
+        for kind, entities in (*writes.items(), *deletes.items()):
             ids = [entity.id for entity in entities]
             for child in reversed(MAPPERS[kind].children):
                 await self._connection.execute(
@@ -252,15 +388,24 @@ class _PostgresTransaction(KnowledgeTransaction):
 
         children: dict[Table, list[Row]] = defaultdict(list)
         for kind, mapper in MAPPERS.items():
-            if kind not in by_type:
+            if kind not in writes:
                 continue
             roots = []
-            for entity in by_type[kind]:
+            for entity in writes[kind]:
                 root, child_rows = mapper.to_rows(entity)
                 roots.append(root)
                 for table, rows in child_rows.items():
                     children[table].extend(rows)
             await self._upsert(mapper.root, roots)
+
+        # Roots go in reverse dependency order: episodes before works, works
+        # before continuities. Child rows of the deleted aggregates are gone.
+        for kind in reversed(MAPPERS):
+            if kind in deletes:
+                ids = [entity.id for entity in deletes[kind]]
+                await self._connection.execute(
+                    delete(MAPPERS[kind].root).where(MAPPERS[kind].root.c.id.in_(ids))
+                )
 
         for mapper in MAPPERS.values():
             for child in mapper.children:
@@ -342,25 +487,12 @@ class _PostgresTransaction(KnowledgeTransaction):
                 entity_count=row["entity_count"],
                 counts=row["counts"],
             )
-        return LoadRecord(id=row["id"], started_at=row["started_at"], summary=summary)
+        return LoadRecord(
+            id=row["id"],
+            started_at=row["started_at"],
+            operation=row["operation"],
+            summary=summary,
+        )
 
     async def read_revisions(self, ref: EntityRef) -> tuple[Revision, ...]:
-        statement = (
-            select(tables.revisions)
-            .where(
-                tables.revisions.c.entity_type == ref.type.value,
-                tables.revisions.c.entity_id == ref.id,
-            )
-            .order_by(tables.revisions.c.revision)
-        )
-        rows = (await self._connection.execute(statement)).mappings()
-        return tuple(
-            Revision(
-                revision=row["revision"],
-                operation=row["operation"],
-                load_id=row["load_id"],
-                format_version=row["format_version"],
-                payload=row["payload"],
-            )
-            for row in rows
-        )
+        return await _read_revisions(self._connection, ref)

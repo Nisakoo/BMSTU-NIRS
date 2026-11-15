@@ -19,11 +19,13 @@ from smeshariki_ai.rag.models import (
 )
 from smeshariki_ai.rag.package import entity_file
 from smeshariki_ai.rag.ports import (
+    EntityChange,
     KnowledgeDataInvalidError,
     KnowledgeSchemaNotReadyError,
     KnowledgeStore,
     KnowledgeStoreUnavailableError,
     KnowledgeTransaction,
+    LoadSummary,
 )
 from smeshariki_ai.rag.services import load_package
 
@@ -75,9 +77,18 @@ FILM_EPISODE = Episode.model_validate(
 BASE: list[KnowledgeEntity] = [CLASSIC, MOVIES, SERIES, FILM, PIN, KROSH, FILM_EPISODE]
 
 
-def write_package(root: Path, entities: list[KnowledgeEntity]) -> Path:
+def write_package(
+    root: Path,
+    entities: list[KnowledgeEntity],
+    revisions: dict[str, dict[str, int]] | None = None,
+) -> Path:
     root.mkdir(parents=True, exist_ok=True)
-    (root / "package.yaml").write_text("format_version: 1\n", encoding="utf-8")
+    manifest = {"format_version": 1}
+    if revisions:
+        manifest["revisions"] = revisions
+    (root / "package.yaml").write_text(
+        yaml.safe_dump(manifest, allow_unicode=True), encoding="utf-8"
+    )
     for entity in entities:
         path = root / entity_file(entity_ref(entity))
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -253,6 +264,12 @@ class FailingStore(KnowledgeStore):
         raise self._error
         yield  # pragma: no cover
 
+    async def snapshot(self):
+        raise self._error
+
+    async def revision_history(self, ref):
+        raise self._error
+
 
 @pytest.mark.parametrize(
     ("error", "code"),
@@ -272,3 +289,128 @@ async def test_store_failures_are_reported(
     assert report.loaded is False
     assert [issue.code for issue in report.issues] == [code]
     assert report.issues[0].message
+
+
+async def test_matching_revision_allows_the_change(
+    tmp_path: Path, store: InMemoryKnowledgeStore
+) -> None:
+    await load_package(write_package(tmp_path / "a", BASE), store, ticking())
+    changed = KROSH.model_copy(update={"species": "заяц"})
+
+    report = await load_package(
+        write_package(
+            tmp_path / "b",
+            [changed],
+            {"characters": {"krosh": 1}},
+        ),
+        store,
+        ticking(),
+    )
+
+    assert report.loaded is True
+    assert report.counts["characters"].updated == 1
+    assert (
+        next(c for c in (await stored(store)).characters if c.id == "krosh") == changed
+    )
+
+
+async def test_revision_conflict_rejects_the_whole_package(
+    tmp_path: Path, store: InMemoryKnowledgeStore
+) -> None:
+    await load_package(write_package(tmp_path / "a", BASE), store, ticking())
+    changed = KROSH.model_copy(update={"species": "заяц"})
+    await load_package(write_package(tmp_path / "b", [changed]), store, ticking())
+    before = await stored(store)
+
+    report = await load_package(
+        write_package(
+            tmp_path / "c",
+            [changed],
+            {"characters": {"krosh": 1}},
+        ),
+        store,
+        ticking(),
+    )
+
+    assert report.loaded is False
+    assert [(issue.file, issue.path, issue.code) for issue in report.issues] == [
+        ("characters/krosh.yaml", "revisions", "revision_mismatch")
+    ]
+    assert "ожидалась ревизия 1, в БД 2" in report.issues[0].message
+    assert await stored(store) == before
+    async with store.transaction() as transaction:
+        assert await transaction.read_load(3) is None
+
+
+async def test_revision_conflict_for_missing_entity(
+    tmp_path: Path, store: InMemoryKnowledgeStore
+) -> None:
+    await load_package(write_package(tmp_path / "a", BASE), store, ticking())
+    krosh = next(c for c in BASE if getattr(c, "id", None) == "krosh")
+    async with store.transaction() as transaction:
+        load_id = await transaction.start_load(START)
+        await transaction.save(
+            load_id, [EntityChange(operation="delete", entity=krosh)]
+        )
+        await transaction.finish_load(
+            load_id,
+            LoadSummary(finished_at=START, duration_ms=0, entity_count=0, counts={}),
+        )
+
+    report = await load_package(
+        write_package(
+            tmp_path / "b",
+            [krosh],
+            {"characters": {"krosh": 1}},
+        ),
+        store,
+        ticking(),
+    )
+
+    assert report.loaded is False
+    assert [(issue.file, issue.code) for issue in report.issues] == [
+        ("characters/krosh.yaml", "revision_mismatch")
+    ]
+    assert "отсутствует" in report.issues[0].message
+
+
+async def test_multiple_conflicts_are_all_reported(
+    tmp_path: Path, store: InMemoryKnowledgeStore
+) -> None:
+    await load_package(write_package(tmp_path / "a", BASE), store, ticking())
+    changed = [
+        KROSH.model_copy(update={"species": "заяц"}),
+        PIN.model_copy(update={"species": "птица"}),
+    ]
+    await load_package(write_package(tmp_path / "b", changed), store, ticking())
+
+    report = await load_package(
+        write_package(
+            tmp_path / "c",
+            changed,
+            {"characters": {"krosh": 1, "pin": 1}},
+        ),
+        store,
+        ticking(),
+    )
+
+    assert report.loaded is False
+    assert [issue.file for issue in report.issues] == [
+        "characters/krosh.yaml",
+        "characters/pin.yaml",
+    ]
+    assert all(issue.code == "revision_mismatch" for issue in report.issues)
+
+
+async def test_load_event_has_only_safe_fields(
+    tmp_path: Path, store: InMemoryKnowledgeStore, caplog
+) -> None:
+    await load_package(write_package(tmp_path / "a", BASE), store, ticking())
+    caplog.set_level("INFO", logger="smeshariki_ai.rag.services")
+
+    await load_package(write_package(tmp_path / "b", BASE), store, ticking())
+
+    record = next(r for r in caplog.records if r.event == "rag.load.completed")
+    assert record.outcome == "loaded"
+    assert record.conflict_count == 0
+    assert "krosh" not in str(record.log_fields)

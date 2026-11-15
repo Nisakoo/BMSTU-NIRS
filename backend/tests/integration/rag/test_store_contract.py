@@ -27,6 +27,7 @@ from smeshariki_ai.rag.models import (
     Location,
     Work,
     entities_of,
+    entity_ref,
 )
 from smeshariki_ai.rag.ports import (
     ChangeCounts,
@@ -190,10 +191,13 @@ def changes(
 
 
 async def save(
-    store: KnowledgeStore, entities: list[KnowledgeEntity], operation: str = "create"
+    store: KnowledgeStore,
+    entities: list[KnowledgeEntity],
+    operation: str = "create",
+    journal_operation: str = "load",
 ) -> int:
     async with store.transaction() as transaction:
-        load_id = await transaction.start_load(STARTED)
+        load_id = await transaction.start_load(STARTED, operation=journal_operation)
         await transaction.save(load_id, changes(entities, operation))
         await transaction.finish_load(
             load_id,
@@ -338,6 +342,113 @@ async def test_exception_rolls_the_transaction_back(store: KnowledgeStore) -> No
             )
             == ()
         )
+
+
+async def test_snapshot_reads_the_current_state(store: KnowledgeStore) -> None:
+    knowledge = with_pin_code(universe())
+    load_id = await save(store, entities_of(knowledge))
+
+    snapshot = await store.snapshot()
+
+    assert snapshot.knowledge == await read_all(store)
+    assert snapshot.revisions == {
+        entity_ref(entity): 1 for entity in entities_of(knowledge)
+    }
+    assert snapshot.revisions[EntityRef(type=EntityType.CHARACTER, id="krosh")] == 1
+    async with store.transaction() as transaction:
+        assert (await transaction.read_load(load_id)).operation == "load"
+
+
+async def test_saving_delete_removes_the_aggregate_and_appends_a_revision(
+    store: KnowledgeStore,
+) -> None:
+    knowledge = with_pin_code(universe())
+    await save(store, entities_of(knowledge))
+    episode = next(e for e in knowledge.episodes if e.id == "film_main")
+    ref = EntityRef(type=EntityType.EPISODE, id="film_main")
+
+    await save(store, [episode], "delete", "delete")
+
+    stored = await read_all(store)
+    assert all(item.id != "film_main" for item in stored.episodes)
+    async with store.transaction() as transaction:
+        history = await transaction.read_revisions(ref)
+    assert [revision.operation for revision in history] == ["create", "delete"]
+    assert Episode.model_validate(history[-1].payload) == episode
+
+
+async def test_saving_delete_handles_mutual_relationships(
+    store: KnowledgeStore,
+) -> None:
+    pin = Character.model_validate(
+        {
+            "id": "pin",
+            "name": "Пин",
+            "species": "пингвин",
+            "versions": [version("classic")],
+            "relationships": [
+                {
+                    "to": "krosh",
+                    "type": "friendship",
+                    "continuities": ["classic"],
+                }
+            ],
+        }
+    )
+    krosh = Character.model_validate(
+        {
+            "id": "krosh",
+            "name": "Крош",
+            "species": "кролик",
+            "versions": [version("classic")],
+            "relationships": [
+                {
+                    "to": "pin",
+                    "type": "friendship",
+                    "continuities": ["classic"],
+                }
+            ],
+        }
+    )
+    await save(store, [Continuity(id="classic", name="Классика"), pin, krosh])
+
+    await save(store, [pin, krosh], "delete", "delete")
+
+    stored = await read_all(store)
+    assert stored.characters == ()
+    assert stored.continuities == (Continuity(id="classic", name="Классика"),)
+
+
+async def test_revision_history_is_available_without_a_transaction(
+    store: KnowledgeStore,
+) -> None:
+    knowledge = with_pin_code(universe())
+    await save(store, entities_of(knowledge))
+    krosh = next(c for c in knowledge.characters if c.id == "krosh")
+    await save(store, [krosh.model_copy(update={"species": "заяц"})], "update")
+    async with store.transaction() as transaction:
+        expected = await transaction.read_revisions(KROSH)
+
+    assert await store.revision_history(KROSH) == expected
+    assert (
+        await store.revision_history(EntityRef(type=EntityType.CHARACTER, id="nobody"))
+        == ()
+    )
+
+
+async def test_revision_index_contains_current_revisions(store: KnowledgeStore) -> None:
+    knowledge = with_pin_code(universe())
+    await save(store, entities_of(knowledge))
+    krosh = next(c for c in knowledge.characters if c.id == "krosh")
+    await save(store, [krosh.model_copy(update={"species": "заяц"})], "update")
+
+    async with store.transaction() as transaction:
+        index = await transaction.revision_index()
+        snapshot = await store.snapshot()
+
+    assert index[KROSH] == 2
+    assert snapshot.revisions[KROSH] == 2
+    assert index[EntityRef(type=EntityType.CONTINUITY, id="classic")] == 1
 
 
 async def test_transactions_are_serialized(store: KnowledgeStore) -> None:

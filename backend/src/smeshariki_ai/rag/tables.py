@@ -139,6 +139,12 @@ def _names(owner: str, owner_column: str, *, unique: bool) -> Table:
         )
     else:
         Index(f"{name}_normalized_idx", table.c.normalized)
+    Index(
+        f"{name}_normalized_trgm_idx",
+        table.c.normalized,
+        postgresql_using="gin",
+        postgresql_ops={"normalized": "gin_trgm_ops"},
+    )
     return table
 
 
@@ -227,6 +233,12 @@ episodes = _root(
 )
 
 Index("rag_episodes_normalized_title_idx", episodes.c.normalized_title)
+Index(
+    "rag_episodes_normalized_title_trgm_idx",
+    episodes.c.normalized_title,
+    postgresql_using="gin",
+    postgresql_ops={"normalized_title": "gin_trgm_ops"},
+)
 
 characters = _root(
     "rag_characters",
@@ -460,16 +472,23 @@ loads = Table(
     metadata,
     Column("id", BigInteger, Identity(always=True), primary_key=True),
     Column("started_at", DateTime(timezone=True), nullable=False),
+    Column(
+        "operation",
+        Text,
+        nullable=False,
+        server_default=text("'load'"),
+    ),
     Column("finished_at", DateTime(timezone=True), nullable=True),
     Column("duration_ms", Integer, nullable=True),
     Column("entity_count", Integer, nullable=True),
     Column("counts", JSONB, nullable=True),
-    # A load is recorded first and completed at the end of the same transaction.
+    # An operation is recorded first and completed at the end of the transaction.
     CheckConstraint(
         "num_nulls(finished_at, duration_ms, entity_count, counts) IN (0, 4)",
         name="rag_loads_completion_consistent",
     ),
     CheckConstraint("finished_at >= started_at", name="rag_loads_finished_after_start"),
+    _one_of("rag_loads", "operation", ("load", "delete", "restore")),
 )
 
 revisions = Table(

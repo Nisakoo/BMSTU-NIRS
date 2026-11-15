@@ -234,6 +234,71 @@ def test_invalid_manifest(
     assert ("package.yaml", path, code) in found
 
 
+def test_manifest_revisions_are_normalized(tmp_path: Path, manifest: Path) -> None:
+    manifest.write_text(
+        "format_version: 1\nrevisions:\n  characters:\n    pin: 3\n",
+        encoding="utf-8",
+    )
+    put(tmp_path, "characters/pin.yaml", CHARACTER)
+
+    contents = read_package(tmp_path)
+
+    assert contents.issues == ()
+    assert contents.revisions == {EntityType.CHARACTER: {"pin": 3}}
+
+
+@pytest.mark.parametrize(
+    ("text", "code"),
+    [
+        (
+            "format_version: 1\nrevisions:\n  heroes:\n    pin: 1\n",
+            "unknown_revision_entity",
+        ),
+        (
+            "format_version: 1\nrevisions:\n  characters:\n    Pin: 1\n",
+            "invalid_revision",
+        ),
+        (
+            "format_version: 1\nrevisions:\n  characters:\n    pin: 0\n",
+            "invalid_revision",
+        ),
+    ],
+)
+def test_invalid_manifest_revisions(
+    tmp_path: Path, manifest: Path, text: str, code: str
+) -> None:
+    manifest.write_text(text, encoding="utf-8")
+    put(tmp_path, "characters/pin.yaml", CHARACTER)
+
+    assert code in {issue.code for issue in read_package(tmp_path).issues}
+
+
+def test_revision_for_missing_entity_is_an_error(
+    tmp_path: Path, manifest: Path
+) -> None:
+    manifest.write_text(
+        "format_version: 1\nrevisions:\n  characters:\n    ghost: 1\n",
+        encoding="utf-8",
+    )
+    put(tmp_path, "characters/pin.yaml", CHARACTER)
+
+    assert issues(tmp_path) == [
+        ("package.yaml", "revisions.characters.ghost", "unknown_revision_entity")
+    ]
+
+
+def test_invalid_entity_does_not_duplicate_revision_error(
+    tmp_path: Path, manifest: Path
+) -> None:
+    manifest.write_text(
+        "format_version: 1\nrevisions:\n  characters:\n    pin: 1\n",
+        encoding="utf-8",
+    )
+    put(tmp_path, "characters/pin.yaml", CHARACTER.replace("species: пингвин\n", ""))
+
+    assert [issue.code for issue in read_package(tmp_path).issues] == ["missing_field"]
+
+
 def test_symlinks_are_rejected_and_not_read(tmp_path: Path) -> None:
     outside = tmp_path.parent / f"{tmp_path.name}_outside"
     outside.mkdir()

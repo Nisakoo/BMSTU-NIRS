@@ -1,5 +1,6 @@
 import asyncio
 import re
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -173,6 +174,83 @@ async def test_title_key_migration_fills_existing_episodes(
     await asyncio.to_thread(upgrade, create_engine(database_config))
 
 
+async def test_load_operation_migration_fills_existing_rows(
+    engine: AsyncEngine, database_config: DatabaseConfig
+) -> None:
+    await asyncio.to_thread(downgrade, create_engine(database_config), "0009")
+    async with engine.begin() as connection:
+        await connection.execute(
+            text("INSERT INTO rag_loads (started_at) VALUES ('2026-01-01T00:00:00Z')")
+        )
+
+    await asyncio.to_thread(upgrade, create_engine(database_config))
+
+    async with engine.connect() as connection:
+        rows = await connection.execute(
+            select(tables.loads.c.id, tables.loads.c.operation)
+        )
+        assert rows.all() == [(1, "load")]
+
+
+async def test_restore_operation_migration_and_downgrade(
+    engine: AsyncEngine, database_config: DatabaseConfig
+) -> None:
+    async with engine.begin() as connection:
+        await connection.execute(
+            text(
+                "INSERT INTO rag_loads (started_at, operation)"
+                " VALUES ('2026-01-01T00:00:00Z', 'restore')"
+            )
+        )
+
+    await asyncio.to_thread(downgrade, create_engine(database_config), "0010")
+
+    async with engine.connect() as connection:
+        rows = await connection.execute(select(tables.loads.c.operation))
+        assert rows.scalars().all() == ["load"]
+
+    await asyncio.to_thread(upgrade, create_engine(database_config))
+
+
+async def test_trgm_indexes_and_extension(
+    engine: AsyncEngine, database_config: DatabaseConfig
+) -> None:
+    async with engine.connect() as connection:
+        extension = await connection.scalar(
+            text("SELECT extname FROM pg_extension WHERE extname = 'pg_trgm'")
+        )
+        indexes = await connection.execute(
+            text(
+                "SELECT indexname FROM pg_indexes"
+                " WHERE tablename LIKE 'rag\\_%' AND indexname LIKE '%trgm%'"
+            )
+        )
+    assert extension == "pg_trgm"
+    assert {row.indexname for row in indexes} == {
+        "rag_character_names_normalized_trgm_idx",
+        "rag_location_names_normalized_trgm_idx",
+        "rag_artifact_names_normalized_trgm_idx",
+        "rag_episodes_normalized_title_trgm_idx",
+    }
+
+    await asyncio.to_thread(downgrade, create_engine(database_config), "0011")
+
+    async with engine.connect() as connection:
+        remaining = await connection.execute(
+            text(
+                "SELECT indexname FROM pg_indexes"
+                " WHERE tablename LIKE 'rag\\_%' AND indexname LIKE '%trgm%'"
+            )
+        )
+        extension = await connection.scalar(
+            text("SELECT extname FROM pg_extension WHERE extname = 'pg_trgm'")
+        )
+    assert remaining.scalars().all() == []
+    assert extension == "pg_trgm"
+
+    await asyncio.to_thread(upgrade, create_engine(database_config))
+
+
 async def test_public_schema_reset_of_other_modules_is_compatible(
     database_config: DatabaseConfig,
 ) -> None:
@@ -259,6 +337,13 @@ async def test_public_schema_reset_of_other_modules_is_compatible(
                 "position": 0,
                 "to_character_id": "krosh",
                 "type": "friendship",
+            },
+        ),
+        (
+            tables.loads,
+            {
+                "started_at": datetime(2026, 1, 1, tzinfo=UTC),
+                "operation": "rename",
             },
         ),
     ],

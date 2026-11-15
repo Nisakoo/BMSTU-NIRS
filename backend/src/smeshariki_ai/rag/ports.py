@@ -24,7 +24,8 @@ from smeshariki_ai.rag.models import (
     KnowledgeSet,
 )
 
-ChangeOperation = Literal["create", "update"]
+ChangeOperation = Literal["create", "update", "delete"]
+JournalOperation = Literal["load", "delete", "restore"]
 
 
 class KnowledgeStoreError(Exception):
@@ -52,6 +53,7 @@ class ChangeCounts(KnowledgeModel):
     added: int = Field(default=0, ge=0)
     updated: int = Field(default=0, ge=0)
     unchanged: int = Field(default=0, ge=0)
+    deleted: int = Field(default=0, ge=0)
 
 
 class LoadSummary(KnowledgeModel):
@@ -65,6 +67,7 @@ class LoadSummary(KnowledgeModel):
 class LoadRecord(KnowledgeModel):
     id: int
     started_at: datetime
+    operation: JournalOperation = "load"
     summary: LoadSummary | None
 
 
@@ -77,26 +80,39 @@ class Revision(KnowledgeModel):
     payload: dict[str, Any]
 
 
+class KnowledgeSnapshot(KnowledgeModel):
+    """A consistent read-only view of the store and its current revisions."""
+
+    knowledge: KnowledgeSet = Field(default_factory=KnowledgeSet)
+    revisions: dict[EntityRef, int] = Field(default_factory=dict)
+
+
 class KnowledgeTransaction(ABC):
     @abstractmethod
     async def read_all(self) -> KnowledgeSet:
         """Every stored entity, ordered by ``id`` within each type."""
 
     @abstractmethod
-    async def start_load(self, started_at: datetime) -> int:
-        """Record a load and return its id."""
+    async def revision_index(self) -> dict[EntityRef, int]:
+        """Current revision of each entity, keyed by its type and id."""
+
+    @abstractmethod
+    async def start_load(
+        self, started_at: datetime, operation: JournalOperation = "load"
+    ) -> int:
+        """Record an operation and return its id."""
 
     @abstractmethod
     async def save(self, load_id: int, changes: Sequence[EntityChange]) -> None:
-        """Replace each changed aggregate and append its revision."""
+        """Apply each change and append its revision."""
 
     @abstractmethod
     async def finish_load(self, load_id: int, summary: LoadSummary) -> None:
-        """Complete the load recorded by ``start_load``."""
+        """Complete the operation recorded by ``start_load``."""
 
     @abstractmethod
     async def read_load(self, load_id: int) -> LoadRecord | None:
-        """The load with this id, if it is stored."""
+        """The operation with this id, if it is stored."""
 
     @abstractmethod
     async def read_revisions(self, ref: EntityRef) -> tuple[Revision, ...]:
@@ -107,6 +123,14 @@ class KnowledgeStore(ABC):
     @abstractmethod
     def transaction(self) -> AbstractAsyncContextManager[KnowledgeTransaction]:
         """Open a serialized transaction; an exception inside rolls it back."""
+
+    @abstractmethod
+    async def snapshot(self) -> KnowledgeSnapshot:
+        """Read a consistent state without taking the load lock."""
+
+    @abstractmethod
+    async def revision_history(self, ref: EntityRef) -> tuple[Revision, ...]:
+        """Revisions of one entity, oldest first, without the load lock."""
 
 
 class FoundKnowledge(KnowledgeModel):
@@ -119,10 +143,28 @@ class FoundKnowledge(KnowledgeModel):
     names: dict[EntityType, dict[str, str]] = {}
 
 
+SUGGESTION_THRESHOLD = 0.3
+SUGGESTION_LIMIT = 5
+
+
+class LookupSuggestion(KnowledgeModel):
+    """A compact hint for a misspelled exact lookup."""
+
+    type: EntityType
+    id: str
+    name: str
+
+
 class KnowledgeReader(ABC):
     @abstractmethod
     async def find(self, key: str) -> FoundKnowledge:
         """Entities whose normalized name, alias, title or id equals ``key``."""
+
+    @abstractmethod
+    async def suggest(
+        self, key: str, limit: int = SUGGESTION_LIMIT
+    ) -> tuple[LookupSuggestion, ...]:
+        """Canonical names close to a normalized key, best first."""
 
     @abstractmethod
     async def has_knowledge(self) -> bool:

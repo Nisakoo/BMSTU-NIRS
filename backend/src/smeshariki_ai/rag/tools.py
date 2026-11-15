@@ -23,7 +23,8 @@ class LookupKnowledgeTool(Tool):
         "episode by its exact name, nickname or episode title. Call it before "
         "describing a hero's character, speech, relationships, a place, an "
         "item's abilities or the events of an episode. The result holds cards "
-        "with the canonical facts for each continuity. If the status is "
+        "with the canonical facts for each continuity. If the result contains "
+        "suggestions, retry with one of their exact names. If the status is "
         "not_found or unavailable, do not present invented facts as canon."
     )
     arguments_model: ClassVar[type[BaseModel]] = LookupKnowledgeArguments

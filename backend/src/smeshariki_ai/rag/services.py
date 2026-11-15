@@ -1,11 +1,14 @@
 """Use cases of structured knowledge: checking and loading packages."""
 
+import logging
 import re
+import time
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from smeshariki_ai.observability import log_event, utc_now
 from smeshariki_ai.rag.integrity import Violation, check_integrity
 from smeshariki_ai.rag.models import (
     ENTITY_FIELDS,
@@ -22,6 +25,7 @@ from smeshariki_ai.rag.package import (
     ENTITY_DIRECTORIES,
     ENTITY_MODELS,
     Issue,
+    PackageContents,
     PackageManifest,
     PackageNotFoundError,
     entity_file,
@@ -36,6 +40,8 @@ from smeshariki_ai.rag.ports import (
     KnowledgeStoreUnavailableError,
     LoadSummary,
 )
+
+logger = logging.getLogger(__name__)
 
 _NUMBER = re.compile(r"(\d+)")
 
@@ -62,7 +68,7 @@ def check_package(root: Path) -> CheckReport:
     return _check(root)[1]
 
 
-def _check(root: Path) -> tuple[KnowledgeSet, CheckReport]:
+def _check(root: Path) -> tuple[PackageContents, CheckReport]:
     try:
         contents = read_package(root)
     except PackageNotFoundError:
@@ -72,7 +78,12 @@ def _check(root: Path) -> tuple[KnowledgeSet, CheckReport]:
         report = CheckReport(
             valid=False, counts=_zero(int), external=(), issues=(issue,)
         )
-        return KnowledgeSet(), report
+        return (
+            PackageContents(
+                knowledge=KnowledgeSet(), unverified=frozenset(), issues=()
+            ),
+            report,
+        )
 
     knowledge = contents.knowledge
     integrity = check_integrity(
@@ -91,7 +102,7 @@ def _check(root: Path) -> tuple[KnowledgeSet, CheckReport]:
         external=integrity.external,
         issues=issues,
     )
-    return knowledge, report
+    return contents, report
 
 
 async def load_package(
@@ -106,20 +117,47 @@ async def load_package(
     written again, which makes repeated loads of one package idempotent.
     """
 
-    package, check = _check(root)
+    log_started_at = utc_now()
+    started = time.monotonic()
+    contents, check = _check(root)
     if not check.valid:
-        return LoadReport(loaded=False, counts=_zero(ChangeCounts), issues=check.issues)
+        report = LoadReport(
+            loaded=False, counts=_zero(ChangeCounts), issues=check.issues
+        )
+        _log_load(
+            report,
+            log_started_at,
+            started,
+            outcome="rejected",
+            reason="package_invalid",
+        )
+        return report
 
     started_at = clock()
+    outcome = "loaded"
+    reason = None
+    error_type = None
+    conflict_count = 0
     try:
         async with store.transaction() as transaction:
             current = await transaction.read_all()
-            merged = _merge(current, package)
+            conflicts = _revision_conflicts(
+                contents.revisions,
+                current,
+                await transaction.revision_index(),
+            )
+            if conflicts:
+                conflict_count = len(conflicts)
+                outcome, reason = "rejected", "revision_conflict"
+                raise _Rejected(conflicts)
+
+            merged = _merge(current, contents.knowledge)
             violations = check_integrity(merged, complete=True).violations
             if violations:
-                raise _Rejected(_violation_issues(violations, package))
+                outcome, reason = "rejected", "integrity_violation"
+                raise _Rejected(_violation_issues(violations, contents.knowledge))
 
-            changes, counts = _changes(current, package)
+            changes, counts = _changes(current, contents.knowledge)
             load_id = await transaction.start_load(started_at)
             await transaction.save(load_id, changes)
             finished_at = clock()
@@ -140,9 +178,10 @@ async def load_package(
                 ),
             )
     except _Rejected as rejected:
-        return _failed(rejected.issues)
-    except KnowledgeSchemaNotReadyError:
-        return _failed(
+        report = _failed(rejected.issues)
+    except KnowledgeSchemaNotReadyError as error:
+        outcome, error_type = "failed", type(error).__name__
+        report = _failed(
             (
                 Issue(
                     file=".",
@@ -152,8 +191,9 @@ async def load_package(
                 ),
             )
         )
-    except KnowledgeDataInvalidError:
-        return _failed(
+    except KnowledgeDataInvalidError as error:
+        outcome, error_type = "failed", type(error).__name__
+        report = _failed(
             (
                 Issue(
                     file=".",
@@ -163,8 +203,9 @@ async def load_package(
                 ),
             )
         )
-    except KnowledgeStoreUnavailableError:
-        return _failed(
+    except KnowledgeStoreUnavailableError as error:
+        outcome, error_type = "failed", type(error).__name__
+        report = _failed(
             (
                 Issue(
                     file=".",
@@ -173,7 +214,73 @@ async def load_package(
                 ),
             )
         )
+    _log_load(
+        report,
+        log_started_at,
+        started,
+        outcome=outcome,
+        conflict_count=conflict_count,
+        reason=reason,
+        error_type=error_type,
+    )
     return report
+
+
+def _revision_conflicts(
+    expected: dict[EntityType, dict[str, int]],
+    current: KnowledgeSet,
+    revisions: dict[EntityRef, int],
+) -> tuple[Issue, ...]:
+    current_refs = {entity_ref(entity) for entity in entities_of(current)}
+    issues: list[Issue] = []
+    for kind, entries in expected.items():
+        for entity_id, revision in entries.items():
+            ref = EntityRef(type=kind, id=entity_id)
+            if ref not in current_refs:
+                issues.append(
+                    Issue(
+                        file=entity_file(ref),
+                        path="revisions",
+                        code="revision_mismatch",
+                        message="сущность отсутствует в БД",
+                    )
+                )
+                continue
+            actual = revisions.get(ref, 0)
+            if actual != revision:
+                issues.append(
+                    Issue(
+                        file=entity_file(ref),
+                        path="revisions",
+                        code="revision_mismatch",
+                        message=f"ожидалась ревизия {revision}, в БД {actual}",
+                    )
+                )
+    return _sorted(issues)
+
+
+def _log_load(
+    report: LoadReport,
+    started_at: str,
+    started: float,
+    *,
+    outcome: str,
+    conflict_count: int = 0,
+    reason: str | None = None,
+    error_type: str | None = None,
+) -> None:
+    log_event(
+        logger,
+        logging.WARNING if outcome != "loaded" else logging.INFO,
+        "rag.load.completed",
+        started_at=started_at,
+        duration_ms=round((time.monotonic() - started) * 1000, 3),
+        outcome=outcome,
+        conflict_count=conflict_count,
+        entity_count=report.entity_count,
+        reason=reason,
+        error_type=error_type,
+    )
 
 
 def package_schema() -> dict[str, Any]:

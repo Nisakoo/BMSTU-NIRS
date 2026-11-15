@@ -25,7 +25,13 @@ from smeshariki_ai.rag.models import (
     RelationshipType,
     normalize_name,
 )
-from smeshariki_ai.rag.ports import FoundKnowledge, KnowledgeReader, KnowledgeStoreError
+from smeshariki_ai.rag.ports import (
+    SUGGESTION_LIMIT,
+    FoundKnowledge,
+    KnowledgeReader,
+    KnowledgeStoreError,
+    LookupSuggestion,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +39,11 @@ LOOKUP_LIMIT = 10
 NOT_FOUND_MESSAGE = (
     "В базе знаний нет героя, места, предмета или эпизода с таким именем или "
     "названием. Не выдавай придуманные факты за канонические."
+)
+SUGGESTION_MESSAGE = (
+    "Точного совпадения нет. Возможно, ты имел в виду одну из подсказок: "
+    "повтори поиск по её точному имени. Не выдавай придуманные факты за "
+    "канонические."
 )
 UNAVAILABLE_MESSAGE = (
     "База знаний сейчас недоступна. Не выдавай придуманные факты за канонические."
@@ -129,6 +140,8 @@ class LookupResult(KnowledgeModel):
     total: int = Field(ge=0)
     truncated: bool
     matches: tuple[Card, ...]
+    # Compact hints when the exact key found nothing; never cards.
+    suggestions: tuple[LookupSuggestion, ...] = ()
     message: str | None = None
 
 
@@ -246,9 +259,16 @@ class _Cards:
 
 
 class KnowledgeLookup:
-    def __init__(self, reader: KnowledgeReader, *, limit: int = LOOKUP_LIMIT) -> None:
+    def __init__(
+        self,
+        reader: KnowledgeReader,
+        *,
+        limit: int = LOOKUP_LIMIT,
+        suggestion_limit: int = SUGGESTION_LIMIT,
+    ) -> None:
         self._reader = reader
         self._limit = limit
+        self._suggestion_limit = suggestion_limit
 
     async def lookup(self, name: str) -> LookupResult:
         started_at = utc_now()
@@ -270,6 +290,7 @@ class KnowledgeLookup:
             duration_ms=round((time.monotonic() - started) * 1000, 3),
             outcome=result.status,
             match_count=result.total,
+            suggestion_count=len(result.suggestions),
             error_type=error_type,
             reason=reason,
         )
@@ -287,6 +308,16 @@ class KnowledgeLookup:
             )
         if not await self._reader.has_knowledge():
             return _unavailable()
+        suggestions = await self._reader.suggest(key, limit=self._suggestion_limit)
+        if suggestions:
+            return LookupResult(
+                status="not_found",
+                total=0,
+                truncated=False,
+                matches=(),
+                suggestions=suggestions,
+                message=SUGGESTION_MESSAGE,
+            )
         return LookupResult(
             status="not_found",
             total=0,

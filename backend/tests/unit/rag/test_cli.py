@@ -141,7 +141,16 @@ def test_missing_package_text(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     "argv",
-    [[], ["check"], ["load"], ["unknown"], ["check", ".", "--format", "xml"]],
+    [
+        [],
+        ["check"],
+        ["load"],
+        ["delete"],
+        ["export"],
+        ["restore"],
+        ["unknown"],
+        ["check", ".", "--format", "xml"],
+    ],
 )
 def test_bad_arguments_exit_with_2(argv: list[str], capsys) -> None:
     assert run(*argv)[0] == 2
@@ -155,6 +164,7 @@ def test_schema_lists_every_entity_type() -> None:
     assert code == 0
     assert schema["format_version"] == 1
     assert schema["manifest"]["required"] == ["format_version"]
+    assert "revisions" in schema["manifest"]["properties"]
     assert set(schema["entities"]) == {
         "continuities",
         "works",
@@ -237,7 +247,12 @@ def test_load_json_output(tmp_path: Path) -> None:
     report = json.loads(output)
     assert code == 0
     assert report["loaded"] is True and report["load_id"] == 1
-    assert report["counts"]["characters"] == {"added": 1, "updated": 0, "unchanged": 0}
+    assert report["counts"]["characters"] == {
+        "added": 1,
+        "updated": 0,
+        "unchanged": 0,
+        "deleted": 0,
+    }
     assert report["entity_count"] == 2 and report["issues"] == []
 
 

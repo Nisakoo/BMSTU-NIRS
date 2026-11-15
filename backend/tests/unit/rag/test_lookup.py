@@ -5,6 +5,7 @@ import pytest
 
 from smeshariki_ai.rag.lookup import (
     NOT_FOUND_MESSAGE,
+    SUGGESTION_MESSAGE,
     UNAVAILABLE_MESSAGE,
     KnowledgeLookup,
 )
@@ -13,6 +14,7 @@ from smeshariki_ai.rag.models import (
     Artifact,
     Character,
     Continuity,
+    EntityType,
     Episode,
     KnowledgeEntity,
     Location,
@@ -158,6 +160,7 @@ async def test_character_card_shows_names_instead_of_slugs(
         "total": 1,
         "truncated": False,
         "message": None,
+        "suggestions": [],
         "matches": [
             {
                 "type": "character",
@@ -294,8 +297,81 @@ async def test_unknown_name_is_not_found(store: InMemoryKnowledgeStore) -> None:
         "total": 0,
         "truncated": False,
         "matches": [],
+        "suggestions": [],
         "message": NOT_FOUND_MESSAGE,
     }
+
+
+async def test_misspelled_character_returns_a_suggestion(
+    store: InMemoryKnowledgeStore,
+) -> None:
+    result = await KnowledgeLookup(store).lookup("Пинн")
+
+    assert result.status == "not_found"
+    assert result.matches == ()
+    assert result.message == SUGGESTION_MESSAGE
+    assert (result.suggestions[0].type, result.suggestions[0].id) == (
+        EntityType.CHARACTER,
+        "pin",
+    )
+    assert result.suggestions[0].name == "Пин"
+
+
+async def test_misspelled_episode_title_returns_a_suggestion(
+    store: InMemoryKnowledgeStore,
+) -> None:
+    result = await KnowledgeLookup(store).lookup("Пинг понгг")
+
+    assert result.status == "not_found"
+    assert (result.suggestions[0].type, result.suggestions[0].id) == (
+        EntityType.EPISODE,
+        "s01e01",
+    )
+    assert result.suggestions[0].name == "Пинг-понг"
+
+
+async def test_suggestions_respect_the_limit() -> None:
+    value = InMemoryKnowledgeStore()
+    similar = [
+        Character.model_validate(
+            {
+                "id": f"hero_{index}",
+                "name": name,
+                "species": "кролик",
+                "versions": [
+                    {
+                        "continuities": ["classic"],
+                        "age_group": "child",
+                        "traits": ["весёлый"],
+                        "speech_style": {"register": "разговорный"},
+                    }
+                ],
+            }
+        )
+        for index, name in enumerate(("Пин", "Пион", "Пингвин", "Пинок"))
+    ]
+    await load(
+        value,
+        [Continuity(id="classic", name="Классика"), *similar],
+    )
+
+    result = await KnowledgeLookup(value, suggestion_limit=2).lookup("Пинн")
+
+    assert result.status == "not_found"
+    assert len(result.suggestions) == 2
+
+
+async def test_suggestion_count_is_logged(
+    store: InMemoryKnowledgeStore, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="smeshariki_ai.rag.lookup")
+
+    await KnowledgeLookup(store).lookup("Пинн")
+
+    [record] = caplog.records
+    assert record.outcome == "not_found"
+    assert record.suggestion_count >= 1
+    assert "Пинн" not in caplog.text
 
 
 async def test_empty_store_is_unavailable(caplog: pytest.LogCaptureFixture) -> None:
@@ -312,6 +388,9 @@ class FailingReader(KnowledgeReader):
         self.error = error
 
     async def find(self, key: str) -> FoundKnowledge:
+        raise self.error
+
+    async def suggest(self, key: str, limit: int = 5):
         raise self.error
 
     async def has_knowledge(self) -> bool:

@@ -19,13 +19,18 @@ from smeshariki_ai.rag.models import (
     references_of,
 )
 from smeshariki_ai.rag.ports import (
+    SUGGESTION_LIMIT,
+    SUGGESTION_THRESHOLD,
     EntityChange,
     FoundKnowledge,
+    JournalOperation,
     KnowledgeReader,
+    KnowledgeSnapshot,
     KnowledgeStore,
     KnowledgeTransaction,
     LoadRecord,
     LoadSummary,
+    LookupSuggestion,
     Revision,
 )
 
@@ -60,6 +65,36 @@ def _keys(entity: KnowledgeEntity) -> set[str]:
 
 def _name(entity: KnowledgeEntity) -> str:
     return entity.title if isinstance(entity, Work | Episode) else entity.name
+
+
+def _knowledge(state: _State) -> KnowledgeSet:
+    grouped: dict[EntityType, list[KnowledgeEntity]] = {kind: [] for kind in EntityType}
+    for ref in sorted(state.entities, key=lambda item: item.id):
+        grouped[ref.type].append(state.entities[ref])
+    return KnowledgeSet(
+        **{ENTITY_FIELDS[kind]: tuple(items) for kind, items in grouped.items()}
+    )
+
+
+def _revision_index(state: _State) -> dict[EntityRef, int]:
+    return {
+        ref: max(revision.revision for revision in history)
+        for ref, history in state.revisions.items()
+        if history
+    }
+
+
+def _trigrams(value: str) -> set[str]:
+    padded = f"  {value} "
+    return {padded[index : index + 3] for index in range(len(padded) - 2)}
+
+
+def _similarity(left: str, right: str) -> float:
+    first, second = _trigrams(left), _trigrams(right)
+    if not first or not second:
+        return 0.0
+    common = len(first & second)
+    return common / (len(first) + len(second) - common)
 
 
 class InMemoryKnowledgeStore(KnowledgeStore, KnowledgeReader):
@@ -98,8 +133,40 @@ class InMemoryKnowledgeStore(KnowledgeStore, KnowledgeReader):
         }
         return FoundKnowledge(entities=found, names=names)
 
+    async def suggest(
+        self, key: str, limit: int = SUGGESTION_LIMIT
+    ) -> tuple[LookupSuggestion, ...]:
+        if limit <= 0:
+            return ()
+        order = {kind: index for index, kind in enumerate(EntityType)}
+        candidates: list[tuple[float, int, EntityType, str, str]] = []
+        entities = self._state.entities
+        for ref in sorted(entities, key=lambda item: item.id):
+            if ref.type not in _LOOKED_UP:
+                continue
+            entity = entities[ref]
+            score = max(_similarity(key, value) for value in _keys(entity))
+            if score >= SUGGESTION_THRESHOLD:
+                candidates.append(
+                    (score, order[ref.type], ref.type, ref.id, _name(entity))
+                )
+        candidates.sort(key=lambda item: (-item[0], item[1], item[3]))
+        return tuple(
+            LookupSuggestion(type=kind, id=entity_id, name=name)
+            for _, _, kind, entity_id, name in candidates[:limit]
+        )
+
     async def has_knowledge(self) -> bool:
         return any(r.summary is not None for r in self._state.loads.values())
+
+    async def snapshot(self) -> KnowledgeSnapshot:
+        state = self._state
+        return KnowledgeSnapshot(
+            knowledge=_knowledge(state), revisions=_revision_index(state)
+        )
+
+    async def revision_history(self, ref: EntityRef) -> tuple[Revision, ...]:
+        return tuple(self._state.revisions.get(ref, ()))
 
     @asynccontextmanager
     async def transaction(self) -> AsyncIterator[KnowledgeTransaction]:
@@ -114,26 +181,27 @@ class _InMemoryTransaction(KnowledgeTransaction):
         self._state = state
 
     async def read_all(self) -> KnowledgeSet:
-        grouped: dict[EntityType, list[KnowledgeEntity]] = {
-            kind: [] for kind in EntityType
-        }
-        for ref in sorted(self._state.entities, key=lambda item: item.id):
-            grouped[ref.type].append(self._state.entities[ref])
-        return KnowledgeSet(
-            **{ENTITY_FIELDS[kind]: tuple(items) for kind, items in grouped.items()}
-        )
+        return _knowledge(self._state)
 
-    async def start_load(self, started_at: datetime) -> int:
+    async def revision_index(self) -> dict[EntityRef, int]:
+        return _revision_index(self._state)
+
+    async def start_load(
+        self, started_at: datetime, operation: JournalOperation = "load"
+    ) -> int:
         load_id = max(self._state.loads, default=0) + 1
         self._state.loads[load_id] = LoadRecord(
-            id=load_id, started_at=started_at, summary=None
+            id=load_id, started_at=started_at, operation=operation, summary=None
         )
         return load_id
 
     async def save(self, load_id: int, changes: Sequence[EntityChange]) -> None:
         for change in changes:
             ref = entity_ref(change.entity)
-            self._state.entities[ref] = change.entity
+            if change.operation == "delete":
+                self._state.entities.pop(ref, None)
+            else:
+                self._state.entities[ref] = change.entity
             history = self._state.revisions.setdefault(ref, [])
             history.append(
                 Revision(

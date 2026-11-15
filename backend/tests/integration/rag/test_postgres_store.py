@@ -6,11 +6,20 @@ from datetime import UTC, datetime
 import pytest
 from sqlalchemy import event, func, insert, select
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from test_store_contract import universe, with_pin_code
 
 from smeshariki_ai.db import DatabaseConfig, create_engine
 from smeshariki_ai.db.migrate import downgrade
 from smeshariki_ai.rag import tables
-from smeshariki_ai.rag.models import Character, Continuity, KnowledgeEntity
+from smeshariki_ai.rag.maintenance import delete_entities, export_package
+from smeshariki_ai.rag.models import (
+    Character,
+    Continuity,
+    EntityRef,
+    EntityType,
+    KnowledgeEntity,
+    entities_of,
+)
 from smeshariki_ai.rag.ports import (
     EntityChange,
     KnowledgeDataInvalidError,
@@ -19,6 +28,7 @@ from smeshariki_ai.rag.ports import (
     LoadSummary,
 )
 from smeshariki_ai.rag.postgres import PostgresKnowledgeStore
+from smeshariki_ai.rag.restore import restore_entity
 from smeshariki_ai.rag.services import load_package
 
 STARTED = datetime(2026, 10, 19, 12, 0, tzinfo=UTC)
@@ -70,9 +80,10 @@ async def save(
     store: PostgresKnowledgeStore,
     entities: list[KnowledgeEntity],
     operation: str = "create",
+    journal_operation: str = "load",
 ) -> None:
     async with store.transaction() as transaction:
-        load_id = await transaction.start_load(STARTED)
+        load_id = await transaction.start_load(STARTED, operation=journal_operation)
         await transaction.save(
             load_id,
             [EntityChange(operation=operation, entity=entity) for entity in entities],
@@ -206,6 +217,202 @@ async def test_corrupted_rows_are_reported_as_invalid_data(
     with pytest.raises(KnowledgeDataInvalidError):
         async with PostgresKnowledgeStore(engine).transaction() as transaction:
             await transaction.read_all()
+
+
+async def test_snapshot_query_count_does_not_grow_with_entities(
+    engine: AsyncEngine,
+) -> None:
+    store = PostgresKnowledgeStore(engine)
+    await save(store, [Continuity(id="classic", name="Классика")])
+    counts = []
+    for size in (2, 50):
+        await save(store, heroes(size))
+        with counted_queries(engine) as statements:
+            await store.snapshot()
+        counts.append(len(statements))
+
+    assert counts[0] == counts[1]
+
+
+async def test_snapshot_reads_in_a_read_only_snapshot(engine: AsyncEngine) -> None:
+    store = PostgresKnowledgeStore(engine)
+
+    with counted_queries(engine) as statements:
+        await store.snapshot()
+
+    assert statements[0] == (
+        "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"
+    )
+    assert not any("pg_advisory" in statement for statement in statements)
+
+
+async def test_suggestion_query_count_does_not_grow_with_entities(
+    engine: AsyncEngine,
+) -> None:
+    store = PostgresKnowledgeStore(engine)
+    await save(store, [Continuity(id="classic", name="Классика")])
+    counts = []
+    for size in (2, 50):
+        await save(store, heroes(size))
+        with counted_queries(engine) as statements:
+            await store.suggest("герой 1", limit=5)
+        counts.append(len(statements))
+
+    assert counts[0] == counts[1]
+
+
+async def test_suggest_reads_in_a_read_only_snapshot(engine: AsyncEngine) -> None:
+    store = PostgresKnowledgeStore(engine)
+
+    with counted_queries(engine) as statements:
+        await store.suggest("герой", limit=5)
+
+    assert statements[0] == (
+        "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"
+    )
+    assert not any("pg_advisory" in statement for statement in statements)
+    assert any("pg_trgm.similarity_threshold" in statement for statement in statements)
+
+
+async def test_revision_history_reads_in_a_read_only_snapshot(
+    engine: AsyncEngine,
+) -> None:
+    store = PostgresKnowledgeStore(engine)
+    solo = Character.model_validate(
+        {
+            "id": "solo",
+            "name": "Один",
+            "species": "кролик",
+            "versions": [
+                {
+                    "continuities": ["classic"],
+                    "age_group": "child",
+                    "traits": ["весёлый"],
+                    "speech_style": {"register": "разговорный"},
+                }
+            ],
+        }
+    )
+    await save(store, [Continuity(id="classic", name="Классика"), solo])
+
+    with counted_queries(engine) as statements:
+        history = await store.revision_history(
+            EntityRef(type=EntityType.CHARACTER, id="solo")
+        )
+
+    assert [item.revision for item in history] == [1]
+    assert statements[0] == (
+        "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"
+    )
+    assert not any("pg_advisory" in statement for statement in statements)
+
+
+async def test_delete_cascades_child_rows_and_keeps_the_revision(
+    engine: AsyncEngine,
+) -> None:
+    store = PostgresKnowledgeStore(engine)
+    solo = Character.model_validate(
+        {
+            "id": "solo",
+            "name": "Один",
+            "species": "кролик",
+            "versions": [
+                {
+                    "continuities": ["classic"],
+                    "age_group": "child",
+                    "traits": ["весёлый"],
+                    "speech_style": {"register": "разговорный"},
+                }
+            ],
+        }
+    )
+    await save(store, [Continuity(id="classic", name="Классика"), solo])
+
+    await save(store, [solo], "delete", "delete")
+
+    async with engine.connect() as connection:
+        names = await connection.scalar(
+            select(func.count())
+            .select_from(tables.character_names)
+            .where(tables.character_names.c.character_id == "solo")
+        )
+        versions = await connection.scalar(
+            select(func.count())
+            .select_from(tables.character_versions)
+            .where(tables.character_versions.c.character_id == "solo")
+        )
+    assert (names, versions) == (0, 0)
+    async with store.transaction() as transaction:
+        record = await transaction.read_load(2)
+        history = await transaction.read_revisions(
+            EntityRef(type=EntityType.CHARACTER, id="solo")
+        )
+    assert record is not None and record.operation == "delete"
+    assert [revision.operation for revision in history] == ["create", "delete"]
+    assert Character.model_validate(history[-1].payload) == solo
+
+
+async def test_export_round_trip_and_delete_end_to_end(
+    engine: AsyncEngine, tmp_path
+) -> None:
+    store = PostgresKnowledgeStore(engine)
+    knowledge = with_pin_code(universe())
+    await save(store, entities_of(knowledge))
+    package = tmp_path / "package"
+
+    exported = await export_package(package, store)
+    loaded = await load_package(package, store)
+
+    assert exported.exported is True
+    assert loaded.loaded is True
+    assert all(counts.added == counts.updated == 0 for counts in loaded.counts.values())
+
+    deleted = await delete_entities(
+        [EntityRef(type=EntityType.EPISODE, id="film_main")],
+        store,
+        apply=True,
+    )
+    assert deleted.applied is True and deleted.issues == ()
+
+
+async def test_restore_brings_back_a_deleted_entity(engine: AsyncEngine) -> None:
+    store = PostgresKnowledgeStore(engine)
+    solo = Character.model_validate(
+        {
+            "id": "solo",
+            "name": "Один",
+            "species": "кролик",
+            "versions": [
+                {
+                    "continuities": ["classic"],
+                    "age_group": "child",
+                    "traits": ["весёлый"],
+                    "speech_style": {"register": "разговорный"},
+                }
+            ],
+        }
+    )
+    await save(store, [Continuity(id="classic", name="Классика"), solo])
+    await save(store, [solo], "delete", "delete")
+
+    report = await restore_entity(
+        EntityRef(type=EntityType.CHARACTER, id="solo"), store, apply=True
+    )
+
+    assert report.restored is True and report.issues == ()
+    async with store.transaction() as transaction:
+        record = await transaction.read_load(3)
+        history = await transaction.read_revisions(
+            EntityRef(type=EntityType.CHARACTER, id="solo")
+        )
+        stored = await transaction.read_all()
+    assert record is not None and record.operation == "restore"
+    assert [item.operation for item in history] == [
+        "create",
+        "delete",
+        "create",
+    ]
+    assert [item.id for item in stored.characters] == ["solo"]
 
 
 async def test_lookup_query_count_does_not_grow_with_entities(

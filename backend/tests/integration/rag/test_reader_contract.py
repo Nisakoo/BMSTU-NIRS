@@ -165,3 +165,34 @@ async def test_unknown_key_finds_nothing(loaded: Store) -> None:
     assert await loaded.find(normalize_name("Бармалей")) == FoundKnowledge(
         entities=KnowledgeSet(), names={}
     )
+
+
+@pytest.mark.parametrize(
+    ("query", "kind", "entity_id", "name"),
+    [
+        ("Крошш", EntityType.CHARACTER, "krosh", "Крош"),
+        ("Домм", EntityType.LOCATION, "house", "Дом"),
+        ("Самолетт", EntityType.ARTIFACT, "plane", "Самолёт"),
+        ("Серии", EntityType.EPISODE, "e1", "Серия"),
+    ],
+)
+async def test_fuzzy_suggestions_use_canonical_names(
+    loaded: Store,
+    query: str,
+    kind: EntityType,
+    entity_id: str,
+    name: str,
+) -> None:
+    suggestions = await loaded.suggest(normalize_name(query))
+
+    assert suggestions
+    assert (suggestions[0].type, suggestions[0].id, suggestions[0].name) == (
+        kind,
+        entity_id,
+        name,
+    )
+
+
+async def test_suggestions_are_limited_and_empty_for_far_names(loaded: Store) -> None:
+    assert len(await loaded.suggest(normalize_name("Крошш"), limit=1)) == 1
+    assert await loaded.suggest(normalize_name("Бармалей")) == ()

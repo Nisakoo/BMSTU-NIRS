@@ -153,3 +153,13 @@ specs:
       status: done
     - name: dialog-history-repair
       status: done
+    - name: knowledge-export
+      status: done
+    - name: knowledge-delete
+      status: done
+    - name: knowledge-optimistic-lock
+      status: done
+    - name: knowledge-restore
+      status: done
+    - name: knowledge-fuzzy-lookup
+      status: done

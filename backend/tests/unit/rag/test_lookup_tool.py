@@ -22,6 +22,9 @@ class CountingReader(KnowledgeReader):
         self.calls += 1
         return await self.store.find(key)
 
+    async def suggest(self, key: str, limit: int = 5):
+        return await self.store.suggest(key, limit)
+
     async def has_knowledge(self) -> bool:
         return await self.store.has_knowledge()
 
@@ -47,7 +50,14 @@ def test_definition_describes_when_to_call_and_the_arguments(
     [definition] = registry(reader).definitions
 
     assert definition.name == "lookup_knowledge"
-    for phrase in ("character", "episode", "nickname", "not_found", "invented"):
+    for phrase in (
+        "character",
+        "episode",
+        "nickname",
+        "suggestions",
+        "not_found",
+        "invented",
+    ):
         assert phrase in definition.description
     assert definition.parameters["required"] == ["name"]
     assert definition.parameters["additionalProperties"] is False
@@ -62,6 +72,20 @@ async def test_found_card_is_returned_as_json(reader: CountingReader) -> None:
     [card] = result.output["matches"]
     assert card["type"] == "episode"
     assert card["interactions"][0]["from"] == "Крош"
+
+
+async def test_not_found_carries_json_suggestions(reader: CountingReader) -> None:
+    result = await registry(reader).execute(call({"name": "Пинг-понгг"}))
+
+    assert result.error is None
+    assert result.output["status"] == "not_found"
+    assert result.output["matches"] == []
+    [suggestion] = result.output["suggestions"]
+    assert suggestion == {
+        "type": "episode",
+        "id": "s01e01",
+        "name": "Пинг-понг",
+    }
 
 
 async def test_not_found_and_unavailable_explain_themselves(

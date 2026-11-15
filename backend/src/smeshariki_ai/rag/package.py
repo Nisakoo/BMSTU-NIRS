@@ -1,12 +1,15 @@
 """Reading of a knowledge package: one YAML file per entity, grouped by type."""
 
+from __future__ import annotations
+
 import re
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from pydantic import Field, ValidationError
-from pydantic_core import ErrorDetails
+import yaml
+from pydantic import Field, ValidationError, model_validator
+from pydantic_core import ErrorDetails, PydanticCustomError
 
 from smeshariki_ai.rag.models import (
     ENTITY_FIELDS,
@@ -17,6 +20,8 @@ from smeshariki_ai.rag.models import (
     EntityType,
     KnowledgeModel,
     KnowledgeSet,
+    entities_of,
+    entity_ref,
 )
 from smeshariki_ai.rag.yaml_reader import YamlReadError, read_yaml_file
 
@@ -25,7 +30,8 @@ ENTITY_DIRECTORIES = ENTITY_FIELDS
 ENTITY_MODELS: dict[EntityType, type[KnowledgeModel]] = {
     entity_type: kind.model for entity_type, kind in ENTITY_KINDS.items()
 }
-_TYPES_BY_DIRECTORY = {name: kind for kind, name in ENTITY_DIRECTORIES.items()}
+ENTITY_TYPES_BY_DIRECTORY = {name: kind for kind, name in ENTITY_DIRECTORIES.items()}
+_TYPES_BY_DIRECTORY = ENTITY_TYPES_BY_DIRECTORY
 _SLUG = re.compile(SLUG_PATTERN)
 _EXTENSION = ".yaml"
 MANIFEST = "package.yaml"
@@ -49,6 +55,27 @@ class PackageManifest(KnowledgeModel):
     """``package.yaml`` at the package root: the format the files are written in."""
 
     format_version: int = Field(ge=1)
+    # Optional lock metadata: package directory -> entity id -> revision.
+    revisions: dict[str, dict[str, int]] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _valid_revisions(self) -> PackageManifest:
+        for directory, entries in self.revisions.items():
+            if directory not in ENTITY_TYPES_BY_DIRECTORY:
+                raise PydanticCustomError(
+                    "unknown_revision_entity",
+                    "неизвестный каталог в revisions",
+                )
+            for entity_id, revision in entries.items():
+                if not _SLUG.fullmatch(entity_id):
+                    raise PydanticCustomError(
+                        "invalid_revision", "неверный id в revisions"
+                    )
+                if revision < 1:
+                    raise PydanticCustomError(
+                        "invalid_revision", "ревизия должна быть не меньше 1"
+                    )
+        return self
 
 
 class PackageContents(KnowledgeModel):
@@ -56,6 +83,8 @@ class PackageContents(KnowledgeModel):
     # Entities whose files exist but failed their own validation.
     unverified: frozenset[EntityRef]
     issues: tuple[Issue, ...]
+    # Lock metadata converted to domain types; empty when the package has none.
+    revisions: dict[EntityType, dict[str, int]] = Field(default_factory=dict)
 
 
 def entity_file(ref: EntityRef) -> str:
@@ -68,7 +97,7 @@ def read_package(root: Path) -> PackageContents:
     if not root.is_dir():
         raise PackageNotFoundError(root)
 
-    issues: list[Issue] = list(_read_manifest(root))
+    manifest, issues = _read_manifest(root)
     entities: dict[EntityType, list[Any]] = {kind: [] for kind in EntityType}
     unverified: set[EntityRef] = set()
     entity_files = 0
@@ -100,8 +129,74 @@ def read_package(root: Path) -> PackageContents:
     knowledge = KnowledgeSet(
         **{ENTITY_DIRECTORIES[kind]: tuple(items) for kind, items in entities.items()}
     )
+    revisions = (
+        {
+            ENTITY_TYPES_BY_DIRECTORY[directory]: dict(entries)
+            for directory, entries in manifest.revisions.items()
+        }
+        if manifest is not None
+        else {}
+    )
+    loaded = {entity_ref(entity) for entity in entities_of(knowledge)}
+    for kind, entries in revisions.items():
+        for entity_id in entries:
+            ref = EntityRef(type=kind, id=entity_id)
+            if ref in unverified or ref in loaded:
+                continue
+            issues.append(
+                Issue(
+                    file=MANIFEST,
+                    path=f"revisions.{ENTITY_DIRECTORIES[kind]}.{entity_id}",
+                    code="unknown_revision_entity",
+                    message="сущность для ревизии отсутствует в пакете",
+                )
+            )
     return PackageContents(
-        knowledge=knowledge, unverified=frozenset(unverified), issues=tuple(issues)
+        knowledge=knowledge,
+        unverified=frozenset(unverified),
+        issues=tuple(issues),
+        revisions=revisions,
+    )
+
+
+def write_package(
+    root: Path,
+    knowledge: KnowledgeSet,
+    revisions: dict[str, dict[str, int]] | None = None,
+) -> None:
+    """Write ``knowledge`` as a package; the caller owns atomicity.
+
+    ``revisions`` is the optional lock metadata of ``package.yaml``. The keys
+    are package directories, matching the ``revisions`` field of the manifest.
+    """
+
+    root.mkdir(parents=True, exist_ok=True)
+    manifest: dict[str, Any] = {"format_version": KNOWLEDGE_FORMAT_VERSION}
+    if revisions:
+        manifest["revisions"] = revisions
+    (root / MANIFEST).write_text(_dump_yaml(manifest), encoding="utf-8")
+
+    for kind in EntityType:
+        for entity in sorted(
+            getattr(knowledge, ENTITY_FIELDS[kind]), key=lambda item: item.id
+        ):
+            path = root / entity_file(entity_ref(entity))
+            path.parent.mkdir(parents=True, exist_ok=True)
+            payload = entity.model_dump(
+                mode="json",
+                by_alias=True,
+                exclude_none=True,
+                exclude_defaults=True,
+            )
+            path.write_text(_dump_yaml(payload), encoding="utf-8")
+
+
+def _dump_yaml(value: Any) -> str:
+    return yaml.safe_dump(
+        value,
+        allow_unicode=True,
+        sort_keys=False,
+        default_flow_style=False,
     )
 
 
@@ -115,12 +210,14 @@ def _relative(root: Path, path: Path) -> str:
     return path.relative_to(root).as_posix()
 
 
-def _read_manifest(root: Path) -> list[Issue]:
+def _read_manifest(
+    root: Path,
+) -> tuple[PackageManifest | None, list[Issue]]:
     path = root / MANIFEST
     if path.is_symlink():
-        return []  # Reported with the other entries of the root.
+        return None, []  # Reported with the other entries of the root.
     if not path.is_file():
-        return [
+        return None, [
             Issue(
                 file=MANIFEST,
                 code="missing_manifest",
@@ -130,7 +227,7 @@ def _read_manifest(root: Path) -> list[Issue]:
     try:
         data = read_yaml_file(path)
     except YamlReadError as error:
-        return [
+        return None, [
             Issue(
                 file=MANIFEST, code=error.code, message=error.message, line=error.line
             )
@@ -138,9 +235,9 @@ def _read_manifest(root: Path) -> list[Issue]:
     try:
         manifest = PackageManifest.model_validate(data)
     except ValidationError as error:
-        return [_schema_issue(MANIFEST, item) for item in error.errors()]
+        return None, [_schema_issue(MANIFEST, item) for item in error.errors()]
     if manifest.format_version != KNOWLEDGE_FORMAT_VERSION:
-        return [
+        return None, [
             Issue(
                 file=MANIFEST,
                 path="format_version",
@@ -149,7 +246,7 @@ def _read_manifest(root: Path) -> list[Issue]:
                 f"поддерживается; поддерживается {KNOWLEDGE_FORMAT_VERSION}",
             )
         ]
-    return []
+    return manifest, []
 
 
 def _unexpected(root: Path, path: Path) -> Issue:
@@ -232,7 +329,12 @@ def _translate(error: ErrorDetails) -> tuple[str, str]:
         return "invalid_value", f"значение должно быть не меньше {context['ge']}"
     if kind == "enum":
         return "invalid_value", f"допустимые значения: {context['expected']}"
-    if kind in ("duplicate_value", "invalid_source"):
+    if kind in (
+        "duplicate_value",
+        "invalid_source",
+        "unknown_revision_entity",
+        "invalid_revision",
+    ):
         return kind, error["msg"]
     return _SCHEMA_ERRORS.get(kind, ("schema_error", error["msg"]))
 

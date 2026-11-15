@@ -12,6 +12,9 @@ help:
 	@echo "  make create-admin LOGIN=<login> Create an administrator account"
 	@echo "  make knowledge-check DIR=<path> Check a knowledge package"
 	@echo "  make knowledge-load DIR=<path> [FORMAT=json] Check and load a knowledge package into PostgreSQL"
+	@echo "  make knowledge-export DIR=<path> [FORMAT=json] [TYPE=<type>] Export knowledge into a package"
+	@echo "  make knowledge-delete REFS=\"<type>/<id> ...\" [APPLY=1] [FORMAT=json] Delete knowledge entities"
+	@echo "  make knowledge-restore REF=<type>/<id> [REVISION=N] [APPLY=1] [FORMAT=json] Restore a knowledge entity"
 	@echo "  make frontend Run the Vite frontend development server"
 	@echo "  make test    Run all configured project tests"
 	@echo "  make test-integration [PYTEST_ARGS=...] Run backend tests against disposable PostgreSQL and Redis"
@@ -79,6 +82,71 @@ knowledge-load:
 		docker compose -f "$(COMPOSE_FILE)" run --rm \
 			-v "$(abspath $(DIR)):/knowledge:ro" migrate \
 			python -m smeshariki_ai.rag load /knowledge --format "$(or $(FORMAT),text)"; \
+	fi
+
+.PHONY: knowledge-export
+
+knowledge-export:
+	@test -n "$(DIR)" || { \
+		echo "Usage: make knowledge-export DIR=<path> [FORMAT=json] [TYPE=<type>]" >&2; \
+		exit 2; \
+	}
+	@test -d "$(DIR)" || { \
+		echo "Error: knowledge export directory $(DIR) does not exist." >&2; \
+		exit 2; \
+	}
+	@test -z "$$(find "$(DIR)" -mindepth 1 -print -quit)" || { \
+		echo "Error: knowledge export directory $(DIR) is not empty." >&2; \
+		exit 2; \
+	}
+	@if [ -f "$(ENV_FILE)" ]; then \
+		docker compose --env-file "$(ENV_FILE)" -f "$(COMPOSE_FILE)" run --rm \
+			--user "$$(id -u):$$(id -g)" -e PYTHONDONTWRITEBYTECODE=1 \
+			-v "$(abspath $(DIR)):/knowledge" migrate \
+			python -m smeshariki_ai.rag export /knowledge \
+			$(if $(TYPE),--type $(TYPE),) --format "$(or $(FORMAT),text)"; \
+	else \
+		docker compose -f "$(COMPOSE_FILE)" run --rm \
+			--user "$$(id -u):$$(id -g)" -e PYTHONDONTWRITEBYTECODE=1 \
+			-v "$(abspath $(DIR)):/knowledge" migrate \
+			python -m smeshariki_ai.rag export /knowledge \
+			$(if $(TYPE),--type $(TYPE),) --format "$(or $(FORMAT),text)"; \
+	fi
+
+.PHONY: knowledge-delete
+
+knowledge-delete:
+	@test -n "$(REFS)" || { \
+		echo "Usage: make knowledge-delete REFS=\"<type>/<id> ...\" [APPLY=1] [FORMAT=json]" >&2; \
+		exit 2; \
+	}
+	@if [ -f "$(ENV_FILE)" ]; then \
+		docker compose --env-file "$(ENV_FILE)" -f "$(COMPOSE_FILE)" run --rm migrate \
+			python -m smeshariki_ai.rag delete $(REFS) \
+			$(if $(filter 1,$(APPLY)),--apply,) --format "$(or $(FORMAT),text)"; \
+	else \
+		docker compose -f "$(COMPOSE_FILE)" run --rm migrate \
+			python -m smeshariki_ai.rag delete $(REFS) \
+			$(if $(filter 1,$(APPLY)),--apply,) --format "$(or $(FORMAT),text)"; \
+	fi
+
+.PHONY: knowledge-restore
+
+knowledge-restore:
+	@test -n "$(REF)" || { \
+		echo "Usage: make knowledge-restore REF=<type>/<id> [REVISION=N] [APPLY=1] [FORMAT=json]" >&2; \
+		exit 2; \
+	}
+	@if [ -f "$(ENV_FILE)" ]; then \
+		docker compose --env-file "$(ENV_FILE)" -f "$(COMPOSE_FILE)" run --rm migrate \
+			python -m smeshariki_ai.rag restore $(REF) \
+			$(if $(REVISION),--revision $(REVISION),) \
+			$(if $(filter 1,$(APPLY)),--apply,) --format "$(or $(FORMAT),text)"; \
+	else \
+		docker compose -f "$(COMPOSE_FILE)" run --rm migrate \
+			python -m smeshariki_ai.rag restore $(REF) \
+			$(if $(REVISION),--revision $(REVISION),) \
+			$(if $(filter 1,$(APPLY)),--apply,) --format "$(or $(FORMAT),text)"; \
 	fi
 
 frontend:
