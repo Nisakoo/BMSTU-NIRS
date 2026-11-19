@@ -165,3 +165,5 @@ specs:
       status: done
     - name: data-encryption
       status: done
+    - name: agent-multiple-tool-calls
+      status: done

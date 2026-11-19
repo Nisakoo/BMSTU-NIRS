@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from collections.abc import AsyncIterator, Sequence
 from typing import ClassVar
@@ -79,6 +80,15 @@ class RecordingTool(Tool):
         return {"echo": arguments.text}
 
 
+class CancellingTool(Tool):
+    name: ClassVar[str] = "cancelling"
+    description: ClassVar[str] = "Cancels the running task."
+    arguments_model: ClassVar[type[BaseModel]] = EchoArguments
+
+    async def execute(self, arguments: BaseModel) -> object:
+        raise asyncio.CancelledError
+
+
 class FailingTool(Tool):
     name: ClassVar[str] = "failing"
     description: ClassVar[str] = "Always fails."
@@ -93,6 +103,7 @@ def make_agent(
     tools: Sequence[Tool] = (),
     *,
     max_iterations: int = 4,
+    max_tool_calls_per_response: int = 4,
 ) -> Agent:
     return Agent(
         llm_provider=provider,
@@ -100,6 +111,7 @@ def make_agent(
         config=AgentConfig(
             system_prompt="You are a Smeshariki expert.",
             max_iterations=max_iterations,
+            max_tool_calls_per_response=max_tool_calls_per_response,
         ),
     )
 
@@ -118,6 +130,15 @@ async def collect_agent_events(
         (LLMResponse(content=""), LLMResultType.FINAL),
         (
             LLMResponse(tool_calls=(ToolCall(id="call-1", name="echo", arguments={}),)),
+            LLMResultType.TOOL_CALL,
+        ),
+        (
+            LLMResponse(
+                tool_calls=(
+                    ToolCall(id="call-1", name="echo", arguments={}),
+                    ToolCall(id="call-2", name="echo", arguments={}),
+                )
+            ),
             LLMResultType.TOOL_CALL,
         ),
         (LLMResponse(), LLMResultType.INVALID),
@@ -242,10 +263,154 @@ async def test_tool_call_is_added_with_structured_result_before_final_response()
     assert tool.calls == [EchoArguments(text="hello")]
     second_context, _ = provider.calls[1]
     assert second_context[-2].role is MessageRole.ASSISTANT
-    assert second_context[-2].tool_call == tool_call
+    assert second_context[-2].tool_calls == (tool_call,)
     assert second_context[-1].role is MessageRole.TOOL
     assert second_context[-1].tool_result is not None
     assert second_context[-1].tool_result.output == {"echo": "hello"}
+
+
+@pytest.mark.asyncio
+async def test_several_tool_calls_run_in_order_before_final_response() -> None:
+    calls = (
+        ToolCall(id="call-1", name="echo", arguments={"text": "Крош"}),
+        ToolCall(id="call-2", name="echo", arguments={"text": "Ёжик"}),
+    )
+    provider = ScriptedLLMProvider(
+        [LLMResponse(tool_calls=calls), LLMResponse(content="story")]
+    )
+    tool = RecordingTool()
+
+    events = await collect_agent_events(
+        make_agent(provider, [tool]), (), UserRequest(content="Tell a story")
+    )
+
+    assert events[-1] == AgentResponse(content="story")
+    assert tool.calls == [EchoArguments(text="Крош"), EchoArguments(text="Ёжик")]
+    assert len(provider.calls) == 2
+    second_context, _ = provider.calls[1]
+    assistant, *results = second_context[-3:]
+    assert assistant.role is MessageRole.ASSISTANT
+    assert assistant.tool_calls == calls
+    assert [result.role for result in results] == [MessageRole.TOOL] * 2
+    assert [result.tool_call_id for result in results] == ["call-1", "call-2"]
+    assert [result.tool_result.output for result in results if result.tool_result] == [
+        {"echo": "Крош"},
+        {"echo": "Ёжик"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_tool_calls_beyond_the_limit_get_an_error_without_running() -> None:
+    calls = tuple(
+        ToolCall(id=f"call-{number}", name="echo", arguments={"text": str(number)})
+        for number in (1, 2, 3)
+    )
+    provider = ScriptedLLMProvider(
+        [LLMResponse(tool_calls=calls), LLMResponse(content="done")]
+    )
+    tool = RecordingTool()
+
+    await collect_agent_events(
+        make_agent(provider, [tool], max_tool_calls_per_response=2),
+        (),
+        UserRequest(content="question"),
+    )
+
+    assert tool.calls == [EchoArguments(text="1"), EchoArguments(text="2")]
+    second_context, _ = provider.calls[1]
+    results = [message.tool_result for message in second_context[-3:]]
+    assert [result.call_id for result in results if result] == [
+        "call-1",
+        "call-2",
+        "call-3",
+    ]
+    assert results[0] is not None and not results[0].is_error
+    assert results[2] is not None and results[2].error is not None
+    assert results[2].error.code == "tool_call_limit_exceeded"
+
+
+@pytest.mark.parametrize("limit", [0, -1])
+def test_tool_call_limit_must_be_positive(limit: int) -> None:
+    with pytest.raises(ValueError):
+        AgentConfig(system_prompt="prompt", max_tool_calls_per_response=limit)
+
+
+def test_tool_call_limit_defaults_to_four() -> None:
+    assert AgentConfig(system_prompt="prompt").max_tool_calls_per_response == 4
+
+
+@pytest.mark.asyncio
+async def test_cancellation_during_second_tool_call_propagates() -> None:
+    calls = (
+        ToolCall(id="call-1", name="echo", arguments={"text": "first"}),
+        ToolCall(id="call-2", name="cancelling", arguments={"text": "second"}),
+    )
+    provider = ScriptedLLMProvider([LLMResponse(tool_calls=calls)])
+    tool = RecordingTool()
+
+    with pytest.raises(asyncio.CancelledError):
+        await collect_agent_events(
+            make_agent(provider, [tool, CancellingTool()]),
+            (),
+            UserRequest(content="question"),
+        )
+
+    assert tool.calls == [EchoArguments(text="first")]
+
+
+@pytest.mark.asyncio
+async def test_runtime_logs_each_of_several_tool_calls_without_payload(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="smeshariki_ai.agent.runtime")
+    calls = tuple(
+        ToolCall(id=f"call-{number}", name="echo", arguments={"text": "private arg"})
+        for number in (1, 2, 3)
+    )
+    provider = ScriptedLLMProvider(
+        [LLMResponse(tool_calls=calls), LLMResponse(content="private output")]
+    )
+
+    await collect_agent_events(
+        make_agent(provider, [RecordingTool()], max_tool_calls_per_response=2),
+        (),
+        UserRequest(content="private request"),
+    )
+
+    llm_completed = [
+        r for r in caplog.records if r.getMessage().startswith("agent.llm.completed")
+    ]
+    assert llm_completed[0].tool_call_count == 3
+    assert llm_completed[1].tool_call_count == 0
+    completed = [
+        r for r in caplog.records if r.getMessage().startswith("agent.tool.completed")
+    ]
+    assert [r.tool_call_id for r in completed] == ["call-1", "call-2", "call-3"]
+    assert [r.tool_status for r in completed] == ["success", "success", "error"]
+    assert all(
+        private not in caplog.text
+        for private in ("private arg", "private output", "private request")
+    )
+
+
+@pytest.mark.asyncio
+async def test_reasoning_is_returned_with_tool_calls_and_not_to_the_user() -> None:
+    tool_call = ToolCall(id="call-1", name="echo", arguments={"text": "hello"})
+    provider = ScriptedLLMProvider(
+        [
+            LLMResponse(tool_calls=(tool_call,), reasoning_content="private plan"),
+            LLMResponse(content="done"),
+        ]
+    )
+
+    events = await collect_agent_events(
+        make_agent(provider, [RecordingTool()]), (), UserRequest(content="Use a tool")
+    )
+
+    assert events == [AgentTextDelta(content="done"), AgentResponse(content="done")]
+    second_context, _ = provider.calls[1]
+    assert second_context[-2].tool_calls == (tool_call,)
+    assert second_context[-2].reasoning_content == "private plan"
 
 
 @pytest.mark.asyncio
@@ -256,15 +421,9 @@ async def test_tool_call_is_added_with_structured_result_before_final_response()
             content="ambiguous",
             tool_calls=(ToolCall(id="call-1", name="echo", arguments={}),),
         ),
-        LLMResponse(
-            tool_calls=(
-                ToolCall(id="call-1", name="echo", arguments={}),
-                ToolCall(id="call-2", name="echo", arguments={}),
-            )
-        ),
         LLMResponse(),
     ],
-    ids=["text-and-tool", "multiple-tools", "empty-shape"],
+    ids=["text-and-tool", "empty-shape"],
 )
 async def test_invalid_llm_response_is_rejected(response: LLMResponse) -> None:
     provider = ScriptedLLMProvider([response])

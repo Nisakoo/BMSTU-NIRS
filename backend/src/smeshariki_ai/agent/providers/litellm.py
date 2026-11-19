@@ -35,6 +35,25 @@ class _ToolCallParts:
     arguments: str = ""
 
 
+def _build_tool_calls(
+    parts_by_index: dict[int, _ToolCallParts],
+) -> tuple[ToolCall, ...]:
+    """Assemble streamed fragments into tool calls ordered by stream index."""
+
+    tool_calls: list[ToolCall] = []
+    for index in sorted(parts_by_index):
+        parts = parts_by_index[index]
+        if not parts.id.strip() or not parts.name.strip():
+            raise TypeError("A tool call must have an id and a name.")
+        arguments = json.loads(parts.arguments)
+        if not isinstance(arguments, dict):
+            raise TypeError("Tool call arguments must be a JSON object.")
+        tool_calls.append(ToolCall(id=parts.id, name=parts.name, arguments=arguments))
+    if len({tool_call.id for tool_call in tool_calls}) != len(tool_calls):
+        raise TypeError("Tool call ids must be unique.")
+    return tuple(tool_calls)
+
+
 class LiteLLMProvider(LLMProvider):
     def __init__(self, config: LiteLLMProviderConfig) -> None:
         self._config = config
@@ -64,6 +83,7 @@ class LiteLLMProvider(LLMProvider):
                 stage = "response"
 
                 content_parts: list[str] = []
+                reasoning_parts: list[str] = []
                 tool_call_parts: dict[int, _ToolCallParts] = {}
                 saw_choice = False
 
@@ -81,9 +101,14 @@ class LiteLLMProvider(LLMProvider):
                     delta = choices[0].delta
                     content = delta.content
                     external_tool_calls = delta.tool_calls or ()
+                    reasoning = getattr(delta, "reasoning_content", None)
 
                     if content is not None and not isinstance(content, str):
                         raise TypeError("Stream content must be text or null.")
+                    if reasoning is not None and not isinstance(reasoning, str):
+                        raise TypeError("Stream reasoning must be text or null.")
+                    if reasoning:
+                        reasoning_parts.append(reasoning)
                     if content and external_tool_calls:
                         raise TypeError(
                             "A stream chunk cannot mix text and tool calls."
@@ -109,8 +134,8 @@ class LiteLLMProvider(LLMProvider):
 
                     for external_call in external_tool_calls:
                         index = external_call.index
-                        if not isinstance(index, int) or index != 0:
-                            raise TypeError("Only one tool call is supported.")
+                        if not isinstance(index, int) or index < 0:
+                            raise TypeError("Tool call index must be non-negative.")
                         parts = tool_call_parts.setdefault(index, _ToolCallParts())
                         if external_call.id is not None:
                             if not isinstance(external_call.id, str):
@@ -130,18 +155,9 @@ class LiteLLMProvider(LLMProvider):
                     raise TypeError("The LLM stream did not contain a choice.")
 
                 if tool_call_parts:
-                    parts = tool_call_parts[0]
-                    arguments = json.loads(parts.arguments)
-                    if not isinstance(arguments, dict):
-                        raise TypeError("Tool call arguments must be a JSON object.")
                     result = LLMResponse(
-                        tool_calls=(
-                            ToolCall(
-                                id=parts.id,
-                                name=parts.name,
-                                arguments=arguments,
-                            ),
-                        )
+                        tool_calls=_build_tool_calls(tool_call_parts),
+                        reasoning_content="".join(reasoning_parts) or None,
                     )
                 else:
                     result = LLMResponse(content="".join(content_parts))
@@ -217,23 +233,30 @@ class LiteLLMProvider(LLMProvider):
 
     @staticmethod
     def _map_message(message: Message) -> dict[str, Any]:
-        if message.role is MessageRole.ASSISTANT and message.tool_call is not None:
+        if message.role is MessageRole.ASSISTANT and message.tool_calls:
+            reasoning = (
+                {"reasoning_content": message.reasoning_content}
+                if message.reasoning_content
+                else {}
+            )
             return {
                 "role": "assistant",
                 "content": None,
+                **reasoning,
                 "tool_calls": [
                     {
-                        "id": message.tool_call.id,
+                        "id": tool_call.id,
                         "type": "function",
                         "function": {
-                            "name": message.tool_call.name,
+                            "name": tool_call.name,
                             "arguments": json.dumps(
-                                message.tool_call.arguments,
+                                tool_call.arguments,
                                 ensure_ascii=False,
                                 separators=(",", ":"),
                             ),
                         },
                     }
+                    for tool_call in message.tool_calls
                 ],
             }
 

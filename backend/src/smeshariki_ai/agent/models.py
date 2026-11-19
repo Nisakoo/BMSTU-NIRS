@@ -44,6 +44,7 @@ class UserRequest(AgentModel):
 class AgentConfig(AgentModel):
     system_prompt: str
     max_iterations: int = Field(default=4, gt=0)
+    max_tool_calls_per_response: int = Field(default=4, gt=0)
 
 
 class ToolDefinition(AgentModel):
@@ -71,7 +72,9 @@ class ToolResult(AgentModel):
 class Message(AgentModel):
     role: MessageRole
     content: str = ""
-    tool_call: ToolCall | None = None
+    tool_calls: tuple[ToolCall, ...] = ()
+    # Model reasoning of a tool-call turn; sent back to the model only.
+    reasoning_content: str | None = None
     tool_result: ToolResult | None = None
     tool_call_id: str | None = None
     tool_name: str | None = None
@@ -80,6 +83,7 @@ class Message(AgentModel):
 class LLMResponse(AgentModel):
     content: str | None = None
     tool_calls: tuple[ToolCall, ...] = ()
+    reasoning_content: str | None = None
 
 
 class LLMTextDelta(AgentModel):

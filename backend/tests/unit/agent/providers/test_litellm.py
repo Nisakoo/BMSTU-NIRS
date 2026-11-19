@@ -246,7 +246,7 @@ async def test_stream_maps_tool_call_and_linked_result(
     await collect_events(
         provider,
         (
-            Message(role=MessageRole.ASSISTANT, tool_call=tool_call),
+            Message(role=MessageRole.ASSISTANT, tool_calls=(tool_call,)),
             Message(
                 role=MessageRole.TOOL,
                 tool_call_id="call-1",
@@ -278,6 +278,59 @@ async def test_stream_maps_tool_call_and_linked_result(
     assert json.loads(sent_messages[1]["content"]) == tool_result.model_dump(
         mode="json"
     )
+
+
+@pytest.mark.asyncio
+async def test_stream_maps_several_tool_calls_into_one_assistant_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    completion = AsyncMock(return_value=make_response())
+    monkeypatch.setattr(provider_module.litellm_sdk, "acompletion", completion)
+    provider = LiteLLMProvider(LiteLLMProviderConfig(model="test/model"))
+    calls = (
+        ToolCall(id="call-1", name="lookup_knowledge", arguments={"name": "Крош"}),
+        ToolCall(id="call-2", name="lookup_knowledge", arguments={"name": "Ёжик"}),
+    )
+
+    await collect_events(
+        provider,
+        (
+            Message(role=MessageRole.ASSISTANT, tool_calls=calls),
+            *(
+                Message(
+                    role=MessageRole.TOOL,
+                    tool_call_id=call.id,
+                    tool_name=call.name,
+                    tool_result=ToolResult(call_id=call.id, name=call.name),
+                )
+                for call in calls
+            ),
+        ),
+        (),
+    )
+
+    sent_messages = completion.await_args.kwargs["messages"]
+    assert sent_messages[0] == {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {
+                "id": call.id,
+                "type": "function",
+                "function": {
+                    "name": "lookup_knowledge",
+                    "arguments": json.dumps(
+                        call.arguments, ensure_ascii=False, separators=(",", ":")
+                    ),
+                },
+            }
+            for call in calls
+        ],
+    }
+    assert [message["tool_call_id"] for message in sent_messages[1:]] == [
+        "call-1",
+        "call-2",
+    ]
 
 
 @pytest.mark.asyncio
@@ -403,6 +456,215 @@ async def test_stream_assembles_fragmented_tool_call(
             )
         )
     ]
+
+
+def tool_fragment(
+    index: int,
+    *,
+    call_id: str | None = None,
+    name: str | None = None,
+    arguments: str = "",
+) -> dict[str, object]:
+    fragment: dict[str, object] = {
+        "index": index,
+        "function": {"name": name, "arguments": arguments},
+    }
+    if call_id is not None:
+        fragment["id"] = call_id
+    return fragment
+
+
+@pytest.mark.asyncio
+async def test_stream_assembles_several_interleaved_tool_calls_in_index_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stream = AsyncChunkStream(
+        [
+            make_chunk(
+                None,
+                tool_calls=[
+                    tool_fragment(1, call_id="call-b", name="lookup_knowledge"),
+                ],
+            ),
+            make_chunk(
+                None,
+                tool_calls=[
+                    tool_fragment(
+                        0, call_id="call-a", name="lookup_knowledge", arguments='{"na'
+                    ),
+                    tool_fragment(1, arguments='{"name":"Ёжик"}'),
+                ],
+            ),
+            make_chunk(
+                None,
+                tool_calls=[
+                    tool_fragment(0, arguments='me":"Крош"}'),
+                    tool_fragment(2, call_id="call-c", name="get_context"),
+                ],
+            ),
+            make_chunk(None, tool_calls=[tool_fragment(2, arguments="{}")]),
+        ]
+    )
+    monkeypatch.setattr(
+        provider_module.litellm_sdk, "acompletion", AsyncMock(return_value=stream)
+    )
+    provider = LiteLLMProvider(LiteLLMProviderConfig(model="test/model"))
+
+    events = await collect_events(provider)
+
+    assert events == [
+        LLMResponse(
+            tool_calls=(
+                ToolCall(
+                    id="call-a", name="lookup_knowledge", arguments={"name": "Крош"}
+                ),
+                ToolCall(
+                    id="call-b", name="lookup_knowledge", arguments={"name": "Ёжик"}
+                ),
+                ToolCall(id="call-c", name="get_context", arguments={}),
+            )
+        )
+    ]
+
+
+def make_reasoning_chunk(reasoning: object) -> SimpleNamespace:
+    delta = SimpleNamespace(content=None, tool_calls=None, reasoning_content=reasoning)
+    return SimpleNamespace(choices=[SimpleNamespace(delta=delta)], usage=None)
+
+
+@pytest.mark.asyncio
+async def test_stream_keeps_reasoning_of_tool_call_response_out_of_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stream = AsyncChunkStream(
+        [
+            make_reasoning_chunk("Нужно найти "),
+            make_reasoning_chunk("Кроша."),
+            make_chunk(
+                None,
+                tool_calls=[
+                    tool_fragment(
+                        0,
+                        call_id="call-1",
+                        name="lookup_knowledge",
+                        arguments='{"name":"Крош"}',
+                    )
+                ],
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        provider_module.litellm_sdk, "acompletion", AsyncMock(return_value=stream)
+    )
+    provider = LiteLLMProvider(LiteLLMProviderConfig(model="test/model"))
+
+    events = await collect_events(provider)
+
+    assert events == [
+        LLMResponse(
+            tool_calls=(
+                ToolCall(
+                    id="call-1", name="lookup_knowledge", arguments={"name": "Крош"}
+                ),
+            ),
+            reasoning_content="Нужно найти Кроша.",
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_stream_drops_reasoning_of_final_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stream = AsyncChunkStream([make_reasoning_chunk("Думаю."), make_chunk("Ответ")])
+    monkeypatch.setattr(
+        provider_module.litellm_sdk, "acompletion", AsyncMock(return_value=stream)
+    )
+    provider = LiteLLMProvider(LiteLLMProviderConfig(model="test/model"))
+
+    events = await collect_events(provider)
+
+    assert events == [LLMTextDelta(content="Ответ"), LLMResponse(content="Ответ")]
+
+
+@pytest.mark.asyncio
+async def test_stream_rejects_non_text_reasoning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        provider_module.litellm_sdk,
+        "acompletion",
+        AsyncMock(return_value=AsyncChunkStream([make_reasoning_chunk(42)])),
+    )
+    provider = LiteLLMProvider(LiteLLMProviderConfig(model="test/model"))
+
+    with pytest.raises(LLMProviderError, match="invalid response"):
+        await collect_events(provider)
+
+
+@pytest.mark.asyncio
+async def test_stream_passes_reasoning_back_with_tool_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    completion = AsyncMock(return_value=make_response())
+    monkeypatch.setattr(provider_module.litellm_sdk, "acompletion", completion)
+    provider = LiteLLMProvider(LiteLLMProviderConfig(model="test/model"))
+    call = ToolCall(id="call-1", name="lookup_knowledge", arguments={})
+
+    await collect_events(
+        provider,
+        (
+            Message(
+                role=MessageRole.ASSISTANT,
+                tool_calls=(call,),
+                reasoning_content="Нужно найти Кроша.",
+            ),
+            Message(
+                role=MessageRole.TOOL,
+                tool_call_id=call.id,
+                tool_name=call.name,
+                tool_result=ToolResult(call_id=call.id, name=call.name),
+            ),
+        ),
+    )
+
+    sent = completion.await_args.kwargs["messages"][0]
+    assert sent["reasoning_content"] == "Нужно найти Кроша."
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "fragments",
+    [
+        [
+            tool_fragment(0, call_id="call-1", name="first", arguments="{}"),
+            tool_fragment(1, call_id="call-1", name="second", arguments="{}"),
+        ],
+        [
+            tool_fragment(0, call_id="call-1", name="first", arguments="{}"),
+            tool_fragment(1, call_id="call-2", arguments="{}"),
+        ],
+        [
+            tool_fragment(0, call_id="call-1", name="first", arguments="{}"),
+            tool_fragment(1, name="second", arguments="{}"),
+        ],
+        [tool_fragment(-1, call_id="call-1", name="first", arguments="{}")],
+    ],
+    ids=["duplicate-id", "missing-name", "missing-id", "negative-index"],
+)
+async def test_stream_rejects_invalid_set_of_tool_calls(
+    monkeypatch: pytest.MonkeyPatch,
+    fragments: list[dict[str, object]],
+) -> None:
+    monkeypatch.setattr(
+        provider_module.litellm_sdk,
+        "acompletion",
+        AsyncMock(return_value=make_response(None, tool_calls=fragments)),
+    )
+    provider = LiteLLMProvider(LiteLLMProviderConfig(model="test/model"))
+
+    with pytest.raises(LLMProviderError, match="invalid response"):
+        await collect_events(provider)
 
 
 @pytest.mark.asyncio

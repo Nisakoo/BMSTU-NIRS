@@ -47,6 +47,7 @@ _SAFE_FIELDS = frozenset(
         "status",
         "count",
         "result_type",
+        "tool_call_count",
         "tool_name",
         "tool_status",
         "reason",

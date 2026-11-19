@@ -16,6 +16,9 @@ from smeshariki_ai.agent.models import (
     LLMTextDelta,
     Message,
     MessageRole,
+    ToolCall,
+    ToolError,
+    ToolResult,
     UserRequest,
 )
 from smeshariki_ai.agent.providers import LLMProvider
@@ -99,6 +102,7 @@ class Agent:
                     "agent.llm.completed",
                     iteration=iteration,
                     result_type=result_type.value,
+                    tool_call_count=len(llm_response.tool_calls),
                 )
 
                 if result_type is LLMResultType.INVALID:
@@ -129,57 +133,18 @@ class Agent:
                         "The LLM provider returned an invalid response."
                     )
 
-                for tool_call in llm_response.tool_calls:
-                    tool_name = (
-                        tool_call.name
-                        if self._tool_registry.get(tool_call.name) is not None
-                        else "<unknown>"
+                context.append(
+                    Message(
+                        role=MessageRole.ASSISTANT,
+                        tool_calls=llm_response.tool_calls,
+                        reasoning_content=llm_response.reasoning_content,
                     )
-                    context.append(
-                        Message(
-                            role=MessageRole.ASSISTANT,
-                            tool_call=tool_call,
-                        )
+                )
+                limit = self._config.max_tool_calls_per_response
+                for position, tool_call in enumerate(llm_response.tool_calls):
+                    tool_result = await self._run_tool_call(
+                        tool_call, iteration=iteration, allowed=position < limit
                     )
-                    tool_started_at = utc_now()
-                    tool_started = time.monotonic()
-                    with bind_context(tool_call_id=tool_call.id):
-                        log_event(
-                            logger,
-                            logging.INFO,
-                            "agent.tool.started",
-                            iteration=iteration,
-                            tool_name=tool_name,
-                        )
-                        try:
-                            tool_result = await self._tool_registry.execute(tool_call)
-                        except asyncio.CancelledError:
-                            log_event(
-                                logger,
-                                logging.INFO,
-                                "agent.tool.cancelled",
-                                iteration=iteration,
-                                tool_name=tool_name,
-                                started_at=tool_started_at,
-                                duration_ms=round(
-                                    (time.monotonic() - tool_started) * 1000, 3
-                                ),
-                                outcome="cancelled",
-                            )
-                            raise
-                        log_event(
-                            logger,
-                            logging.INFO if not tool_result.is_error else logging.ERROR,
-                            "agent.tool.completed",
-                            iteration=iteration,
-                            tool_name=tool_name,
-                            tool_status="error" if tool_result.is_error else "success",
-                            started_at=tool_started_at,
-                            duration_ms=round(
-                                (time.monotonic() - tool_started) * 1000, 3
-                            ),
-                            outcome="failed" if tool_result.is_error else "completed",
-                        )
                     context.append(
                         Message(
                             role=MessageRole.TOOL,
@@ -214,6 +179,66 @@ class Agent:
             )
             raise
 
+    async def _run_tool_call(
+        self, tool_call: ToolCall, *, iteration: int, allowed: bool
+    ) -> ToolResult:
+        """Execute one tool call, or reject it past the per-response limit."""
+
+        tool_name = (
+            tool_call.name
+            if self._tool_registry.get(tool_call.name) is not None
+            else "<unknown>"
+        )
+        tool_started_at = utc_now()
+        tool_started = time.monotonic()
+        with bind_context(tool_call_id=tool_call.id):
+            log_event(
+                logger,
+                logging.INFO,
+                "agent.tool.started",
+                iteration=iteration,
+                tool_name=tool_name,
+            )
+            try:
+                if allowed:
+                    tool_result = await self._tool_registry.execute(tool_call)
+                else:
+                    tool_result = ToolResult(
+                        call_id=tool_call.id,
+                        name=tool_call.name,
+                        error=ToolError(
+                            code="tool_call_limit_exceeded",
+                            message=(
+                                "Too many tool calls in one response; "
+                                "this call was not executed."
+                            ),
+                        ),
+                    )
+            except asyncio.CancelledError:
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "agent.tool.cancelled",
+                    iteration=iteration,
+                    tool_name=tool_name,
+                    started_at=tool_started_at,
+                    duration_ms=round((time.monotonic() - tool_started) * 1000, 3),
+                    outcome="cancelled",
+                )
+                raise
+            log_event(
+                logger,
+                logging.INFO if not tool_result.is_error else logging.ERROR,
+                "agent.tool.completed",
+                iteration=iteration,
+                tool_name=tool_name,
+                tool_status="error" if tool_result.is_error else "success",
+                started_at=tool_started_at,
+                duration_ms=round((time.monotonic() - tool_started) * 1000, 3),
+                outcome="failed" if tool_result.is_error else "completed",
+            )
+        return tool_result
+
     @staticmethod
     def _result_type(response: LLMResponse) -> LLMResultType:
         tool_call_count = len(response.tool_calls)
@@ -221,7 +246,7 @@ class Agent:
 
         if has_content and tool_call_count == 0:
             return LLMResultType.FINAL
-        if not has_content and tool_call_count == 1:
+        if not has_content and tool_call_count >= 1:
             return LLMResultType.TOOL_CALL
         return LLMResultType.INVALID
 
