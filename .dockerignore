@@ -11,3 +11,8 @@ frontend/dist
 specs
 backend/tests
 docker/.env
+
+# Local RAG data and its encrypted archive are never needed in images
+data
+encrypted
+.data-decrypt-*

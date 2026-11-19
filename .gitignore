@@ -1,8 +1,41 @@
+# Secrets: local env files; only templates are committed
+.env
+.env.*
+!.env.example
+docker/.env
+
+# Local RAG data (knowledge packages, scenarios); never commit.
+# Only encrypted/data.enc goes to the repository.
+/data/
+# Temporary folders and files of data_crypt.py (may hold decrypted data)
+/.data-decrypt-*/
+/encrypted/tmp*
+
+# Python
 .venv/
 __pycache__/
 *.py[cod]
+*.egg-info/
 .pytest_cache/
-docker/.env
-frontend/node_modules/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Frontend
+node_modules/
 frontend/dist/
+npm-debug.log*
+
+# Local tooling and editors
+.claude/settings.local.json
+.claude/worktrees/
+.idea/
+.vscode/
+*.swp
+*.log
+
+# OS
 .DS_Store
+Thumbs.db
