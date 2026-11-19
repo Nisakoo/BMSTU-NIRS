@@ -163,3 +163,5 @@ specs:
       status: done
     - name: knowledge-fuzzy-lookup
       status: done
+    - name: data-encryption
+      status: done

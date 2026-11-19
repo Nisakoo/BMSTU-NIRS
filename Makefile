@@ -15,6 +15,8 @@ help:
 	@echo "  make knowledge-export DIR=<path> [FORMAT=json] [TYPE=<type>] Export knowledge into a package"
 	@echo "  make knowledge-delete REFS=\"<type>/<id> ...\" [APPLY=1] [FORMAT=json] Delete knowledge entities"
 	@echo "  make knowledge-restore REF=<type>/<id> [REVISION=N] [APPLY=1] [FORMAT=json] Restore a knowledge entity"
+	@echo "  make data-encrypt Encrypt data/ into encrypted/data.enc (asks for the passphrase)"
+	@echo "  make data-decrypt [FORCE=1] Restore data/ from encrypted/data.enc (asks for the passphrase)"
 	@echo "  make frontend Run the Vite frontend development server"
 	@echo "  make test    Run all configured project tests"
 	@echo "  make test-integration [PYTEST_ARGS=...] Run backend tests against disposable PostgreSQL and Redis"
@@ -148,6 +150,16 @@ knowledge-restore:
 			$(if $(REVISION),--revision $(REVISION),) \
 			$(if $(filter 1,$(APPLY)),--apply,) --format "$(or $(FORMAT),text)"; \
 	fi
+
+.PHONY: data-encrypt data-decrypt
+
+DATA_CRYPT := uv run --quiet --locked --script .agents/skills/data-crypt/scripts/data_crypt.py
+
+data-encrypt:
+	@$(DATA_CRYPT) encrypt
+
+data-decrypt:
+	@$(DATA_CRYPT) decrypt $(if $(filter 1,$(FORCE)),--force,)
 
 frontend:
 	@npm --prefix frontend run dev
