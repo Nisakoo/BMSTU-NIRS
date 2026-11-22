@@ -221,8 +221,9 @@ flowchart LR
   `reason=not_loaded`. Текст запроса, подсказки и содержимое карточек в журнал
   не попадают.
 - **Подключение:** `build_agent_service` принимает необязательный
-  `knowledge_reader` и регистрирует `lookup_knowledge` рядом с `get_context`.
-  `create_application` передаёт `PostgresKnowledgeStore` на общем engine;
+  `knowledge_reader` и регистрирует `lookup_knowledge` как единственный
+  production-инструмент. `create_application` передаёт
+  `PostgresKnowledgeStore` на общем engine;
   без него (явный `auth_service`, вызов по умолчанию) используется пустой
   `InMemoryKnowledgeStore`, и инструмент отвечает `unavailable`. Модули RAG
   импортируются напрямую: пакет `rag` ничего не реэкспортирует, чтобы CLI не

@@ -49,13 +49,16 @@ class ScriptedLLMProvider(LLMProvider):
             for response in responses
         )
         self.calls: list[tuple[tuple[Message, ...], tuple[ToolDefinition, ...]]] = []
+        self.max_tokens_calls: list[int | None] = []
 
     async def stream(
         self,
         messages: Sequence[Message],
         tools: Sequence[ToolDefinition],
+        max_tokens: int | None = None,
     ) -> AsyncIterator[LLMStreamEvent]:
         self.calls.append((tuple(messages), tuple(tools)))
+        self.max_tokens_calls.append(max_tokens)
         for event in self._responses[len(self.calls) - 1]:
             yield event
 
@@ -588,6 +591,43 @@ async def test_reading_time_adds_a_length_system_message(
         *history,
         Message(role=MessageRole.USER, content="Крош строит ракету"),
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("minutes", "expected"),
+    [(2, 1200), (5, 3000), (10, 6000), (None, None)],
+)
+async def test_reading_time_sets_max_tokens(
+    minutes: int | None, expected: int | None
+) -> None:
+    provider = ScriptedLLMProvider([LLMResponse(content="История")])
+
+    await collect_agent_events(
+        make_agent(provider),
+        (),
+        UserRequest(content="Крош строит ракету", reading_minutes=minutes),
+    )
+
+    assert provider.max_tokens_calls == [expected]
+
+
+@pytest.mark.asyncio
+async def test_max_tokens_is_passed_to_each_llm_iteration() -> None:
+    provider = ScriptedLLMProvider(
+        [
+            LLMResponse(tool_calls=(ToolCall(id="call-1", name="echo", arguments={}),)),
+            LLMResponse(content="История"),
+        ]
+    )
+
+    await collect_agent_events(
+        make_agent(provider, [RecordingTool()]),
+        (),
+        UserRequest(content="Крош строит ракету", reading_minutes=2),
+    )
+
+    assert provider.max_tokens_calls == [1200, 1200]
 
 
 @pytest.mark.asyncio

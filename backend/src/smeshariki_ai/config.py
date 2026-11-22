@@ -43,6 +43,8 @@ def load_config(environ: Mapping[str, str] | None = None) -> Config:
         ("LLM_BASE_URL", "base_url"),
         ("LLM_TIMEOUT_SECONDS", "timeout_seconds"),
         ("LLM_NUM_RETRIES", "num_retries"),
+        ("LLM_TEMPERATURE", "temperature"),
+        ("LLM_THINKING", "thinking"),
     ):
         if environment_name in source and source[environment_name].strip():
             provider_values[field_name] = source[environment_name]

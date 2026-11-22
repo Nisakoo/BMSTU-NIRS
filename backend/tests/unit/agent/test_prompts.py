@@ -21,10 +21,14 @@ def test_load_system_prompt_reads_trimmed_package_resource() -> None:
     prompt = load_system_prompt()
 
     assert prompt == prompt.strip()
-    assert "Ты создаёшь новую сказку" in prompt
+    assert "Ты — автор новых сказок" in prompt
+    assert "Пиши только обычным текстом" in prompt
+    assert "Не используй Markdown" in prompt
+    assert "Пиши естественным русским языком" in prompt
+    assert "Не вставляй иероглифы" in prompt
     assert "Конфликт строится только на столкновении характеров" in prompt
     assert "Не вводи внешнего злодея" in prompt
-    assert "Сохраняй возрастные роли героев" in prompt
+    assert "Сохраняй возрастные роли" in prompt
     assert "понятным ребёнку" in prompt
     assert "второй слой для взрослого" in prompt
     assert "справочный факт за канонический" in prompt

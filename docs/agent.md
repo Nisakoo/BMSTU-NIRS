@@ -15,8 +15,6 @@ Agent runtime — внутренняя часть backend, независима�
   отдельная конфигурация;
 - [`agent/tools.py`](../backend/src/smeshariki_ai/agent/tools.py) — `Tool` и
   `ToolRegistry`;
-- [`agent/get_context.py`](../backend/src/smeshariki_ai/agent/get_context.py) —
-  демонстрационный инструмент `get_context` с фиксированным контекстом;
 - [`agent/models.py`](../backend/src/smeshariki_ai/agent/models.py) —
   неизменяемые Pydantic-модели сообщений, вызовов и ответов.
 - [`agent/prompts/system.md`](../backend/src/smeshariki_ai/agent/prompts/system.md)
@@ -44,20 +42,25 @@ Agent.run(
 после основного промпта добавляется второе системное сообщение «Объём ответа:
 история примерно на N минут чтения — около W слов.» (`W = N × 150`). Оно, как и
 внутренние сообщения о вызовах инструментов, существует только в этом
-контексте и в историю диалога не попадает. `Agent.run` является единственным путём выполнения: он передаёт
-фрагменты только финального текста, а затем полный `AgentResponse`.
+контексте и в историю диалога не попадает. Для той же длительности `Agent`
+передаёт провайдеру `max_tokens`: `2` минуты — `1200`, `5` — `3000`, `10` —
+`6000`; без выбранной длительности лимит не передаётся. `Agent.run` является
+единственным путём выполнения: он передаёт фрагменты только финального текста,
+а затем полный `AgentResponse`.
 
 Runtime не читает Markdown-файл или environment. Общий
 [`load_config`](./configuration.md) загружает production-промпт через
 `importlib.resources` при старте и передаёт готовый текст в неизменяемом
 `AgentConfig`. Поэтому изменение промпта проходит обычное Git-review и входит
-в Python-дистрибутив, а deployment override через `AGENT_SYSTEM_PROMPT` не
-поддерживается.
+в Python-дистрибутив. Промпт требует писать только готовый русский текст без
+Markdown, иероглифов, служебных пометок и упоминаний инструментов; deployment
+override через environment не поддерживается.
 
 ```python
 LLMProvider.stream(
     messages: Sequence[Message],
     tools: Sequence[ToolDefinition],
+    max_tokens: int | None = None,
 ) -> AsyncIterator[LLMTextDelta | LLMResponse]
 ```
 
@@ -76,6 +79,8 @@ LiteLLMProvider(
         base_url=None,
         timeout_seconds=60,
         num_retries=0,
+        temperature=0.8,
+        thinking=False,
     )
 )
 ```
@@ -84,7 +89,10 @@ LiteLLMProvider(
 Общий [`load_config`](./configuration.md) читает environment на внешней границе;
 сам адаптер получает готовый объект и не загружает `.env`.
 Production-конфигурация требует `LLM_MODEL`, а необязательные `LLM_API_KEY` и
-`LLM_BASE_URL` зависят от выбранного через LiteLLM поставщика.
+`LLM_BASE_URL` зависят от выбранного через LiteLLM поставщика. `LLM_TEMPERATURE`
+задаёт температуру генерации (`0…2`, по умолчанию `0.8`), а `LLM_THINKING`
+включает скрытые рассуждения DeepSeek (по умолчанию выключены). Для
+не-DeepSeek модели `LLM_THINKING=true` отклоняется при загрузке конфигурации.
 
 ```python
 class Tool(ABC):
@@ -104,11 +112,10 @@ await ToolRegistry.execute(tool_call: ToolCall) -> ToolResult
 tool call. Неизвестное имя, невалидные аргументы и ошибка исполнения
 преобразуются в безопасный `ToolResult`.
 
-Production bootstrap регистрирует `get_context` в `ToolRegistry`. Инструмент
-принимает только пустой объект аргументов и возвращает одну фиксированную строку
-с произвольным маркером и контрольной фразой. Он не читает внешние данные и не
-имеет отдельного HTTP-маршрута. Описание инструмента подсказывает модели, когда
-его вызвать, но решение о вызове остаётся за моделью.
+Production bootstrap регистрирует в `ToolRegistry` только
+`lookup_knowledge`. Когда вызывать инструмент, модель узнаёт из его описания;
+решение о вызове остаётся за моделью. Результаты поиска передаются как данные и
+не становятся частью системного промпта.
 
 ## Правила agent loop
 
@@ -131,16 +138,18 @@ Production bootstrap регистрирует `get_context` в `ToolRegistry`. �
 
 `LiteLLMProvider` использует только асинхронный
 `litellm.acompletion(..., stream=True)`. Он переводит доменные сообщения и
-определения инструментов в Chat Completions format, немедленно передаёт
-текстовые fragments и собирает фрагментированные function calls по их
-`index` в доменные `ToolCall`. Повторяющиеся `id`, пустые `id` или имя и
-аргументы, не являющиеся JSON-объектом, делают ответ некорректным. Фрагменты
-`reasoning_content` ответа с вызовами собираются отдельно и возвращаются модели
-полем `reasoning_content` сообщения ассистента: модели в режиме рассуждений
-(например, DeepSeek) без этого отвечают `400`. Рассуждения финального ответа
-отбрасываются. Инструменты LiteLLM не выполняет: это остаётся ответственностью
-agent loop. Один экземпляр адаптера не хранит состояние между запросами и может
-конкурентно обслуживать независимые диалоги.
+определения инструментов в Chat Completions format, передаёт `temperature`,
+`max_tokens` и для DeepSeek — `thinking`, немедленно передаёт текстовые
+fragments и собирает фрагментированные function calls по их `index` в доменные
+`ToolCall`. При включённом thinking к явно заданному `max_tokens` добавляется
+резерв `3000` токенов на скрытые рассуждения. Повторяющиеся `id`, пустые `id`
+или имя и аргументы, не являющиеся JSON-объектом, делают ответ некорректным.
+Фрагменты `reasoning_content` ответа с вызовами собираются отдельно и
+возвращаются модели полем `reasoning_content` сообщения ассистента: модели в
+режиме рассуждений (например, DeepSeek) без этого отвечают `400`. Рассуждения
+финального ответа отбрасываются. Инструменты LiteLLM не выполняет: это остаётся
+ответственностью agent loop. Один экземпляр адаптера не хранит состояние между
+запросами и может конкурентно обслуживать независимые диалоги.
 
 Некорректная структура внешнего ответа, невалидные JSON-аргументы tool call и
 ошибки внешнего сервиса преобразуются в безопасную `LLMProviderError`.
@@ -175,9 +184,9 @@ LiteLLM-адаптер отдельно журналирует начало, з�
 - [спецификация streaming и SSE](../specs/changes/agent-sse-test-ui/spec.md);
 - [план streaming и SSE](../specs/changes/agent-sse-test-ui/plan.md);
 - [результат проверки streaming и SSE](../specs/changes/agent-sse-test-ui/verification.md);
-- [спецификация `get_context`](../specs/changes/get-context-example/spec.md);
-- [план `get_context`](../specs/changes/get-context-example/plan.md);
-- [результат проверки `get_context`](../specs/changes/get-context-example/verification.md);
 - [спецификация нескольких вызовов в одном ответе](../specs/changes/agent-multiple-tool-calls/spec.md);
 - [план нескольких вызовов в одном ответе](../specs/changes/agent-multiple-tool-calls/plan.md);
-- [результат проверки нескольких вызовов в одном ответе](../specs/changes/agent-multiple-tool-calls/verification.md).
+- [результат проверки нескольких вызовов в одном ответе](../specs/changes/agent-multiple-tool-calls/verification.md);
+- [спецификация улучшения агента](../specs/changes/agent-improving/spec.md);
+- [план улучшения агента](../specs/changes/agent-improving/plan.md);
+- [результат проверки улучшения агента](../specs/changes/agent-improving/verification.md).

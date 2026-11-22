@@ -76,8 +76,8 @@ ASGI-entrypoint выполняет `create_application(load_config())`: один
 [`agent/prompts/system.md`](../backend/src/smeshariki_ai/agent/prompts/system.md),
 читается через `importlib.resources` независимо от текущей рабочей директории и
 передаётся в `AgentConfig.system_prompt`. Пустой, отсутствующий или нечитаемый
-resource завершает старт контролируемой ошибкой. Переменная
-`AGENT_SYSTEM_PROMPT` не поддерживается и не переопределяет этот текст.
+resource завершает старт контролируемой ошибкой. Промпт не переопределяется
+через environment: единственный источник — этот resource.
 
 | Переменная | Подконфиг и поле | Обязательность / default |
 | --- | --- | --- |
@@ -87,6 +87,8 @@ resource завершает старт контролируемой ошибко
 | `LLM_BASE_URL` | `llm.base_url` | `None`; при наличии HTTP(S) URL |
 | `LLM_TIMEOUT_SECONDS` | `llm.timeout_seconds` | `60`, число больше нуля |
 | `LLM_NUM_RETRIES` | `llm.num_retries` | `0`, целое число не меньше нуля |
+| `LLM_TEMPERATURE` | `llm.temperature` | `0.8`, число от `0` до `2` включительно |
+| `LLM_THINKING` | `llm.thinking` | `false`; для DeepSeek-модели включает скрытые рассуждения, для остальных моделей `true` отклоняется |
 | `LOG_LEVEL` | `logging.level` | `INFO`; `DEBUG`, `INFO`, `WARNING` или `ERROR` |
 | `LOG_FORMAT` | `logging.format` | `human`; `human` или `json` |
 | `AUTH_JWT_SECRET` | `auth.jwt_secret` | Обязательный секрет HS256 не короче 32 байт; значение с префиксом `replace-with-` отклоняется. В `docker/.env.example` пустой, ошибка не раскрывает значение |
@@ -116,7 +118,7 @@ backend. Python-код не читает `.env` как файл и не испо
   настройки runtime агента. Текст production-промпта принадлежит тому же
   пакету, но загружается внешним config loader до создания runtime.
 - `LiteLLMProviderConfig` принадлежит `agent.providers` и определяет только
-  настройки адаптера LiteLLM.
+  настройки адаптера LiteLLM, включая температуру и режим thinking.
 - `LoggingConfig` принадлежит модулю `observability`; формат и поля описаны
   на [странице логирования](./logging.md).
 - `AuthConfig` (с вложенной `RateLimitConfig`) принадлежит пакету

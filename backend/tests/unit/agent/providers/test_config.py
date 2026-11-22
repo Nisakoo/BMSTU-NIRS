@@ -12,6 +12,8 @@ def test_litellm_provider_config_uses_safe_defaults() -> None:
     assert config.base_url is None
     assert config.timeout_seconds == 60
     assert config.num_retries == 0
+    assert config.temperature == 0.8
+    assert config.thinking is False
 
 
 def test_litellm_provider_config_accepts_connection_settings() -> None:
@@ -28,6 +30,8 @@ def test_litellm_provider_config_accepts_connection_settings() -> None:
     assert str(config.base_url) == "https://llm.example.test/v1"
     assert config.timeout_seconds == 12.5
     assert config.num_retries == 2
+    assert config.temperature == 0.8
+    assert config.thinking is False
     assert "private-api-key" not in repr(config)
     assert "private-api-key" not in str(config)
 
@@ -42,6 +46,10 @@ def test_litellm_provider_config_accepts_connection_settings() -> None:
         {"model": "test/model", "timeout_seconds": 0},
         {"model": "test/model", "num_retries": -1},
         {"model": "test/model", "unknown": "value"},
+        {"model": "test/model", "temperature": -0.1},
+        {"model": "test/model", "temperature": 2.1},
+        {"model": "test/model", "thinking": "not-a-bool"},
+        {"model": "openai/test-model", "thinking": True},
     ],
     ids=[
         "missing-model",
@@ -51,6 +59,10 @@ def test_litellm_provider_config_accepts_connection_settings() -> None:
         "non-positive-timeout",
         "negative-retries",
         "extra-field",
+        "temperature-below-range",
+        "temperature-above-range",
+        "invalid-thinking",
+        "thinking-requires-deepseek",
     ],
 )
 def test_litellm_provider_config_rejects_invalid_values(
@@ -58,6 +70,17 @@ def test_litellm_provider_config_rejects_invalid_values(
 ) -> None:
     with pytest.raises(ValidationError):
         LiteLLMProviderConfig.model_validate(values)
+
+
+def test_litellm_provider_config_accepts_generation_settings() -> None:
+    config = LiteLLMProviderConfig(
+        model="deepseek/deepseek-flash",
+        temperature=1.2,
+        thinking=True,
+    )
+
+    assert config.temperature == 1.2
+    assert config.thinking is True
 
 
 def test_litellm_provider_config_is_frozen() -> None:

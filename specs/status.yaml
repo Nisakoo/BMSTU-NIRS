@@ -167,3 +167,5 @@ specs:
       status: done
     - name: agent-multiple-tool-calls
       status: done
+    - name: agent-improving
+      status: done

@@ -48,6 +48,7 @@ class Agent:
     ) -> AsyncIterator[AgentStreamEvent]:
         started_at = utc_now()
         started = time.monotonic()
+        max_tokens = STORY_MAX_TOKENS.get(request.reading_minutes)
         log_event(
             logger,
             logging.INFO,
@@ -71,7 +72,9 @@ class Agent:
                 llm_response: LLMResponse | None = None
                 content_parts: list[str] = []
                 async for event in self._llm_provider.stream(
-                    tuple(context), self._tool_registry.definitions
+                    tuple(context),
+                    self._tool_registry.definitions,
+                    max_tokens=max_tokens,
                 ):
                     if isinstance(event, LLMTextDelta):
                         if llm_response is not None:
@@ -252,6 +255,7 @@ class Agent:
 
 
 WORDS_PER_MINUTE = 150
+STORY_MAX_TOKENS = {2: 1200, 5: 3000, 10: 6000}
 
 
 def _length_instruction(request: UserRequest) -> tuple[Message, ...]:

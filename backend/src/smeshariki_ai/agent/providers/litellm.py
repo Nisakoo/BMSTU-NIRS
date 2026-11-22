@@ -27,6 +27,8 @@ from smeshariki_ai.observability import bind_context, log_event, utc_now
 
 logger = logging.getLogger(__name__)
 
+THINKING_MAX_TOKENS_RESERVE = 3000
+
 
 @dataclass
 class _ToolCallParts:
@@ -62,6 +64,7 @@ class LiteLLMProvider(LLMProvider):
         self,
         messages: Sequence[Message],
         tools: Sequence[ToolDefinition],
+        max_tokens: int | None = None,
     ) -> AsyncIterator[LLMStreamEvent]:
         started_at = utc_now()
         started = time.monotonic()
@@ -77,7 +80,7 @@ class LiteLLMProvider(LLMProvider):
         with bind_context(call_id=call_id):
             log_event(logger, logging.INFO, "llm.request.started", **common)
             try:
-                request = self._build_request(messages, tools)
+                request = self._build_request(messages, tools, max_tokens)
                 stage = "request"
                 response_stream = await litellm_sdk.acompletion(**request)
                 stage = "response"
@@ -214,6 +217,7 @@ class LiteLLMProvider(LLMProvider):
         self,
         messages: Sequence[Message],
         tools: Sequence[ToolDefinition],
+        max_tokens: int | None,
     ) -> dict[str, Any]:
         request: dict[str, Any] = {
             "model": self._config.model,
@@ -222,7 +226,14 @@ class LiteLLMProvider(LLMProvider):
             "stream_options": {"include_usage": True},
             "timeout": self._config.timeout_seconds,
             "num_retries": self._config.num_retries,
+            "temperature": self._config.temperature,
         }
+        if max_tokens is not None:
+            request["max_tokens"] = self._request_max_tokens(max_tokens)
+        if self._config.model.startswith("deepseek/"):
+            request["thinking"] = {
+                "type": "enabled" if self._config.thinking else "disabled"
+            }
         if self._config.api_key is not None:
             request["api_key"] = self._config.api_key.get_secret_value()
         if self._config.base_url is not None:
@@ -230,6 +241,11 @@ class LiteLLMProvider(LLMProvider):
         if tools:
             request["tools"] = [self._map_tool(tool) for tool in tools]
         return request
+
+    def _request_max_tokens(self, max_tokens: int) -> int:
+        if self._config.thinking:
+            return max_tokens + THINKING_MAX_TOKENS_RESERVE
+        return max_tokens
 
     @staticmethod
     def _map_message(message: Message) -> dict[str, Any]:

@@ -126,11 +126,11 @@ def test_load_config_uses_versioned_system_prompt(
     assert config.agent.system_prompt == "Versioned prompt"
 
 
-def test_load_config_does_not_override_system_prompt_from_environment() -> None:
+def test_load_config_ignores_unsupported_environment_values() -> None:
     config = load_config(
         {
             **BASE_ENV,
-            "AGENT_SYSTEM_PROMPT": "Untracked deployment prompt",
+            "UNSUPPORTED_AGENT_PROMPT": "Untracked deployment prompt",
             "LLM_MODEL": "test/model",
         }
     )
@@ -148,6 +148,20 @@ def test_load_config_propagates_system_prompt_resource_error(
 
     with pytest.raises(SystemPromptResourceError):
         load_config({**BASE_ENV, "LLM_MODEL": "test/model"})
+
+
+def test_load_config_reads_generation_options() -> None:
+    config = load_config(
+        {
+            **BASE_ENV,
+            "LLM_MODEL": "deepseek/deepseek-flash",
+            "LLM_TEMPERATURE": "1.1",
+            "LLM_THINKING": "true",
+        }
+    )
+
+    assert config.llm.temperature == 1.1
+    assert config.llm.thinking is True
 
 
 def test_load_config_normalizes_blank_optional_provider_values() -> None:
@@ -172,6 +186,10 @@ def test_load_config_normalizes_blank_optional_provider_values() -> None:
         {**BASE_ENV, "LLM_MODEL": "test/model", "LLM_BASE_URL": "not-a-url"},
         {**BASE_ENV, "LLM_MODEL": "test/model", "LLM_TIMEOUT_SECONDS": "0"},
         {**BASE_ENV, "LLM_MODEL": "test/model", "LLM_NUM_RETRIES": "-1"},
+        {**BASE_ENV, "LLM_MODEL": "test/model", "LLM_TEMPERATURE": "2.1"},
+        {**BASE_ENV, "LLM_MODEL": "test/model", "LLM_TEMPERATURE": "-0.1"},
+        {**BASE_ENV, "LLM_MODEL": "test/model", "LLM_THINKING": "maybe"},
+        {**BASE_ENV, "LLM_MODEL": "openai/test-model", "LLM_THINKING": "true"},
     ],
     ids=[
         "missing-model",
@@ -179,6 +197,10 @@ def test_load_config_normalizes_blank_optional_provider_values() -> None:
         "invalid-base-url",
         "invalid-timeout",
         "invalid-retries",
+        "temperature-above-range",
+        "temperature-below-range",
+        "invalid-thinking",
+        "thinking-requires-deepseek",
     ],
 )
 def test_load_config_rejects_invalid_environment(

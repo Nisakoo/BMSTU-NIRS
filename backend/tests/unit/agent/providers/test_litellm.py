@@ -65,8 +65,11 @@ async def collect_events(
     provider: LiteLLMProvider,
     messages: tuple[Message, ...] = (),
     tools: tuple[ToolDefinition, ...] = (),
+    max_tokens: int | None = None,
 ) -> list[LLMTextDelta | LLMResponse]:
-    return [event async for event in provider.stream(messages, tools)]
+    return [
+        event async for event in provider.stream(messages, tools, max_tokens=max_tokens)
+    ]
 
 
 @pytest.mark.asyncio
@@ -98,6 +101,7 @@ async def test_stream_awaits_acompletion_with_provider_config(
         stream_options={"include_usage": True},
         timeout=12.5,
         num_retries=2,
+        temperature=0.8,
         api_key="private-api-key",
         base_url="https://llm.example.test/v1",
     )
@@ -499,7 +503,7 @@ async def test_stream_assembles_several_interleaved_tool_calls_in_index_order(
                 None,
                 tool_calls=[
                     tool_fragment(0, arguments='me":"Крош"}'),
-                    tool_fragment(2, call_id="call-c", name="get_context"),
+                    tool_fragment(2, call_id="call-c", name="third_tool"),
                 ],
             ),
             make_chunk(None, tool_calls=[tool_fragment(2, arguments="{}")]),
@@ -521,7 +525,7 @@ async def test_stream_assembles_several_interleaved_tool_calls_in_index_order(
                 ToolCall(
                     id="call-b", name="lookup_knowledge", arguments={"name": "Ёжик"}
                 ),
-                ToolCall(id="call-c", name="get_context", arguments={}),
+                ToolCall(id="call-c", name="third_tool", arguments={}),
             )
         )
     ]
@@ -855,3 +859,83 @@ async def test_one_provider_allows_independent_calls_to_progress_concurrently(
     release_first.set()
     first_events = await asyncio.wait_for(first_task, timeout=0.1)
     assert first_events[-1] == LLMResponse(content="answer:first")
+
+
+@pytest.mark.asyncio
+async def test_stream_passes_temperature_and_max_tokens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    completion = AsyncMock(return_value=make_response())
+    monkeypatch.setattr(provider_module.litellm_sdk, "acompletion", completion)
+    provider = LiteLLMProvider(
+        LiteLLMProviderConfig(model="openai/test-model", temperature=0.6)
+    )
+
+    await collect_events(provider, max_tokens=1200)
+
+    sent = completion.await_args.kwargs
+    assert sent["temperature"] == 0.6
+    assert sent["max_tokens"] == 1200
+    assert "thinking" not in sent
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("thinking", "expected"),
+    [(False, "disabled"), (True, "enabled")],
+)
+async def test_stream_passes_deepseek_thinking_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    thinking: bool,
+    expected: str,
+) -> None:
+    completion = AsyncMock(return_value=make_response())
+    monkeypatch.setattr(provider_module.litellm_sdk, "acompletion", completion)
+    provider = LiteLLMProvider(
+        LiteLLMProviderConfig(
+            model="deepseek/deepseek-flash",
+            thinking=thinking,
+        )
+    )
+
+    await collect_events(provider)
+
+    assert completion.await_args.kwargs["thinking"] == {"type": expected}
+
+
+@pytest.mark.asyncio
+async def test_stream_adds_thinking_reserve_to_explicit_max_tokens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    completion = AsyncMock(return_value=make_response())
+    monkeypatch.setattr(provider_module.litellm_sdk, "acompletion", completion)
+    provider = LiteLLMProvider(
+        LiteLLMProviderConfig(
+            model="deepseek/deepseek-flash",
+            thinking=True,
+        )
+    )
+
+    await collect_events(provider, max_tokens=1200)
+
+    assert completion.await_args.kwargs["max_tokens"] == (
+        1200 + provider_module.THINKING_MAX_TOKENS_RESERVE
+    )
+
+
+@pytest.mark.asyncio
+async def test_stream_omits_max_tokens_when_not_requested(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    completion = AsyncMock(return_value=make_response())
+    monkeypatch.setattr(provider_module.litellm_sdk, "acompletion", completion)
+    provider = LiteLLMProvider(
+        LiteLLMProviderConfig(
+            model="deepseek/deepseek-flash",
+            thinking=True,
+        )
+    )
+
+    await collect_events(provider)
+
+    assert "max_tokens" not in completion.await_args.kwargs

@@ -46,8 +46,11 @@ Caddy получает в ней фиксированный адрес `172.31.2
 
 Backend использует LiteLLM Python SDK внутри своего процесса. `LLM_MODEL`
 обязателен. Таймаут одного запроса задаётся `LLM_TIMEOUT_SECONDS` (по умолчанию
-60 секунд), а число повторов — `LLM_NUM_RETRIES` (по умолчанию 0). Отдельный
-LiteLLM Proxy не запускается.
+60 секунд), число повторов — `LLM_NUM_RETRIES` (по умолчанию 0), температура —
+`LLM_TEMPERATURE` (`0…2`, по умолчанию `0.8`). `LLM_THINKING` включает скрытые
+рассуждения DeepSeek; по умолчанию `false`. Для не-DeepSeek модели
+`LLM_THINKING=true` отклоняется при старте. Отдельный LiteLLM Proxy не
+запускается.
 
 `LOG_LEVEL` задаёт уровень журнала backend (`DEBUG`, `INFO`, `WARNING`,
 `ERROR`), `LOG_FORMAT` выбирает читаемый формат `human` либо построчный `json`.

@@ -101,8 +101,11 @@
    выполняются последовательно, не более `max_tool_calls_per_response`
    (по умолчанию 4) за ответ, остальные получают ошибку
    `tool_call_limit_exceeded`. По умолчанию не более четырёх итераций; пустая
-   строка является корректным финальным ответом.
-   Спецификация: `specs/changes/agent-multiple-tool-calls/`.
+   строка является корректным финальным ответом. Для выбранной в UI
+   длительности `Agent` передаёт `max_tokens`: 2 минуты — 1200, 5 — 3000, 10 —
+   6000; без длительности лимит не передаётся.
+   Спецификации: `specs/changes/agent-multiple-tool-calls/`,
+   `specs/changes/agent-improving/`.
 3. Интеграция с моделью определяется внутренним асинхронным контрактом
    `LLMProvider`. Контракт, `FakeLLMProvider`, `LiteLLMProvider` и связанные с
    провайдерами типы находятся в отдельном подмодуле `agent.providers`; типы
@@ -122,8 +125,10 @@
    отдельного запроса.
 7. `LiteLLMProvider` переводит доменные сообщения, function tools и tool results
    в Chat Completions format, вызывает `litellm.acompletion(..., stream=True)`,
-   передаёт текстовые фрагменты и собирает фрагментированные tool calls в
-   доменный `LLMResponse` по их `index`. Рассуждения модели
+   передаёт `temperature`, `max_tokens` и для DeepSeek — `thinking`, затем
+   текстовые фрагменты и собирает фрагментированные tool calls в доменный
+   `LLMResponse` по их `index`. При включённом thinking к явно заданному
+   `max_tokens` добавляется резерв 3000 токенов. Рассуждения модели
    (`reasoning_content`) ответа с вызовами возвращаются ей в сообщении
    ассистента с этими вызовами; пользователю, в историю и в журнал они не
    попадают. Инструменты исполняются только `Agent` через
@@ -158,9 +163,13 @@
    чего значения поступают backend через process environment.
 6. Production-системный промпт хранится в
    `smeshariki_ai/agent/prompts/system.md`, загружается `load_config` как
-   package resource и передаётся агенту через `AgentConfig`. Переменная
-   `AGENT_SYSTEM_PROMPT` не поддерживается; runtime агента не читает resource
-   или environment самостоятельно.
+   package resource и передаётся агенту через `AgentConfig`. Промпт требует
+   русский plain-text ответ без Markdown и служебных пометок; runtime агента не
+   читает resource или environment самостоятельно.
+7. `LLM_TEMPERATURE` (`0…2`, по умолчанию `0.8`) и `LLM_THINKING` (по
+   умолчанию `false`) читаются только `load_config` и передаются
+   `LiteLLMProviderConfig`. Thinking разрешён только для DeepSeek-моделей; для
+   остальных моделей `true` отклоняется при загрузке конфигурации.
 
 ## Реализованное логирование backend
 
@@ -229,9 +238,9 @@
     (`messages`, `feedback`, `report`, `reports/news/seen`) с `Content-Type`,
     отличным от `application/json`, и не использует cookie для выбора диалога.
     Bootstrap собирает приложение с настроенным `LiteLLMProvider`,
-    `ToolRegistry` (`get_context` и `lookup_knowledge`),
-    `PostgresHistoryStore` и `InMemoryDialogEventBroker`; fake-провайдер
-    применяется только как явная тестовая зависимость.
+    `ToolRegistry` (только `lookup_knowledge`), `PostgresHistoryStore` и
+    `InMemoryDialogEventBroker`; fake-провайдер применяется только как явная
+    тестовая зависимость.
 12. Диалог принадлежит создателю: `AgentService` и `HistoryStore` получают
     `user_id` во всех операциях диалога. Для чужого диалога (в том числе для
     `admin`) все ручки диалога отвечают `404 Dialog not found.`, как для
@@ -452,10 +461,9 @@
    `found`/`not_found`/`unavailable`, до 10 карточек с именами вместо slug и
    без `sources` и отдельное поле `suggestions`. Чтение —
    `REPEATABLE READ READ ONLY` без advisory lock загрузки; ошибки хранилища
-   дают `unavailable`. Bootstrap
-   регистрирует инструмент рядом с `get_context`: production —
-   `PostgresKnowledgeStore` на общем engine, без него — пустой
-   `InMemoryKnowledgeStore`. Спецификация:
+   дают `unavailable`. Bootstrap регистрирует `lookup_knowledge` как
+   единственный production-инструмент: production — `PostgresKnowledgeStore`
+   на общем engine, без него — пустой `InMemoryKnowledgeStore`. Спецификация:
    `specs/changes/knowledge-lookup-tool/`.
 10. `python -m smeshariki_ai.rag export <path>` выгружает знания в обычный
     пакет в read-only снимке; `delete <type>/<id>...` по умолчанию делает

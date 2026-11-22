@@ -22,6 +22,7 @@ class LLMProvider(ABC):
         self,
         messages: Sequence[Message],
         tools: Sequence[ToolDefinition],
+        max_tokens: int | None = None,
     ) -> AsyncIterator[LLMStreamEvent]:
         """Yield text deltas followed by one terminal model response."""
 
@@ -31,5 +32,6 @@ class FakeLLMProvider(LLMProvider):
         self,
         messages: Sequence[Message],
         tools: Sequence[ToolDefinition],
+        max_tokens: int | None = None,
     ) -> AsyncIterator[LLMStreamEvent]:
         yield LLMResponse(content="")
