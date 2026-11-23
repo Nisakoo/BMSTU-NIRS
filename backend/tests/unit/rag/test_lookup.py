@@ -173,6 +173,7 @@ async def test_character_card_shows_names_instead_of_slugs(
                         "continuities": ["Классический сериал", "Фильмы"],
                         "age_group": "adult",
                         "traits": ["изобретательный", "немногословный"],
+                        "interests": [],
                         "speech_style": {
                             "register": "короткие фразы",
                             "markers": ["акцент"],
@@ -192,6 +193,28 @@ async def test_character_card_shows_names_instead_of_slugs(
             }
         ],
     }
+
+
+async def test_character_fields_narrow_the_card(
+    store: InMemoryKnowledgeStore,
+) -> None:
+    result = await KnowledgeLookup(store).lookup("Пин", ("speech",))
+
+    assert result.status == "found"
+    [card] = result.matches
+    assert card.versions[0].speech_style.register_ == "короткие фразы"
+    assert card.versions[0].traits == ()
+    assert card.versions[0].interests == ()
+    assert card.relationships == ()
+
+
+async def test_character_fields_are_optional(
+    store: InMemoryKnowledgeStore,
+) -> None:
+    full = await KnowledgeLookup(store).lookup("Пин")
+
+    [full_card] = full.matches
+    assert full_card.versions[0].speech_style.register_ == "короткие фразы"
 
 
 async def test_location_and_artifact_cards(store: InMemoryKnowledgeStore) -> None:

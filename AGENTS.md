@@ -469,36 +469,44 @@
    `InMemoryKnowledgeStore`. Спецификация:
    `specs/changes/knowledge-lookup-tool/`.
 10. Компактный `get_story_canon` (`rag/story_canon.py`, `rag/tools.py`) —
-    read model поверх `KnowledgeReader`: возраст, характер, речь, фразы и
-    отношения `to/type`, без свободных описаний, источников, локаций и
-    артефактов. Трейты, в которых назван артефакт или локация, отбрасываются
-    по каноническим именам: «коллекционирует фантики» не попадает в профиль.
-    Используется для сказки; `lookup_knowledge` остаётся для фактических
-    вопросов. Схема БД не меняется. Спецификации:
-    `specs/changes/story-canon/`, `specs/changes/lore-context-precision/`.
+    voice card поверх `KnowledgeReader`: возраст, характер, речь, фразы,
+    примеры реплик, «так не говорит», роль в сюжете, динамики и отношения
+    `to/type`, без свободных описаний, источников, локаций, артефактов и
+    интересов. Интересы и предметы остаются в полном каноне и
+    `lookup_knowledge`; трейты, в которых назван артефакт или локация, всё
+    равно отбрасываются. Схема БД расширена миграцией `0016`
+    (`voice_story_role`, `voice_examples`, `voice_never_says`,
+    `rag_character_dynamics`, `interests`). Спецификации:
+    `story-canon`, `character-voice-card`, `lore-context-precision`.
 11. Инструмент агента `search_lore` (`rag/lore/tools.py`) использует
     `SearchLore` (`rag/lore/services.py`) и `LoreContextBuilder`
     (`rag/lore/context.py`). BM25-поиск по YAML-пакетам лора, PostgreSQL-индекс
     `rag_lore_*` и in-memory адаптер реализованы в `lore-bm25-core`; инструмент
     отдаёт не более 3 фрагментов, один на документ, до 1600 символов и без
     score/id. Абсолютный `min_score` и требование содержательного терма
-    отсекают слабые совпадения и запросы из одних имён; события
-    `lore.search.completed` и `lore.tool.completed` показывают top-score и
-    размер контекста. Спецификации: `lore-search-tool`,
-    `lore-context-precision`, `lore-tool-observability`.
+    отсекают слабые совпадения и запросы из одних имён. Режим `mode`
+    (`any`/`style`/`plot`/`facts`) фильтрует документы по тегам `tags`;
+    события `lore.search.completed` и `lore.tool.completed` показывают
+    top-score и размер контекста. Спецификации: `lore-search-tool`,
+    `lore-context-precision`, `lore-tool-observability`, `lore-style-search`.
 12. Benchmark лора (`rag/lore/benchmark.py`, `benchmark_llm.py`) работает
     офлайн: 30 документов, 10 обычных вопросов и 5 ловушек; считает
     `Recall@k`, `MRR`, `Accuracy` и `Correct Rejection Rate`. Ответы можно
     передать JSON (`--answers`) или получить через LLM; БД не требуется.
     Синтетический набор лежит в тестах, реальный — в игнорируемом
-    `data/lore-benchmark/`; контрольный прогон на реальном корпусе:
-    `Recall@5 1.000`, `MRR@5 0.950`. Спецификации:
-    `specs/changes/lore-benchmark/`, `specs/changes/rag-real-corpus/`.
-13. Структурированный канон содержит 84 эпизода (32 исходных и 52 новых
+    `data/lore-benchmark/`. Честный golden set — в `data/lore-golden/`:
+    полный корпус 84 документа, 20 обычных вопросов и 10 ловушек;
+    контрольный прогон: `Recall@5 0.450`, `MRR@5 0.637`. Спецификации:
+    `lore-benchmark`, `rag-real-corpus`, `lore-golden-set`.
+13. `lookup_knowledge` остаётся точным фактическим инструментом, но принимает
+    необязательный `fields` (`speech`, `traits`, `relationships`), чтобы
+    сказка запрашивала факт под сцену, а не всю карточку героя. Спецификация:
+    `lookup-scene-fields`.
+14. Структурированный канон содержит 84 эпизода (32 исходных и 52 новых
     сценария из второго плейлиста), персонажи новых эпизодов проставлены
     только по фактическим упоминаниям в тексте. Спецификация:
-    `specs/changes/rag-real-corpus/`.
-14. `python -m smeshariki_ai.rag export <path>` выгружает знания в обычный
+    `rag-real-corpus`.
+15. `python -m smeshariki_ai.rag export <path>` выгружает знания в обычный
     пакет в read-only снимке; `delete <type>/<id>...` по умолчанию делает
     dry-run, а с `--apply` удаляет в одной транзакции после проверки ссылок и
     пишет ревизию `delete`; `restore <type>/<id>` выбирает последнюю или

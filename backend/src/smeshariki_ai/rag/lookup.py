@@ -50,6 +50,7 @@ UNAVAILABLE_MESSAGE = (
 )
 
 LookupStatus = Literal["found", "not_found", "unavailable"]
+LookupField = Literal["speech", "traits", "relationships"]
 
 
 class SpeechStyleCard(KnowledgeModel):
@@ -63,6 +64,7 @@ class CharacterVersionCard(KnowledgeModel):
     continuities: tuple[str, ...]
     age_group: AgeGroup
     traits: tuple[str, ...]
+    interests: tuple[str, ...]
     speech_style: SpeechStyleCard
     catchphrases: tuple[str, ...]
 
@@ -148,10 +150,18 @@ class LookupResult(KnowledgeModel):
 class _Cards:
     """Builds the cards of found entities, showing references by name."""
 
-    def __init__(self, found: FoundKnowledge) -> None:
+    def __init__(
+        self,
+        found: FoundKnowledge,
+        fields: tuple[LookupField, ...] | None = None,
+    ) -> None:
         self._found = found
         self._names = found.names
         self._works = {work.id: work for work in found.entities.works}
+        self._fields = None if not fields else frozenset(fields)
+
+    def _wants(self, field: LookupField) -> bool:
+        return self._fields is None or field in self._fields
 
     def _name(self, kind: EntityType, entity_id: str) -> str:
         # A missing name falls back to the slug rather than failing the lookup.
@@ -164,6 +174,9 @@ class _Cards:
         return self._all(EntityType.CONTINUITY, ids)
 
     def character(self, character: Character) -> CharacterCard:
+        speech = self._wants("speech")
+        traits = self._wants("traits")
+        relationships = self._wants("relationships")
         return CharacterCard(
             id=character.id,
             name=character.name,
@@ -173,26 +186,35 @@ class _Cards:
                 CharacterVersionCard(
                     continuities=self._continuities(version.continuities),
                     age_group=version.age_group,
-                    traits=version.traits,
+                    traits=version.traits if traits else (),
+                    interests=version.interests if traits else (),
                     speech_style=SpeechStyleCard.model_validate(
                         {
-                            "register": version.speech_style.register_,
-                            "markers": version.speech_style.markers,
-                            "constraints": version.speech_style.constraints,
+                            "register": (
+                                version.speech_style.register_ if speech else ""
+                            ),
+                            "markers": (version.speech_style.markers if speech else ()),
+                            "constraints": (
+                                version.speech_style.constraints if speech else ()
+                            ),
                         }
                     ),
-                    catchphrases=version.catchphrases,
+                    catchphrases=version.catchphrases if speech else (),
                 )
                 for version in character.versions
             ),
-            relationships=tuple(
-                RelationshipCard(
-                    to=self._name(EntityType.CHARACTER, relationship.to),
-                    type=relationship.type,
-                    continuities=self._continuities(relationship.continuities),
-                    description=relationship.description,
+            relationships=(
+                tuple(
+                    RelationshipCard(
+                        to=self._name(EntityType.CHARACTER, relationship.to),
+                        type=relationship.type,
+                        continuities=self._continuities(relationship.continuities),
+                        description=relationship.description,
+                    )
+                    for relationship in character.relationships
                 )
-                for relationship in character.relationships
+                if relationships
+                else ()
             ),
         )
 
@@ -270,12 +292,16 @@ class KnowledgeLookup:
         self._limit = limit
         self._suggestion_limit = suggestion_limit
 
-    async def lookup(self, name: str) -> LookupResult:
+    async def lookup(
+        self,
+        name: str,
+        fields: tuple[LookupField, ...] | None = None,
+    ) -> LookupResult:
         started_at = utc_now()
         started = time.monotonic()
         error_type = reason = None
         try:
-            result = await self._lookup(normalize_name(name))
+            result = await self._lookup(normalize_name(name), fields)
         except KnowledgeStoreError as error:
             error_type = type(error).__name__
             result = _unavailable()
@@ -296,9 +322,13 @@ class KnowledgeLookup:
         )
         return result
 
-    async def _lookup(self, key: str) -> LookupResult:
+    async def _lookup(
+        self,
+        key: str,
+        fields: tuple[LookupField, ...] | None = None,
+    ) -> LookupResult:
         found = await self._reader.find(key)
-        cards = _Cards(found).all()
+        cards = _Cards(found, fields).all()
         if cards:
             return LookupResult(
                 status="found",

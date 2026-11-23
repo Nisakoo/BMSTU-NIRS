@@ -187,3 +187,11 @@ specs:
       status: done
     - name: rag-real-corpus
       status: done
+    - name: character-voice-card
+      status: done
+    - name: lore-style-search
+      status: done
+    - name: lookup-scene-fields
+      status: done
+    - name: lore-golden-set
+      status: done

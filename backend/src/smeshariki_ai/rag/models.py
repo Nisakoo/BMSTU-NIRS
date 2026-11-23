@@ -169,12 +169,31 @@ class SpeechStyle(KnowledgeModel):
     constraints: TextList = ()
 
 
+class StoryDynamic(KnowledgeModel):
+    """A stable pattern of interaction with another character."""
+
+    with_: Slug = Field(alias="with")
+    pattern: NonEmptyText
+    sources: SourceList = ()
+
+
+class CharacterVoice(KnowledgeModel):
+    """How a character sounds and behaves in a story, not a plot summary."""
+
+    examples: TextList = ()
+    never_says: TextList = ()
+    story_role: NonEmptyText | None = None
+    dynamics: Annotated[tuple[StoryDynamic, ...], *_UNIQUE] = ()
+
+
 class CharacterVersion(KnowledgeModel):
     continuities: NonEmptySlugList
     age_group: AgeGroup = Field(strict=False)
     traits: NonEmptyTextList
+    interests: TextList = ()
     speech_style: SpeechStyle
     catchphrases: TextList = ()
+    voice: CharacterVoice | None = None
     sources: SourceList = ()
 
 
@@ -297,6 +316,10 @@ def references_of(knowledge: KnowledgeSet) -> dict[EntityType, set[str]]:
     for character in knowledge.characters:
         for version in character.versions:
             refs[EntityType.CONTINUITY].update(version.continuities)
+            if version.voice is not None:
+                refs[EntityType.CHARACTER].update(
+                    dynamic.with_ for dynamic in version.voice.dynamics
+                )
         for relationship in character.relationships:
             refs[EntityType.CHARACTER].add(relationship.to)
             refs[EntityType.CONTINUITY].update(relationship.continuities)

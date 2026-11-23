@@ -43,8 +43,9 @@ class LoreIndex(ABC):
         terms: Sequence[str],
         top_k: int,
         params: Bm25Params,
+        tags: Sequence[str] = (),
     ) -> tuple[LoreHit, ...]:
-        """Return the highest-scoring chunks for already analyzed terms."""
+        """Return the highest-scoring chunks, optionally filtered by tags."""
 
     @abstractmethod
     async def version(self) -> int:

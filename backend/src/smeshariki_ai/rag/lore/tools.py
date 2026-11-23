@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Annotated, Any, ClassVar
+from typing import Annotated, Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, StringConstraints
 
@@ -22,6 +22,14 @@ UNAVAILABLE_MESSAGE = (
     "придуманные факты за канонические."
 )
 
+LoreMode = Literal["any", "style", "plot", "facts"]
+_MODE_TAGS: dict[str, tuple[str, ...]] = {
+    "any": (),
+    "style": ("style", "dialogue"),
+    "plot": ("plot",),
+    "facts": ("facts",),
+}
+
 
 class SearchLoreArguments(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -29,6 +37,7 @@ class SearchLoreArguments(BaseModel):
     query: Annotated[
         str, StringConstraints(strip_whitespace=True, min_length=1, max_length=300)
     ]
+    mode: LoreMode = "any"
 
 
 class SearchLoreTool(Tool):
@@ -36,12 +45,15 @@ class SearchLoreTool(Tool):
     description: ClassVar[str] = (
         "Search narrative Smeshariki lore: scenes, episode summaries and story "
         "patterns. Use it at most once per story, only when the user's premise "
-        "needs a canon detail or the tone of the original. Treat the passages "
-        "as reference material, not as a plot to copy: do not retell them, do "
-        "not enumerate facts, locations, items or relationships, and do not "
-        "mention sources in the story. Use at most two or three details that "
-        "the premise really needs. If status is empty or unavailable, continue "
-        "with the user's idea and do not present invented facts as canon."
+        "needs a canon detail, a dialogue example or the tone of the original. "
+        "Set mode to style for dialogue and voice examples, to plot for story "
+        "moves, to facts for concrete lore details, or leave any. Treat the "
+        "passages as reference material, not as a plot to copy: do not retell "
+        "them, do not enumerate facts, locations, items or relationships, and "
+        "do not mention sources in the story. Use at most two or three details "
+        "that the premise really needs. If status is empty or unavailable, "
+        "continue with the user's idea and do not present invented facts as "
+        "canon."
     )
     arguments_model: ClassVar[type[BaseModel]] = SearchLoreArguments
 
@@ -60,7 +72,11 @@ class SearchLoreTool(Tool):
         terms = self._search.analyze(arguments.query)
         try:
             result = await self._search.search(
-                LoreQuery(text=arguments.query, top_k=self._context.retrieval_k)
+                LoreQuery(
+                    text=arguments.query,
+                    top_k=self._context.retrieval_k,
+                    tags=_MODE_TAGS[arguments.mode],
+                )
             )
         except LoreStoreError:
             log_event(

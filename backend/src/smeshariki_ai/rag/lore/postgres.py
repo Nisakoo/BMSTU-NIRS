@@ -191,6 +191,7 @@ class PostgresBm25Index(LoreIndex):
         terms: Sequence[str],
         top_k: int,
         params: Bm25Params,
+        tags: Sequence[str] = (),
     ) -> tuple[LoreHit, ...]:
         unique = tuple(dict.fromkeys(term for term in terms if term))
         if not unique or top_k <= 0:
@@ -206,6 +207,7 @@ class PostgresBm25Index(LoreIndex):
                             "top_k": top_k,
                             "k1": params.k1,
                             "b": params.b,
+                            "tags": list(dict.fromkeys(tags)),
                         },
                     )
                 ).mappings()
@@ -348,6 +350,10 @@ def _search_statement() -> Any:
         JOIN rag_lore_chunks c ON c.id = sc.chunk_id
         JOIN rag_lore_documents d ON d.id = c.document_id
         WHERE sc.score > 0
+          AND (
+              cardinality(CAST(:tags AS text[])) = 0
+              OR d.tags && CAST(:tags AS text[])
+          )
         ORDER BY sc.score DESC, c.document_id, c.position
         LIMIT :top_k
         """
@@ -356,4 +362,5 @@ def _search_statement() -> Any:
         bindparam("top_k"),
         bindparam("k1"),
         bindparam("b"),
+        bindparam("tags", type_=ARRAY(Text)),
     )

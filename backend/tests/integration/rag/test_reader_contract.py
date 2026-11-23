@@ -14,6 +14,7 @@ from test_store_contract import save, universe, with_pin_code
 from smeshariki_ai.db import DatabaseConfig, create_engine
 from smeshariki_ai.rag.memory import InMemoryKnowledgeStore
 from smeshariki_ai.rag.models import (
+    Character,
     EntityType,
     Episode,
     KnowledgeSet,
@@ -92,6 +93,44 @@ async def test_prop_names_are_locations_and_artifacts(loaded: Store) -> None:
 
 async def test_empty_store_has_no_prop_names(store: Store) -> None:
     assert await store.prop_names() == ()
+
+
+async def test_voice_interests_and_dynamics_survive_the_store(loaded: Store) -> None:
+    character = Character.model_validate(
+        {
+            "id": "voice_test",
+            "name": "Голос",
+            "species": "тест",
+            "versions": [
+                {
+                    "continuities": ["classic"],
+                    "age_group": "adult",
+                    "traits": ["спокойный"],
+                    "interests": ["коллекционирует фантики"],
+                    "speech_style": {"register": "тихий"},
+                    "voice": {
+                        "examples": ["Привет."],
+                        "never_says": ["Побежали!"],
+                        "story_role": "Голос разума.",
+                        "dynamics": [
+                            {"with": "krosh", "pattern": "Крош тащит, герой упирается."}
+                        ],
+                    },
+                }
+            ],
+        }
+    )
+    await save(loaded, [character])
+
+    found = await loaded.find("voice_test")
+
+    [version] = found.entities.characters[0].versions
+    assert version.interests == ("коллекционирует фантики",)
+    assert version.voice is not None
+    assert version.voice.examples == ("Привет.",)
+    assert version.voice.never_says == ("Побежали!",)
+    assert version.voice.story_role == "Голос разума."
+    assert version.voice.dynamics[0].with_ == "krosh"
 
 
 async def test_names_of_character_references(loaded: Store) -> None:

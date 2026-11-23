@@ -328,10 +328,14 @@ character_versions = Table(
     *_position("rag_character_versions"),
     Column("age_group", Text, nullable=False),
     Column("traits", ARRAY(Text), nullable=False),
+    _text_list("interests"),
     Column("speech_register", Text, nullable=False),
     _text_list("speech_markers"),
     _text_list("speech_constraints"),
     _text_list("catchphrases"),
+    Column("voice_story_role", Text, nullable=True),
+    _text_list("voice_examples"),
+    _text_list("voice_never_says"),
     *_sources("rag_character_versions"),
     PrimaryKeyConstraint(
         "character_id", "position", name="rag_character_versions_pkey"
@@ -347,6 +351,44 @@ character_versions = Table(
         "cardinality(traits) >= 1", name="rag_character_versions_traits_not_empty"
     ),
     _not_blank("rag_character_versions", "speech_register"),
+)
+
+character_dynamics = Table(
+    "rag_character_dynamics",
+    metadata,
+    Column("character_id", Text, nullable=False),
+    Column("version_position", Integer, nullable=False),
+    *_position("rag_character_dynamics"),
+    Column("with_character_id", Text, nullable=False),
+    Column("pattern", Text, nullable=False),
+    *_sources("rag_character_dynamics"),
+    PrimaryKeyConstraint(
+        "character_id",
+        "version_position",
+        "position",
+        name="rag_character_dynamics_pkey",
+    ),
+    ForeignKeyConstraint(
+        ["character_id", "version_position"],
+        ["rag_character_versions.character_id", "rag_character_versions.position"],
+        ondelete="CASCADE",
+        name="rag_character_dynamics_version_fkey",
+    ),
+    ForeignKeyConstraint(
+        ["with_character_id"],
+        ["rag_characters.id"],
+        ondelete="RESTRICT",
+        name="rag_character_dynamics_with_character_id_fkey",
+    ),
+    CheckConstraint(
+        "character_id <> with_character_id",
+        name="rag_character_dynamics_distinct_characters",
+    ),
+    _not_blank("rag_character_dynamics", "pattern"),
+)
+Index(
+    "rag_character_dynamics_with_character_id_idx",
+    character_dynamics.c.with_character_id,
 )
 
 # The key (character, continuity) allows at most one version per continuity.

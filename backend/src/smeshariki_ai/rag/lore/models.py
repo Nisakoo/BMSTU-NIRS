@@ -46,6 +46,7 @@ class LoreEntry(LoreModel):
 class LoreQuery(LoreModel):
     text: NonEmptyText
     top_k: int = Field(default=10, ge=1, le=100)
+    tags: tuple[NonEmptyText, ...] = ()
 
 
 class LoreHit(LoreModel):

@@ -13,8 +13,10 @@ ANALYZER = SimpleAnalyzer()
 PARAMS = Bm25Params()
 
 
-def entry(document_id: str, title: str, text: str) -> LoreEntry:
-    document = LoreDocument(id=document_id, title=title, text=text)
+def entry(
+    document_id: str, title: str, text: str, tags: tuple[str, ...] = ()
+) -> LoreEntry:
+    document = LoreDocument(id=document_id, title=title, text=text, tags=tags)
     return LoreEntry(
         document=document,
         chunks=(
@@ -44,6 +46,25 @@ async def test_index_returns_the_best_matching_chunk() -> None:
     assert hits[0].score > hits[1].score
     assert hits[0].rank == 1
     assert hits[0].title == "A"
+
+
+async def test_tags_filter_the_corpus_before_ranking() -> None:
+    index = InMemoryBm25Index()
+    await index.replace(
+        (
+            entry("a", "A", "Крош и Ёжик говорят о дружбе.", ("style",)),
+            entry("b", "B", "Крош и Ёжик говорят о дружбе.", ("plot",)),
+            entry("c", "C", "Крош и Ёжик говорят о дружбе."),
+        )
+    )
+
+    style = await index.search(["крош", "ежик"], 5, PARAMS, tags=("style",))
+    plot = await index.search(["крош", "ежик"], 5, PARAMS, tags=("plot",))
+    any_tag = await index.search(["крош", "ежик"], 5, PARAMS)
+
+    assert [hit.document_id for hit in style] == ["a"]
+    assert [hit.document_id for hit in plot] == ["b"]
+    assert [hit.document_id for hit in any_tag] == ["a", "b", "c"]
 
 
 async def test_equal_scores_are_ordered_by_document_and_position() -> None:

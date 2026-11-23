@@ -77,6 +77,28 @@ def _sources(entity: Any) -> list[Row]:
     ]
 
 
+def _voice(row: Row, dynamics: list[Row]) -> dict[str, Any] | None:
+    examples = list(row["voice_examples"] or ())
+    never_says = list(row["voice_never_says"] or ())
+    story_role = row["voice_story_role"]
+    patterns = [
+        {
+            "with": item["with_character_id"],
+            "pattern": item["pattern"],
+            "sources": item["sources"],
+        }
+        for item in dynamics
+    ]
+    if story_role is None and not examples and not never_says and not patterns:
+        return None
+    return {
+        "examples": examples,
+        "never_says": never_says,
+        "story_role": story_role,
+        "dynamics": patterns,
+    }
+
+
 class _ContinuityMapper(AggregateMapper):
     root = tables.continuities
 
@@ -117,6 +139,7 @@ class _CharacterMapper(AggregateMapper):
         Child(
             tables.character_version_continuities, ("character_id", "version_position")
         ),
+        Child(tables.character_dynamics, ("character_id", "version_position")),
         Child(tables.relationships, ("character_id",)),
         Child(
             tables.relationship_continuities,
@@ -126,18 +149,25 @@ class _CharacterMapper(AggregateMapper):
 
     def to_rows(self, entity: Character) -> tuple[Row, dict[Table, list[Row]]]:
         owner = "character_id"
-        versions, version_continuities = [], []
+        versions, version_continuities, dynamics = [], [], []
         for position, version in enumerate(entity.versions):
+            voice = version.voice
             versions.append(
                 {
                     owner: entity.id,
                     "position": position,
                     "age_group": version.age_group.value,
                     "traits": list(version.traits),
+                    "interests": list(version.interests),
                     "speech_register": version.speech_style.register_,
                     "speech_markers": list(version.speech_style.markers),
                     "speech_constraints": list(version.speech_style.constraints),
                     "catchphrases": list(version.catchphrases),
+                    "voice_story_role": None if voice is None else voice.story_role,
+                    "voice_examples": [] if voice is None else list(voice.examples),
+                    "voice_never_says": (
+                        [] if voice is None else list(voice.never_says)
+                    ),
                     "sources": _sources(version),
                 }
             )
@@ -150,6 +180,18 @@ class _CharacterMapper(AggregateMapper):
                 }
                 for index, continuity in enumerate(version.continuities)
             )
+            if voice is not None:
+                dynamics.extend(
+                    {
+                        owner: entity.id,
+                        "version_position": position,
+                        "position": index,
+                        "with_character_id": dynamic.with_,
+                        "pattern": dynamic.pattern,
+                        "sources": _sources(dynamic),
+                    }
+                    for index, dynamic in enumerate(voice.dynamics)
+                )
         relationships, relationship_continuities = [], []
         for position, relationship in enumerate(entity.relationships):
             relationships.append(
@@ -176,6 +218,7 @@ class _CharacterMapper(AggregateMapper):
             tables.character_names: _names(owner, entity),
             tables.character_versions: versions,
             tables.character_version_continuities: version_continuities,
+            tables.character_dynamics: dynamics,
             tables.relationships: relationships,
             tables.relationship_continuities: relationship_continuities,
         }
@@ -183,6 +226,7 @@ class _CharacterMapper(AggregateMapper):
     def from_rows(self, root: Row, children: Mapping[Table, Grouped]) -> Character:
         names = children[tables.character_names][root["id"]]
         version_continuities = children[tables.character_version_continuities]
+        dynamics = children[tables.character_dynamics]
         relationship_continuities = children[tables.relationship_continuities]
         versions = [
             {
@@ -192,12 +236,17 @@ class _CharacterMapper(AggregateMapper):
                 ],
                 "age_group": row["age_group"],
                 "traits": row["traits"],
+                "interests": row["interests"],
                 "speech_style": {
                     "register": row["speech_register"],
                     "markers": row["speech_markers"],
                     "constraints": row["speech_constraints"],
                 },
                 "catchphrases": row["catchphrases"],
+                "voice": _voice(
+                    row,
+                    dynamics[(root["id"], row["position"])],
+                ),
                 "sources": row["sources"],
             }
             for row in children[tables.character_versions][root["id"]]

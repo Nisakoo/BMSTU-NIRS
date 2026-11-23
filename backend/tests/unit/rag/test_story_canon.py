@@ -94,6 +94,33 @@ OLD_UMBRELLA = Artifact.model_validate(
         "continuities": ["classic"],
     }
 )
+LOSYASH_WITH_VOICE = Character.model_validate(
+    {
+        "id": "losyash",
+        "name": "Лосяш",
+        "species": "лось",
+        "versions": [
+            {
+                "continuities": ["classic"],
+                "age_group": "adult",
+                "traits": ["учёный"],
+                "interests": ["любит есть во время чтения"],
+                "speech_style": {"register": "книжный"},
+                "voice": {
+                    "examples": ["Феноменально!"],
+                    "never_says": ["Наука — ерунда."],
+                    "story_role": "Учёный-эрудит.",
+                    "dynamics": [
+                        {
+                            "with": "krosh",
+                            "pattern": "Лосяш объясняет, Крош перебивает.",
+                        }
+                    ],
+                },
+            }
+        ],
+    }
+)
 
 
 @pytest.fixture
@@ -102,7 +129,14 @@ async def store() -> InMemoryKnowledgeStore:
     await load(value, BASE)
     await load(
         value,
-        [BARASH, KROSH_WITH_BENCH, YOZHIK_WITH_HOBBIES, WRAPPERS, OLD_UMBRELLA],
+        [
+            BARASH,
+            KROSH_WITH_BENCH,
+            YOZHIK_WITH_HOBBIES,
+            WRAPPERS,
+            OLD_UMBRELLA,
+            LOSYASH_WITH_VOICE,
+        ],
     )
     return value
 
@@ -140,6 +174,23 @@ async def test_traits_that_name_an_artifact_are_dropped(
     assert "коллекционирует фантики" not in character.traits
     assert "сентиментальный, дорожит старыми вещами" in character.traits
     assert "фантик" not in str(result.model_dump(mode="json", by_alias=True))
+
+
+async def test_voice_card_is_returned_without_interests(
+    store: InMemoryKnowledgeStore,
+) -> None:
+    result = await StoryCanonLookup(store).lookup(["Лосяш"])
+
+    assert result.status == "found"
+    [character] = result.characters
+    assert character.voice_examples == ("Феноменально!",)
+    assert character.never_says == ("Наука — ерунда.",)
+    assert character.story_role == "Учёный-эрудит."
+    assert character.dynamics[0].with_ == "Крош"
+    assert character.dynamics[0].pattern == "Лосяш объясняет, Крош перебивает."
+    assert "любит есть во время чтения" not in str(
+        result.model_dump(mode="json", by_alias=True)
+    )
 
 
 async def test_multiple_names_are_deduplicated(

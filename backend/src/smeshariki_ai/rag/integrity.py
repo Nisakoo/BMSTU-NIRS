@@ -15,6 +15,7 @@ from typing import Any
 from smeshariki_ai.rag.models import (
     Artifact,
     Character,
+    CharacterVersion,
     EntityRef,
     EntityType,
     Episode,
@@ -296,6 +297,43 @@ class _Checker:
                 else:
                     version_of[continuity] = index
             self._check_sources(owner, f"versions[{index}].sources", version.sources)
+            if version.voice is not None:
+                self._check_voice(owner, character.id, index, version)
+
+    def _check_voice(
+        self,
+        owner: EntityRef,
+        character_id: str,
+        index: int,
+        version: CharacterVersion,
+    ) -> None:
+        voice = version.voice
+        if voice is None:
+            return
+        continuities = frozenset(version.continuities)
+        for position, dynamic in enumerate(voice.dynamics):
+            path = f"versions[{index}].voice.dynamics[{position}]"
+            self._check_sources(owner, f"{path}.sources", dynamic.sources)
+            if dynamic.with_ == character_id:
+                self._violation(
+                    owner,
+                    f"{path}.with",
+                    "self_reference",
+                    "динамика должна связывать двух разных персонажей",
+                )
+                continue
+            if not self._resolve(
+                owner, f"{path}.with", EntityType.CHARACTER, dynamic.with_
+            ):
+                continue
+            other = self._character_continuities[dynamic.with_]
+            if not continuities & other:
+                self._violation(
+                    owner,
+                    f"{path}.with",
+                    "continuity_mismatch",
+                    "у обоих персонажей должна быть версия в общем варианте канона",
+                )
 
     def _check_relationship(
         self,

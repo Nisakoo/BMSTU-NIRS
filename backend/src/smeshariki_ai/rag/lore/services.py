@@ -70,7 +70,9 @@ class SearchLore:
         terms = self.analyze(query.text)
         try:
             hits = (
-                await self._index.search(terms, query.top_k, self._config.bm25)
+                await self._index.search(
+                    terms, query.top_k, self._config.bm25, query.tags
+                )
                 if terms
                 else ()
             )

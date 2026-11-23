@@ -122,10 +122,11 @@ erDiagram
 
 - **Персонаж** — неизменная идентичность: slug, имя, алиасы, вид. На неё
   ссылаются отношения, жители, создатели и участники эпизодов.
-- **Версия персонажа** — возрастная группа, характер, `speech_style` и
-  коронные фразы в наборе вариантов канона. У персонажа одна или несколько
-  версий; их наборы вариантов канона не пересекаются, поэтому в каждом
-  варианте канона у персонажа не больше одной версии.
+- **Версия персонажа** — возрастная группа, характер, интересы, `speech_style`,
+  коронные фразы и необязательный voice card в наборе вариантов канона. У
+  персонажа одна или несколько версий; их наборы вариантов канона не
+  пересекаются, поэтому в каждом варианте канона у персонажа не больше одной
+  версии.
 - **Локации, артефакты и отношения** версий не имеют: у каждой записи есть
   непустой набор вариантов канона, в которых факт верен.
 - **Отношение** допустимо только в тех вариантах канона, где у обоих
@@ -151,7 +152,7 @@ erDiagram
 | Вариант канона | `rag_continuities` | — |
 | Произведение | `rag_works` | — |
 | Эпизод | `rag_episodes` | `rag_episode_characters`, `rag_episode_locations`, `rag_episode_artifacts`, `rag_episode_interactions` |
-| Персонаж | `rag_characters` | `rag_character_names`, `rag_character_versions`, `rag_character_version_continuities`, `rag_relationships`, `rag_relationship_continuities` |
+| Персонаж | `rag_characters` | `rag_character_names`, `rag_character_versions`, `rag_character_version_continuities`, `rag_character_dynamics`, `rag_relationships`, `rag_relationship_continuities` |
 | Локация | `rag_locations` | `rag_location_names`, `rag_location_continuities`, `rag_location_residents` |
 | Артефакт | `rag_artifacts` | `rag_artifact_names`, `rag_artifact_continuities`, `rag_artifact_creators` |
 
@@ -162,7 +163,8 @@ erDiagram
 | Название эпизода | Колонка `title` и ключ поиска `normalized_title` с неуникальным индексом (миграция [`0004`](../backend/src/smeshariki_ai/db/migrations/versions/0004_rag_episode_title_key.py)) |
 | Списки ссылок и вариантов канона | Таблицы с ключом «владелец — `position`», сохраняющим порядок |
 | `speech_style` | Колонки версии персонажа |
-| Описательные списки (`traits`, `catchphrases`, маркеры речи, `capabilities`, `limitations`) | `text[]` |
+| `voice` | Колонки `voice_story_role`, `voice_examples`, `voice_never_says`; динамики — в `rag_character_dynamics` |
+| Описательные списки (`traits`, `interests`, `catchphrases`, маркеры речи, `capabilities`, `limitations`) | `text[]` |
 | Ссылки на источники | `jsonb`-массив в строке владельца |
 
 Внешние ключи двух видов:
@@ -289,7 +291,7 @@ GIN-индексы `gin_trgm_ops` на нормализованных имена
 | Произведение | `id`, `title`, `kind` (`series` \| `film`), `continuity` | — |
 | Эпизод | `id`, `work`, `number` ≥ 1, `title` | `season` ≥ 1, `characters`, `locations`, `artifacts`, `interactions` |
 | Персонаж | `id`, `name`, `species`, непустой `versions` | `aliases`, `relationships`, `sources` |
-| Версия персонажа | непустой `continuities`, `age_group` (`child` \| `teen` \| `adult` \| `elderly`), непустой `traits`, `speech_style.register` | `speech_style.markers`, `speech_style.constraints`, `catchphrases`, `sources` |
+| Версия персонажа | непустой `continuities`, `age_group` (`child` \| `teen` \| `adult` \| `elderly`), непустой `traits`, `speech_style.register` | `interests`, `voice`, `speech_style.markers`, `speech_style.constraints`, `catchphrases`, `sources` |
 | Отношение | `to`, `type`, непустой `continuities` | `description`, `sources` |
 | Взаимодействие | `from`, `to`, `type`, `description` | `sources` |
 | Локация | `id`, `name`, `description`, непустой `continuities` | `aliases`, `residents`, `sources` |
@@ -338,11 +340,19 @@ versions:
   - continuities: [classic]
     age_group: adult
     traits: [изобретательный, ответственный]
+    interests: [увлекается техникой больше, чем книгами]
     speech_style:
       register: разговорный
       markers: [акцент]
       constraints: [речь остаётся разборчивой]
     catchphrases: [пример фразы]
+    voice:
+      examples: [пример реплики]
+      never_says: [пример фразы, которую герой не говорит]
+      story_role: изобретатель-катастрофа
+      dynamics:
+        - with: krosh
+          pattern: Крош приносит идею, Пин превращает её в опасную машину.
   - continuities: [movies]
     age_group: adult
     traits: [изобретательный, смелый]

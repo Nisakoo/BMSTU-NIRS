@@ -109,6 +109,11 @@ class StoryRelationship(StoryModel):
     type: RelationshipType
 
 
+class StoryDynamic(StoryModel):
+    with_: str = Field(alias="with")
+    pattern: str
+
+
 class StoryCharacter(StoryModel):
     id: str
     name: str
@@ -118,6 +123,10 @@ class StoryCharacter(StoryModel):
     traits: tuple[str, ...]
     speech_style: StorySpeechStyle
     catchphrases: tuple[str, ...]
+    voice_examples: tuple[str, ...] = ()
+    never_says: tuple[str, ...] = ()
+    story_role: str | None = None
+    dynamics: tuple[StoryDynamic, ...] = ()
     relationships: tuple[StoryRelationship, ...] = ()
 
 
@@ -267,6 +276,23 @@ class StoryCanonLookup:
             for trait in version.traits
             if not _trait_names_a_prop(trait, prop_lemmas)
         )
+        voice = version.voice
+        voice_examples = () if voice is None else voice.examples
+        never_says = () if voice is None else voice.never_says
+        story_role = None if voice is None else voice.story_role
+        dynamics = (
+            ()
+            if voice is None
+            else tuple(
+                StoryDynamic.model_validate(
+                    {
+                        "with": character_names.get(dynamic.with_, dynamic.with_),
+                        "pattern": dynamic.pattern,
+                    }
+                )
+                for dynamic in voice.dynamics
+            )
+        )
         return StoryCharacter(
             id=character.id,
             name=character.name,
@@ -280,6 +306,10 @@ class StoryCanonLookup:
                 constraints=speaker.constraints,
             ),
             catchphrases=version.catchphrases,
+            voice_examples=voice_examples,
+            never_says=never_says,
+            story_role=story_role,
+            dynamics=dynamics,
             relationships=tuple(relationships),
         )
 
@@ -291,6 +321,7 @@ __all__ = [
     "StoryCanonLookup",
     "StoryCanonResult",
     "StoryCharacter",
+    "StoryDynamic",
     "StoryName",
     "StoryRelationship",
     "StorySpeechStyle",

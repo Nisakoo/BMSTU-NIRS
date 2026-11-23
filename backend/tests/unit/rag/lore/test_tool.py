@@ -25,8 +25,10 @@ from smeshariki_ai.rag.lore.tools import SearchLoreTool
 ANALYZER = SimpleAnalyzer()
 
 
-def entry(document_id: str, title: str, text: str) -> LoreEntry:
-    document = LoreDocument(id=document_id, title=title, text=text)
+def entry(
+    document_id: str, title: str, text: str, tags: tuple[str, ...] = ()
+) -> LoreEntry:
+    document = LoreDocument(id=document_id, title=title, text=text, tags=tags)
     return LoreEntry(
         document=document,
         chunks=(
@@ -57,7 +59,11 @@ def call(arguments: dict) -> ToolCall:
 
 class FailingIndex(LoreIndex):
     async def search(
-        self, terms: Sequence[str], top_k: int, params: Bm25Params
+        self,
+        terms: Sequence[str],
+        top_k: int,
+        params: Bm25Params,
+        tags: Sequence[str] = (),
     ) -> tuple[LoreHit, ...]:
         raise LoreStoreUnavailableError
 
@@ -122,6 +128,39 @@ async def test_unavailable_index_returns_safe_status() -> None:
     assert result.output["status"] == "unavailable"
     assert result.output["passages"] == []
     assert "недоступна" in result.output["message"]
+
+
+async def test_style_mode_uses_tagged_documents() -> None:
+    index = InMemoryBm25Index()
+    await index.replace(
+        (
+            entry(
+                "plot",
+                "Сюжет",
+                "Крош и Ёжик строят скамейку.",
+                ("plot",),
+            ),
+            entry(
+                "style",
+                "Диалог",
+                "Крош и Ёжик строят скамейку.",
+                ("style", "dialogue"),
+            ),
+        )
+    )
+
+    result = await ToolRegistry(
+        (
+            SearchLoreTool(
+                SearchLore(index, ANALYZER),
+                LoreContextBuilder(min_score=0.1),
+            ),
+        )
+    ).execute(call({"query": "Крош Ёжик скамейка", "mode": "style"}))
+
+    assert result.error is None
+    [passage] = result.output["passages"]
+    assert passage["title"] == "Диалог"
 
 
 async def test_name_only_query_returns_no_context() -> None:

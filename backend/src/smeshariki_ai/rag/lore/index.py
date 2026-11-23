@@ -30,6 +30,7 @@ class InMemoryBm25Index(LoreStore, LoreIndex, LoreDocumentSource):
         self._postings: dict[str, dict[int, int]] = {}
         self._lengths: dict[int, int] = {}
         self._order: dict[int, tuple[str, int]] = {}
+        self._tags: dict[str, frozenset[str]] = {}
         self._version = 0
         self._lock = asyncio.Lock()
 
@@ -40,9 +41,11 @@ class InMemoryBm25Index(LoreStore, LoreIndex, LoreDocumentSource):
             postings: dict[str, dict[int, int]] = defaultdict(dict)
             lengths: dict[int, int] = {}
             order: dict[int, tuple[str, int]] = {}
+            tags: dict[str, frozenset[str]] = {}
             next_id = 1
             for entry in entries:
                 documents[entry.document.id] = entry.document
+                tags[entry.document.id] = frozenset(entry.document.tags)
                 for chunk in entry.chunks:
                     chunk_id = next_id
                     next_id += 1
@@ -56,6 +59,7 @@ class InMemoryBm25Index(LoreStore, LoreIndex, LoreDocumentSource):
             self._postings = dict(postings)
             self._lengths = lengths
             self._order = order
+            self._tags = tags
             self._version += 1
             return LoreLoadSummary(
                 version=self._version,
@@ -69,6 +73,7 @@ class InMemoryBm25Index(LoreStore, LoreIndex, LoreDocumentSource):
         terms: Sequence[str],
         top_k: int,
         params: Bm25Params,
+        tags: Sequence[str] = (),
     ) -> tuple[LoreHit, ...]:
         async with self._lock:
             if not self._chunks:
@@ -86,6 +91,14 @@ class InMemoryBm25Index(LoreStore, LoreIndex, LoreDocumentSource):
                 average_length,
                 params,
             )
+            if tags:
+                wanted = set(tags)
+                scores = {
+                    chunk_id: value
+                    for chunk_id, value in scores.items()
+                    if self._tags.get(self._chunks[chunk_id].document_id, frozenset())
+                    & wanted
+                }
             ranked = rank(scores, self._order, top_k)
             return tuple(
                 self._hit(chunk_id, position, scores[chunk_id])
