@@ -240,9 +240,9 @@
     (`messages`, `feedback`, `report`, `reports/news/seen`) с `Content-Type`,
     отличным от `application/json`, и не использует cookie для выбора диалога.
     Bootstrap собирает приложение с настроенным `LiteLLMProvider`,
-    `ToolRegistry` (`lookup_knowledge` и `search_lore`), `PostgresHistoryStore`
-    и `InMemoryDialogEventBroker`; fake-провайдер применяется только как явная
-    тестовая зависимость.
+    `ToolRegistry` (`lookup_knowledge`, `get_story_canon` и `search_lore`),
+    `PostgresHistoryStore` и `InMemoryDialogEventBroker`; fake-провайдер
+    применяется только как явная тестовая зависимость.
 12. Диалог принадлежит создателю: `AgentService` и `HistoryStore` получают
     `user_id` во всех операциях диалога. Для чужого диалога (в том числе для
     `admin`) все ручки диалога отвечают `404 Dialog not found.`, как для
@@ -468,18 +468,24 @@
    `PostgresKnowledgeStore` на общем engine, без него — пустой
    `InMemoryKnowledgeStore`. Спецификация:
    `specs/changes/knowledge-lookup-tool/`.
-10. Инструмент агента `search_lore` (`rag/lore/tools.py`) использует
+10. Компактный `get_story_canon` (`rag/story_canon.py`, `rag/tools.py`) —
+    read model поверх `KnowledgeReader`: возраст, характер, речь, фразы и
+    отношения `to/type`, без свободных описаний, источников, локаций и
+    артефактов. Используется для сказки; `lookup_knowledge` остаётся для
+    фактических вопросов. Схема БД не меняется. Спецификация:
+    `specs/changes/story-canon/`.
+11. Инструмент агента `search_lore` (`rag/lore/tools.py`) использует
     `SearchLore` (`rag/lore/services.py`) и `LoreContextBuilder`
     (`rag/lore/context.py`). BM25-поиск по YAML-пакетам лора, PostgreSQL-индекс
     `rag_lore_*` и in-memory адаптер реализованы в `lore-bm25-core`; инструмент
     отдаёт не более 3 фрагментов, один на документ, до 1600 символов и без
     score/id. Спецификация: `specs/changes/lore-search-tool/`.
-11. Benchmark лора (`rag/lore/benchmark.py`, `benchmark_llm.py`) работает
+12. Benchmark лора (`rag/lore/benchmark.py`, `benchmark_llm.py`) работает
     офлайн: 30 документов, 10 обычных вопросов и 5 ловушек; считает
     `Recall@k`, `MRR`, `Accuracy` и `Correct Rejection Rate`. Ответы можно
     передать JSON (`--answers`) или получить через LLM; БД не требуется.
     Спецификация: `specs/changes/lore-benchmark/`.
-12. `python -m smeshariki_ai.rag export <path>` выгружает знания в обычный
+13. `python -m smeshariki_ai.rag export <path>` выгружает знания в обычный
     пакет в read-only снимке; `delete <type>/<id>...` по умолчанию делает
     dry-run, а с `--apply` удаляет в одной транзакции после проверки ссылок и
     пишет ревизию `delete`; `restore <type>/<id>` выбирает последнюю или

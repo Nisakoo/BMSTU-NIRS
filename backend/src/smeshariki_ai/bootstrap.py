@@ -34,7 +34,8 @@ from smeshariki_ai.rag.lore.tools import SearchLoreTool
 from smeshariki_ai.rag.memory import InMemoryKnowledgeStore
 from smeshariki_ai.rag.ports import KnowledgeReader
 from smeshariki_ai.rag.postgres import PostgresKnowledgeStore
-from smeshariki_ai.rag.tools import LookupKnowledgeTool
+from smeshariki_ai.rag.story_canon import StoryCanonLookup
+from smeshariki_ai.rag.tools import GetStoryCanonTool, LookupKnowledgeTool
 from smeshariki_ai.speech.ceph import CephS3AudioObjectStore
 from smeshariki_ai.speech.encoder import AudioEncoder, FfmpegAudioEncoder
 from smeshariki_ai.speech.memory import InMemoryMessageAudioStore
@@ -55,7 +56,9 @@ def build_agent_service(
     lore_analyzer: TextAnalyzer | None = None,
 ) -> AgentService:
     provider = LiteLLMProvider(config.llm) if llm_provider is None else llm_provider
-    knowledge = KnowledgeLookup(knowledge_reader or InMemoryKnowledgeStore())
+    reader = knowledge_reader or InMemoryKnowledgeStore()
+    knowledge = KnowledgeLookup(reader)
+    story_canon = StoryCanonLookup(reader)
     lore = SearchLore(
         lore_index or InMemoryBm25Index(),
         lore_analyzer or SimpleAnalyzer(),
@@ -63,6 +66,7 @@ def build_agent_service(
     tool_registry = ToolRegistry(
         (
             LookupKnowledgeTool(knowledge),
+            GetStoryCanonTool(story_canon),
             SearchLoreTool(lore, LoreContextBuilder()),
         )
     )
