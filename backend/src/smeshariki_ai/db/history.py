@@ -75,6 +75,46 @@ class PostgresHistoryStore(HistoryStore):
             Message(role=MessageRole(row.role), content=row.content) for row in rows
         )
 
+    async def get_message(
+        self,
+        owner_id: UUID,
+        dialog_id: UUID,
+        message_id: int,
+    ) -> StoredMessage:
+        statement = (
+            select(
+                messages.c.id,
+                messages.c.role,
+                messages.c.content,
+                messages.c.created_at,
+                message_feedback.c.score.label("feedback"),
+                select(message_reports.c.status)
+                .where(message_reports.c.message_id == messages.c.id)
+                .scalar_subquery()
+                .label("report_status"),
+            )
+            .outerjoin(message_feedback, message_feedback.c.message_id == messages.c.id)
+            .where(
+                messages.c.id == message_id,
+                messages.c.dialog_id == dialog_id,
+                messages.c.role == MessageRole.ASSISTANT.value,
+            )
+        )
+        with _unavailable_on_failure():
+            async with self._engine.connect() as connection:
+                await self._owned_title(connection, owner_id, dialog_id)
+                row = (await connection.execute(statement)).first()
+        if row is None:
+            raise MessageNotFoundError(dialog_id, message_id)
+        return StoredMessage(
+            id=row.id,
+            role=MessageRole(row.role),
+            content=row.content,
+            created_at=row.created_at,
+            feedback=row.feedback,
+            report=_report_state(row.report_status),
+        )
+
     async def append(
         self,
         dialog_id: UUID,

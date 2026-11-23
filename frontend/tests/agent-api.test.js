@@ -247,10 +247,10 @@ test("getMessages reads an encoded dialog history", async () => {
   assert.deepEqual(await api.getMessages("a/b"), {
     title: "Ракета",
     messages: [
-      { id: 1, role: "user", content: "Крош", feedback: null, report: null },
-      { id: 2, role: "assistant", content: "Однажды…", feedback: 5, report: "sent" },
-      { id: 3, role: "assistant", content: "Потом…", feedback: null, report: "reviewed" },
-      { id: 4, role: "assistant", content: "Ещё…", feedback: null, report: null },
+      { id: 1, role: "user", content: "Крош", feedback: null, report: null, audioVoices: [] },
+      { id: 2, role: "assistant", content: "Однажды…", feedback: 5, report: "sent", audioVoices: [] },
+      { id: 3, role: "assistant", content: "Потом…", feedback: null, report: "reviewed", audioVoices: [] },
+      { id: 4, role: "assistant", content: "Ещё…", feedback: null, report: null, audioVoices: [] },
     ],
   });
   assert.deepEqual(calls, [["/api/v1/dialogs/a%2Fb/messages"]]);
@@ -442,4 +442,78 @@ test("seen report news are posted by id", async () => {
     await rejectsWith(apiWith(() => response(status)).api.markReportNewsSeen([1]), code);
   }
   await rejectsWith(apiWith(() => { throw new TypeError("offline"); }).api.markReportNewsSeen([1]), "news_failed");
+});
+
+test("startAudio accepts pending and ready responses", async () => {
+  const calls = [];
+  const api = new AgentApi({
+    fetchImpl: async (...args) => {
+      calls.push(args);
+      return response(202, { status: "pending" });
+    },
+    EventSourceImpl: FakeEventSource,
+  });
+
+  assert.equal(await api.startAudio("dialog/1", "7", "aidar"), "pending");
+  assert.deepEqual(calls, [[
+    "/api/v1/dialogs/dialog%2F1/messages/7/audio",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ voice: "aidar" }),
+    },
+  ]]);
+});
+
+test("startAudio maps unavailable and missing audio to safe codes", async () => {
+  for (const [status, code] of [[401, "unauthorized"], [404, "not_found"], [503, "audio_unavailable"], [500, "audio_failed"]]) {
+    const api = new AgentApi({ fetchImpl: async () => response(status, {}), EventSourceImpl: FakeEventSource });
+    await rejectsWith(api.startAudio("d", 1), code);
+  }
+});
+
+test("getAudio returns pending or an authenticated blob", async () => {
+  const pending = new AgentApi({
+    fetchImpl: async () => response(202, { status: "pending" }),
+    EventSourceImpl: FakeEventSource,
+  });
+  assert.deepEqual(await pending.getAudio("d", 1, "aidar"), { status: "pending" });
+
+  const ready = new AgentApi({
+    fetchImpl: async () => ({ status: 200, blob: async () => new Blob(["mp3"]) }),
+    EventSourceImpl: FakeEventSource,
+  });
+  const result = await ready.getAudio("d", 1, "aidar");
+  assert.equal(result.status, "ready");
+  assert.equal(await result.blob.text(), "mp3");
+});
+
+test("downloadAudio uses the download variant and returns a blob", async () => {
+  const calls = [];
+  const api = new AgentApi({
+    fetchImpl: async (...args) => {
+      calls.push(args);
+      return { status: 200, blob: async () => new Blob(["mp3"]) };
+    },
+    EventSourceImpl: FakeEventSource,
+  });
+
+  const blob = await api.downloadAudio("a/b", 9, "aidar");
+  assert.equal(await blob.text(), "mp3");
+  assert.deepEqual(calls, [[
+    "/api/v1/dialogs/a%2Fb/messages/9/audio?voice=aidar&download=1",
+  ]]);
+});
+
+test("getMessages exposes audio availability and defaults it to false", async () => {
+  const { api } = apiWith(() => response(200, {
+    title: "Ракета",
+    messages: [
+      { id: 1, role: "assistant", content: "a", created_at: "x", feedback: null, report: null, audio_voices: ["aidar"] },
+      { id: 2, role: "assistant", content: "b", created_at: "x", feedback: null, report: null },
+    ],
+  }));
+
+  const history = await api.getMessages("d");
+  assert.deepEqual(history.messages.map(message => message.audioVoices), [["aidar"], []]);
 });

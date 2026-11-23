@@ -39,3 +39,10 @@ npm-debug.log*
 # OS
 .DS_Store
 Thumbs.db
+
+# Local Silero voice model, mounted read-only into the backend container.
+/docker/models/*
+!/docker/models/.gitkeep
+# Downloaded model weights must never be committed.
+/docker/models/**/*.pt
+/docker/models/**/*.onnx

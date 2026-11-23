@@ -15,6 +15,7 @@ from sqlalchemy import (
     Integer,
     LargeBinary,
     MetaData,
+    PrimaryKeyConstraint,
     SmallInteger,
     Table,
     Text,
@@ -111,6 +112,50 @@ messages = Table(
     UniqueConstraint("dialog_id", "position", name="messages_dialog_id_position_key"),
     CheckConstraint("role IN ('user', 'assistant')", name="messages_role_valid"),
 )
+
+message_audio = Table(
+    "message_audio",
+    metadata,
+    Column(
+        "message_id",
+        BigInteger,
+        ForeignKey("messages.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("voice_id", Text, nullable=False),
+    Column("status", Text, nullable=False),
+    Column("text_hash", Text, nullable=False),
+    Column("voice_version", Text, nullable=False),
+    Column("object_key", Text, nullable=True),
+    Column("size_bytes", Integer, nullable=True),
+    Column("etag", Text, nullable=True),
+    Column("mime_type", Text, nullable=True),
+    Column("duration_ms", Integer, nullable=True),
+    # Legacy rows are lazily moved to Ceph; new rows never write bytes here.
+    Column("audio_data", LargeBinary, nullable=True),
+    Column("error_code", Text, nullable=True),
+    Column(
+        "created_at", DateTime(timezone=True), nullable=False, server_default=func.now()
+    ),
+    Column(
+        "updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()
+    ),
+    PrimaryKeyConstraint("message_id", "voice_id", name="message_audio_pkey"),
+    CheckConstraint(
+        "status IN ('pending', 'ready', 'failed')",
+        name="message_audio_status_valid",
+    ),
+    CheckConstraint(
+        "duration_ms IS NULL OR duration_ms >= 0",
+        name="message_audio_duration_valid",
+    ),
+    CheckConstraint(
+        "size_bytes IS NULL OR size_bytes >= 0",
+        name="message_audio_size_valid",
+    ),
+)
+Index("message_audio_object_key_idx", message_audio.c.object_key)
+
 
 message_feedback = Table(
     "message_feedback",

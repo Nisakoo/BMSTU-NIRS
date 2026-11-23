@@ -12,6 +12,18 @@ x-backend-environment: &backend-environment
   LLM_NUM_RETRIES: ${LLM_NUM_RETRIES:-0}
   LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.8}
   LLM_THINKING: ${LLM_THINKING:-false}
+  SPEECH_ENABLED: ${SPEECH_ENABLED:-false}
+  SPEECH_VOICE: ${SPEECH_VOICE:-baya}
+  SPEECH_SPEED: ${SPEECH_SPEED:-1.0}
+  SPEECH_MAX_CONCURRENCY: ${SPEECH_MAX_CONCURRENCY:-1}
+  SPEECH_MAX_TEXT_CHARS: ${SPEECH_MAX_TEXT_CHARS:-20000}
+  SPEECH_MODEL_PATH: ${SPEECH_MODEL_PATH:-/models/silero/v5_ru.pt}
+  CEPH_S3_ENDPOINT: ${CEPH_S3_ENDPOINT:-http://ceph-rgw:7480}
+  CEPH_S3_BUCKET: ${CEPH_S3_BUCKET:-smeshariki-audio}
+  CEPH_S3_ACCESS_KEY: ${CEPH_S3_ACCESS_KEY:-smeshariki}
+  CEPH_S3_SECRET_KEY: ${CEPH_S3_SECRET_KEY:?Set CEPH_S3_SECRET_KEY in docker/.env}
+  CEPH_S3_REGION: ${CEPH_S3_REGION:-us-east-1}
+  CEPH_S3_PREFIX: ${CEPH_S3_PREFIX:-smeshariki-audio}
   AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?Set AUTH_JWT_SECRET in docker/.env}
   AUTH_ACCESS_TTL_SECONDS: ${AUTH_ACCESS_TTL_SECONDS:-900}
   AUTH_REFRESH_TTL_SECONDS: ${AUTH_REFRESH_TTL_SECONDS:-2592000}
@@ -49,6 +61,20 @@ services:
       timeout: 3s
       retries: 12
 
+  ceph-rgw:
+    image: quay.io/s3gw/s3gw:latest
+    platform: linux/amd64
+    environment:
+      RGW_DEFAULT_USER_ACCESS_KEY: ${CEPH_S3_ACCESS_KEY:-smeshariki}
+      RGW_DEFAULT_USER_SECRET_KEY: ${CEPH_S3_SECRET_KEY:?Set CEPH_S3_SECRET_KEY in docker/.env}
+    volumes:
+      - ceph-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:7480/ >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
   migrate:
     build:
       context: ..
@@ -64,6 +90,8 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
+    volumes:
+      - ./models:/models:ro
     environment:
       <<: *backend-environment
       # Uvicorn trusts X-Forwarded-For only from Caddy's fixed address.
@@ -72,6 +100,8 @@ services:
       migrate:
         condition: service_completed_successfully
       redis:
+        condition: service_healthy
+      ceph-rgw:
         condition: service_healthy
     init: true
     healthcheck:
@@ -102,7 +132,7 @@ services:
       frontend:
         condition: service_healthy
     ports:
-      - "127.0.0.1:${APP_PORT:-8080}:80"
+      - "127.0.0.1:${APP_PORT:-8090}:80"
     networks:
       default:
         ipv4_address: 172.31.250.250
@@ -117,3 +147,4 @@ networks:
 
 volumes:
   postgres-data:
+  ceph-data:

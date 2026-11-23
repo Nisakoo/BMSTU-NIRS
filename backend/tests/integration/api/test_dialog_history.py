@@ -139,6 +139,7 @@ async def test_answered_dialog_is_listed_and_its_messages_are_returned() -> None
             "feedback",
             "reported",
             "report",
+            "audio_voices",
         }
         assert isinstance(item["id"], int)
         assert item["feedback"] is None

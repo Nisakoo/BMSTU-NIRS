@@ -27,6 +27,9 @@ const lengthPanel = document.querySelector("#saiLengthPanel");
 const lengthValue = document.querySelector("#saiLengthValue");
 const lengthCurrent = document.querySelector("#saiLengthCurrent");
 const lengthDots = document.querySelector("#saiLengthDots");
+const voiceButton = document.querySelector("#saiVoiceButton");
+const voiceValue = document.querySelector("#saiVoiceValue");
+const voiceMenu = document.querySelector("#saiVoiceMenu");
 const newsBox = document.querySelector("#saiNews");
 const adminLink = document.querySelector("#saiAdminLink");
 const chips = [...document.querySelectorAll(".sai-chip")];
@@ -51,6 +54,18 @@ const REPORT_COMMENT_MAX_LENGTH = 500;
 const REVIEWED_LABEL = "Взрослые посмотрели — спасибо!";
 const UNTITLED = "Без названия";
 const COPY_LABEL = "Копировать";
+const AUDIO_LABEL = "Озвучить";
+const AUDIO_DOWNLOAD_LABEL = "Скачать";
+const AUDIO_WAIT_LABEL = "Готовим озвучку…";
+const AUDIO_POLL_MS = 1000;
+const VOICE_STORAGE_KEY = "smeshariki.voice";
+const VOICES = [
+  ["aidar", "Айдар", "Мужской, спокойный"],
+  ["baya", "Бая", "Женский, мягкий"],
+  ["kseniya", "Ксения", "Женский, ясный"],
+  ["xenia", "Ксения (второй тембр)", "Женский, светлый"],
+  ["eugene", "Евгений", "Мужской, размеренный"],
+];
 // Slider steps of the story length: minutes sent to the agent and the label.
 const LENGTH_STEPS = [
   [null, "Любая"],
@@ -99,6 +114,10 @@ let krosh = null;
 let reportPanel = null;
 // Message bubbles and their rows: a finished answer gets its copy button there.
 const rows = new WeakMap();
+const audioCleanups = new Set();
+const voiceControls = new Set();
+let selectedVoice = readStoredVoice();
+initVoicePicker();
 
 function autosize() {
   prompt.style.height = "auto";
@@ -121,7 +140,11 @@ function updateForm() {
   send.disabled = disabled;
   lengthPicker.disabled = disabled;
   lengthButton.disabled = disabled;
-  if (disabled) closeLength();
+  voiceButton.disabled = disabled;
+  if (disabled) {
+    closeLength();
+    closeVoiceMenu();
+  }
   for (const chip of chips) chip.disabled = disabled;
   newStoryButton.disabled = locked || !signedIn;
   for (const button of historyButtons) button.disabled = locked;
@@ -203,6 +226,119 @@ function copyThroughTextarea(text) {
   }
 }
 
+function voiceLabel(id) {
+  return VOICES.find(([voice]) => voice === id)?.[1] ?? "Айдар";
+}
+
+function readStoredVoice() {
+  let value = null;
+  try {
+    value = window.localStorage?.getItem(VOICE_STORAGE_KEY) ?? null;
+  } catch {
+    value = null;
+  }
+  return VOICES.some(([id]) => id === value) ? value : "aidar";
+}
+
+function storeVoice(id) {
+  try {
+    window.localStorage?.setItem(VOICE_STORAGE_KEY, id);
+  } catch {
+    // Storage can be unavailable in private mode; the in-memory choice stays.
+  }
+}
+
+function paintVoicePicker() {
+  if (!voiceValue) return;
+  voiceValue.textContent = voiceLabel(selectedVoice);
+  if (!voiceButton) return;
+  voiceButton.setAttribute(
+    "aria-label",
+    `Выбрать голос рассказчика, сейчас ${voiceLabel(selectedVoice)}`,
+  );
+  for (const option of voiceMenu?.children ?? []) {
+    const active = option.dataset.voice === selectedVoice;
+    option.setAttribute("aria-selected", active ? "true" : "false");
+    if (active) option.classList.add("is-selected");
+    else option.classList.remove("is-selected");
+  }
+}
+
+function closeVoiceMenu() {
+  if (!voiceMenu) return;
+  voiceMenu.hidden = true;
+  voiceButton?.setAttribute("aria-expanded", "false");
+}
+
+function openVoiceMenu() {
+  if (!voiceMenu || voiceButton?.disabled) return;
+  voiceMenu.hidden = false;
+  voiceButton.setAttribute("aria-expanded", "true");
+  paintVoicePicker();
+}
+
+function chooseVoice(id) {
+  if (!VOICES.some(([voice]) => voice === id)) return;
+  selectedVoice = id;
+  storeVoice(id);
+  paintVoicePicker();
+  closeVoiceMenu();
+  for (const control of voiceControls) control.setVoice(id);
+}
+
+function initVoicePicker() {
+  if (!voiceButton || !voiceMenu) return;
+  voiceMenu.replaceChildren();
+  for (const [id, label, description] of VOICES) {
+    const option = document.createElement("button");
+    option.type = "button";
+    option.className = "sai-voice-option";
+    option.dataset.voice = id;
+    option.setAttribute("role", "option");
+    const title = document.createElement("span");
+    title.className = "sai-voice-option-label";
+    title.textContent = label;
+    const hint = document.createElement("span");
+    hint.className = "sai-voice-option-hint";
+    hint.textContent = description;
+    option.append(title, hint);
+    option.addEventListener("click", () => chooseVoice(id));
+    voiceMenu.append(option);
+  }
+  voiceButton.addEventListener("click", () => {
+    if (voiceMenu.hidden) openVoiceMenu();
+    else closeVoiceMenu();
+  });
+  voiceMenu.addEventListener("keydown", event => {
+    const options = [...voiceMenu.children];
+    const index = options.indexOf(document.activeElement);
+    if (event.key === "Escape") {
+      closeVoiceMenu();
+      voiceButton.focus();
+    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      const next = (index + step + options.length) % options.length;
+      options[next]?.focus();
+    } else if (event.key === "Enter" && index >= 0) {
+      event.preventDefault();
+      options[index].click();
+    }
+  });
+  document.addEventListener("click", event => {
+    if (voiceMenu.hidden) return;
+    if (voiceButton.contains(event.target) || voiceMenu.contains(event.target)) return;
+    closeVoiceMenu();
+  });
+  paintVoicePicker();
+}
+
+function formatTime(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
+  const whole = Math.floor(seconds);
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+}
+
 // Five Smeshariki faces under one saved answer; the state changes at once and rolls back on error.
 function addFeedback(messageId, initial, report = null) {
   const ratedDialogId = dialogId;
@@ -273,6 +409,307 @@ function addFeedback(messageId, initial, report = null) {
   paint();
   messages.append(bar);
   messages.scrollTop = messages.scrollHeight;
+  return bar;
+}
+
+// One narrator voiceover under an answer. The action and player follow the
+// globally selected voice; pressing the action again always regenerates the MP3.
+function addVoice(bar, messageId, { available = [] } = {}) {
+  const voiceDialogId = dialogId;
+  const availableVoices = new Set(available);
+  const line = document.createElement("div");
+  line.className = "sai-voice-line";
+  const action = document.createElement("button");
+  action.type = "button";
+  action.className = "sai-voice-button";
+  const refreshButton = document.createElement("button");
+  refreshButton.type = "button";
+  refreshButton.className = "sai-voice-refresh";
+  refreshButton.textContent = "↻";
+  refreshButton.setAttribute("aria-label", "Озвучить заново");
+  refreshButton.hidden = true;
+  const state = document.createElement("span");
+  state.className = "sai-voice-state";
+  state.setAttribute("aria-live", "polite");
+  const player = document.createElement("div");
+  player.className = "sai-player";
+  player.hidden = true;
+  const audio = document.createElement("audio");
+  audio.preload = "none";
+  audio.hidden = true;
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "sai-player-toggle";
+  toggle.textContent = "▶";
+  toggle.setAttribute("aria-label", "Слушать озвучку");
+  const current = document.createElement("span");
+  current.className = "sai-player-time";
+  current.textContent = "0:00";
+  const progress = document.createElement("input");
+  progress.type = "range";
+  progress.className = "sai-player-progress";
+  progress.min = "0";
+  progress.max = "100";
+  progress.value = "0";
+  progress.setAttribute("aria-label", "Позиция озвучки");
+  const duration = document.createElement("span");
+  duration.className = "sai-player-time";
+  duration.textContent = "0:00";
+  player.append(audio, toggle, current, progress, duration);
+  const downloadButton = document.createElement("button");
+  downloadButton.type = "button";
+  downloadButton.className = "sai-voice-download";
+  downloadButton.textContent = "Скачать";
+  downloadButton.hidden = true;
+  line.append(action, refreshButton, downloadButton, state, player);
+  bar.append(line);
+
+  let busy = false;
+  let downloading = false;
+  let timer = null;
+  let objectUrl = null;
+  let blob = null;
+  let blobVoice = null;
+
+  const endpoint = voice => (
+    `/api/v1/dialogs/${encodeURIComponent(voiceDialogId)}/messages/`
+    + `${messageId}/audio?voice=${encodeURIComponent(voice)}`
+  );
+
+  const makeUrl = value => (
+    typeof URL?.createObjectURL === "function" ? URL.createObjectURL(value) : null
+  );
+
+  const revoke = () => {
+    if (objectUrl !== null && typeof URL?.revokeObjectURL === "function") {
+      URL.revokeObjectURL(objectUrl);
+    }
+    objectUrl = null;
+  };
+
+  const stopPlayback = () => {
+    audio.pause?.();
+    audio.removeAttribute?.("src");
+    audio.load?.();
+    toggle.textContent = "▶";
+    toggle.setAttribute("aria-label", "Слушать озвучку");
+    progress.value = "0";
+    current.textContent = "0:00";
+    duration.textContent = "0:00";
+    revoke();
+  };
+
+  const paint = () => {
+    const has = availableVoices.has(selectedVoice);
+    const isGenerating = busy;
+    if (isGenerating) {
+      action.textContent = has ? AUDIO_DOWNLOAD_LABEL : AUDIO_WAIT_LABEL;
+      action.disabled = !has;
+      refreshButton.hidden = !has;
+      refreshButton.disabled = true;
+      downloadButton.hidden = !has;
+      state.textContent = "Готовим озвучку…";
+    } else if (has) {
+      action.textContent = AUDIO_DOWNLOAD_LABEL;
+      action.disabled = false;
+      refreshButton.hidden = false;
+      refreshButton.disabled = false;
+      downloadButton.hidden = true;
+      state.textContent = "";
+    } else {
+      action.textContent = AUDIO_LABEL;
+      action.disabled = false;
+      refreshButton.hidden = true;
+      downloadButton.hidden = true;
+      state.textContent = "";
+    }
+  };
+
+  const showCurrentVoice = () => {
+    const voice = selectedVoice;
+    stopPlayback();
+    if (!availableVoices.has(voice)) {
+      player.hidden = true;
+      paint();
+      return;
+    }
+    audio.src = voice === blobVoice && blob !== null ? makeUrl(blob) : endpoint(voice);
+    player.hidden = false;
+    paint();
+  };
+
+  const clearPoll = () => {
+    if (timer !== null) window.clearTimeout(timer);
+    timer = null;
+  };
+
+  const fail = error => {
+    busy = false;
+    clearPoll();
+    paint();
+    state.textContent = error?.code === "audio_unavailable"
+      ? "Озвучка недоступна"
+      : "Не удалось озвучить";
+  };
+
+  const load = async voice => {
+    try {
+      const result = await withSession(
+        () => api.getAudio(voiceDialogId, messageId, voice),
+      );
+      if (unloading) return;
+      if (result.status === "pending") {
+        timer = window.setTimeout(() => {
+          timer = null;
+          void load(voice);
+        }, AUDIO_POLL_MS);
+        return;
+      }
+      blob = result.blob;
+      blobVoice = voice;
+      availableVoices.add(voice);
+      busy = false;
+      if (selectedVoice === voice) showCurrentVoice();
+      else paint();
+    } catch (error) {
+      if (!unloading) fail(error);
+    }
+  };
+
+  const generate = async () => {
+    const voice = selectedVoice;
+    busy = true;
+    clearPoll();
+    paint();
+    try {
+      const status = await withSession(
+        () => api.startAudio(voiceDialogId, messageId, voice),
+      );
+      if (unloading) return;
+      if (status === "ready") await load(voice);
+      else {
+        timer = window.setTimeout(() => {
+          timer = null;
+          void load(voice);
+        }, AUDIO_POLL_MS);
+      }
+    } catch (error) {
+      if (!unloading) fail(error);
+    }
+  };
+
+  const download = async () => {
+    if (downloading) return;
+    const voice = selectedVoice;
+    downloading = true;
+    state.textContent = "Скачиваем…";
+    try {
+      const data = voice === blobVoice && blob !== null
+        ? blob
+        : await withSession(
+          () => api.downloadAudio(voiceDialogId, messageId, voice),
+        );
+      if (unloading) return;
+      const url = makeUrl(data);
+      if (url === null) {
+        state.textContent = "Скачивание недоступно";
+        return;
+      }
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `smeshariki-${messageId}-${voice}.mp3`;
+      link.rel = "noopener";
+      document.body.append(link);
+      link.click?.();
+      link.remove();
+      window.setTimeout(() => {
+        if (typeof URL?.revokeObjectURL === "function") URL.revokeObjectURL(url);
+      }, 0);
+      state.textContent = "";
+    } catch (error) {
+      if (!unloading) {
+        state.textContent = error?.code === "audio_unavailable"
+          ? "Озвучка недоступна"
+          : "Не удалось скачать";
+      }
+    } finally {
+      downloading = false;
+    }
+  };
+
+  const stop = () => {
+    clearPoll();
+    stopPlayback();
+    audioCleanups.delete(stop);
+    voiceControls.delete(control);
+  };
+
+  action.addEventListener("click", () => {
+    if (availableVoices.has(selectedVoice) && !busy) void download();
+    else if (!busy) void generate();
+  });
+  refreshButton.addEventListener("click", () => {
+    if (!busy) void generate();
+  });
+  downloadButton.addEventListener("click", () => {
+    if (!busy) void generate();
+  });
+  toggle.addEventListener("click", () => {
+    if (audio.paused) {
+      try {
+        const started = audio.play?.();
+        if (started?.catch) started.catch(() => {});
+      } catch {
+        // The browser can reject playback before metadata is loaded.
+      }
+    } else {
+      audio.pause?.();
+    }
+  });
+  audio.addEventListener("play", () => {
+    toggle.textContent = "❚❚";
+    toggle.setAttribute("aria-label", "Поставить на паузу");
+  });
+  audio.addEventListener("pause", () => {
+    toggle.textContent = "▶";
+    toggle.setAttribute("aria-label", "Слушать озвучку");
+  });
+  audio.addEventListener("loadedmetadata", () => {
+    duration.textContent = formatTime(audio.duration);
+    progress.value = "0";
+  });
+  audio.addEventListener("timeupdate", () => {
+    const total = Number(audio.duration);
+    current.textContent = formatTime(audio.currentTime);
+    progress.value = total > 0 ? String((audio.currentTime / total) * 100) : "0";
+  });
+  audio.addEventListener("ended", stopPlayback);
+  progress.addEventListener("input", () => {
+    const total = Number(audio.duration);
+    if (total > 0) audio.currentTime = (Number(progress.value) / 100) * total;
+  });
+
+  const control = {
+    setVoice(voice) {
+      if (voice === selectedVoice) showCurrentVoice();
+    },
+    stop,
+  };
+  audioCleanups.add(stop);
+  voiceControls.add(control);
+  paint();
+  showCurrentVoice();
+}
+
+function applySelectedVoice() {
+  paintVoicePicker();
+  for (const control of voiceControls) control.setVoice(selectedVoice);
+}
+
+function stopAllAudio() {
+  for (const stop of [...audioCleanups]) stop();
+  audioCleanups.clear();
+  voiceControls.clear();
 }
 
 // "Пожаловаться" under an answer; a sent report cannot be taken back. Whether
@@ -402,6 +839,7 @@ function closeReport({ focusFlag = false } = {}) {
 
 // An empty story is greeted by Krosh; he leaves once the conversation starts.
 function showStory(storyTitle, items) {
+  stopAllAudio();
   title.textContent = storyTitle ?? NEW_STORY_TITLE;
   title.title = title.textContent;
   krosh = null;
@@ -416,7 +854,8 @@ function showStory(storyTitle, items) {
     const bubble = addMessage(item.content, item.role);
     if (item.role !== "assistant") continue;
     addCopy(bubble);
-    addFeedback(item.id, item.feedback, item.report);
+    const feedback = addFeedback(item.id, item.feedback, item.report);
+    addVoice(feedback, item.id, { available: item.audioVoices });
   }
 }
 
@@ -648,7 +1087,8 @@ function applyAgentEvent(type, data) {
     processing = false;
     if (currentAssistant) addCopy(currentAssistant);
     if (currentAssistant && Number.isInteger(data?.message_id)) {
-      addFeedback(data.message_id, null);
+      const feedback = addFeedback(data.message_id, null);
+      addVoice(feedback, data.message_id);
     }
     currentAssistant = null;
     setStatus("готов к идеям");
@@ -771,6 +1211,7 @@ async function start() {
 }
 
 function leaveDialog() {
+  stopAllAudio();
   ready = false;
   processing = false;
   submitting = false;

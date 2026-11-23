@@ -38,15 +38,19 @@ from smeshariki_ai.rag.lore.index import InMemoryBm25Index
 from smeshariki_ai.rag.lore.postgres import PostgresBm25Index
 from smeshariki_ai.rag.memory import InMemoryKnowledgeStore
 from smeshariki_ai.rag.postgres import PostgresKnowledgeStore
+from smeshariki_ai.speech import SpeechConfig
+from smeshariki_ai.speech.fake import FakeAudioEncoder, FakeSpeechProvider
+from smeshariki_ai.speech.service import NarratorSpeechService
 
 
-def make_config() -> Config:
+def make_config(*, speech_enabled: bool = False) -> Config:
     return Config(
         agent=AgentConfig(system_prompt="Test prompt", max_iterations=2),
         llm=LiteLLMProviderConfig(model="test/model"),
         auth=AuthConfig(jwt_secret="test-secret-with-at-least-32-bytes!!"),
         database=DatabaseConfig(url="postgresql+asyncpg://app:app@127.0.0.1:1/app"),
         redis=RedisConfig(url="redis://127.0.0.1:1/0"),
+        speech=SpeechConfig(enabled=speech_enabled),
     )
 
 
@@ -177,6 +181,59 @@ def test_explicit_provider_does_not_construct_litellm_provider(
     assert isinstance(service, AgentService)
     assert received_agent_arguments[0]["config"] is config.agent
     assert received_agent_arguments[0]["llm_provider"] is provider
+
+
+def test_create_application_builds_speech_service_with_explicit_dependencies() -> None:
+    config = make_config(speech_enabled=True)
+    auth_service = AuthService(
+        users=InMemoryUserStore(),
+        sessions=InMemoryRefreshSessionStore(),
+        blacklist=InMemoryTokenBlacklist(),
+        config=config.auth,
+    )
+
+    app = create_application(
+        config,
+        llm_provider=FakeLLMProvider(),
+        auth_service=auth_service,
+        speech_provider=FakeSpeechProvider(),
+        speech_encoder=FakeAudioEncoder(),
+    )
+
+    assert isinstance(app.state.speech_service, NarratorSpeechService)
+
+
+def test_create_application_skips_speech_when_disabled() -> None:
+    app = create_application(make_config(), llm_provider=FakeLLMProvider())
+
+    assert app.state.speech_service is None
+
+
+def test_create_application_does_not_load_silero_for_explicit_speech_deps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = make_config(speech_enabled=True)
+    auth_service = AuthService(
+        users=InMemoryUserStore(),
+        sessions=InMemoryRefreshSessionStore(),
+        blacklist=InMemoryTokenBlacklist(),
+        config=config.auth,
+    )
+
+    def reject(value: object) -> None:
+        pytest.fail("Silero must not be loaded when explicit dependencies are given")
+
+    monkeypatch.setattr(bootstrap_module.SileroSpeechProvider, "from_path", reject)
+
+    app = create_application(
+        config,
+        llm_provider=FakeLLMProvider(),
+        auth_service=auth_service,
+        speech_provider=FakeSpeechProvider(),
+        speech_encoder=FakeAudioEncoder(),
+    )
+
+    assert app.state.speech_service is not None
 
 
 def test_create_application_requires_config() -> None:

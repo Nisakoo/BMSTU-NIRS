@@ -593,7 +593,7 @@ button,textarea{font:inherit}
   padding:6px max(24px,calc((100% - 780px) / 2)) 24px;
 }
 .sai-composer{
-  display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:end;
+  display:grid;grid-template-columns:1fr auto auto auto;gap:8px;align-items:end;
   padding:8px 8px 8px 18px;
   border:1.5px solid #2b4d68;
   border-radius:22px;
@@ -775,4 +775,96 @@ button,textarea{font:inherit}
   /* Фраза не помещается рядом с мордашками: у неё своя строка, она есть и
      без оценки, поэтому флажок под ней всегда на одном месте */
   .sai-feedback-say,.sai-feedback-say:empty{display:block;flex-basis:100%;min-height:18px;line-height:18px;margin-left:4px}
+}
+
+/* Выбор голоса: название текущего голоса и стрелка, без подписи «Голос». */
+.sai-voice-picker{
+  height:48px;
+  display:flex;align-items:center;gap:5px;
+  max-width:170px;
+  padding:0 10px 0 12px;
+  border:1px solid transparent;border-radius:14px;
+  background:transparent;color:#b9cbdc;
+  font:700 13px Inter,system-ui,sans-serif;
+  cursor:pointer;
+  transition:background .16s ease,color .16s ease,border-color .16s ease,transform .1s ease;
+}
+.sai-voice-picker span{
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.sai-voice-picker svg{width:15px;height:15px;flex:0 0 auto;color:#8ea6be}
+.sai-voice-picker:hover:not(:disabled),.sai-voice-picker:focus-visible,
+.sai-voice-picker[aria-expanded="true"]{background:rgba(98,208,255,.13);color:#e6f1fb}
+.sai-voice-picker:active:not(:disabled){transform:scale(.96)}
+.sai-voice-picker:disabled{opacity:.5;cursor:not-allowed}
+.sai-voice-menu{
+  position:absolute;right:120px;bottom:calc(100% + 10px);z-index:6;
+  width:min(260px,calc(100vw - 32px));
+  padding:7px;
+  border:1px solid #2a4a64;border-radius:18px;
+  background:#0f263c;box-shadow:0 22px 50px rgba(0,8,20,.6);
+}
+.sai-voice-menu[hidden]{display:none}
+.sai-voice-option{
+  width:100%;display:flex;flex-direction:column;align-items:flex-start;gap:2px;
+  padding:9px 11px;border:0;border-radius:12px;
+  background:transparent;color:#dbe9f6;text-align:left;cursor:pointer;
+}
+.sai-voice-option:hover,.sai-voice-option:focus-visible{background:rgba(98,208,255,.12)}
+.sai-voice-option.is-selected{background:rgba(98,208,255,.16);color:#fff}
+.sai-voice-option-label{font:700 13.5px Inter,system-ui,sans-serif}
+.sai-voice-option-hint{font:500 11.5px Inter,system-ui,sans-serif;color:#8ea6be}
+.sai-voice-option.is-selected .sai-voice-option-label::after{content:" ✓";color:var(--sai-blue)}
+
+/* Озвучка рассказчиком: действие, компактный плеер и скачивание. */
+.sai-voice-line{
+  flex-basis:100%;
+  display:flex;flex-wrap:wrap;align-items:center;gap:7px;
+  margin-top:5px;
+}
+.sai-voice-button,.sai-voice-refresh{
+  height:30px;
+  border:1px solid var(--sai-line);border-radius:9px;
+  background:transparent;color:var(--sai-ink);
+  font:700 11.5px Inter,system-ui,sans-serif;
+  cursor:pointer;
+  transition:color .15s,border-color .15s,background .15s,opacity .15s;
+}
+.sai-voice-button{padding:0 11px}
+.sai-voice-refresh{width:30px;padding:0;font-size:16px;line-height:1}
+.sai-voice-button:hover:not(:disabled),.sai-voice-button:focus-visible,
+.sai-voice-refresh:hover:not(:disabled),.sai-voice-refresh:focus-visible{
+  color:var(--sai-blue);border-color:var(--sai-blue);
+  background:rgba(98,208,255,.12);
+}
+.sai-voice-button:disabled,.sai-voice-refresh:disabled{cursor:progress;opacity:.6}
+.sai-voice-download{display:none}
+.sai-voice-state{
+  min-height:16px;color:var(--sai-muted);
+  font:600 11.5px Inter,system-ui,sans-serif;
+}
+.sai-voice-state:empty{display:none}
+.sai-player{
+  flex:1 1 250px;min-width:220px;max-width:360px;
+  display:flex;align-items:center;gap:7px;
+  height:34px;padding:0 9px;border-radius:11px;
+  border:1px solid #27465f;background:rgba(9,27,43,.72);
+}
+.sai-player[hidden]{display:none}
+.sai-player-toggle{
+  flex:0 0 auto;width:24px;height:24px;padding:0;
+  border:0;border-radius:50%;
+  background:var(--sai-blue);color:#06121d;
+  font:700 11px/1 Inter,system-ui,sans-serif;
+  cursor:pointer;
+}
+.sai-player-time{flex:0 0 auto;color:#a9bfd3;font:600 10.5px Inter,system-ui,sans-serif}
+.sai-player-progress{
+  flex:1;height:4px;min-width:40px;accent-color:var(--sai-blue);cursor:pointer;
+}
+@media (max-width:820px){
+  .sai-voice-picker{max-width:120px;padding-left:8px;font-size:12px}
+  .sai-voice-menu{right:8px}
+  .sai-voice-line{width:100%}
+  .sai-player{flex-basis:100%;min-width:0;max-width:none}
 }

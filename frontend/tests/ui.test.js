@@ -61,6 +61,10 @@ class FakeElement {
     globalThis.document.activeElement = this;
     return this.dispatch("focus");
   }
+  click() { this.clicked = true; }
+  play() { this.paused = false; this.dispatch("play"); return Promise.resolve(); }
+  pause() { this.paused = true; this.dispatch("pause"); }
+  load() { this.loaded = true; }
   contains(node) {
     return node === this || this.children.some(child => child.contains?.(node));
   }
@@ -133,6 +137,10 @@ async function setup(submitResponse, {
   execCommandResult = true,
   user = USER,
   passwordResponses = [{ status: 204 }],
+  audioStatuses = [202],
+  audioGetStatuses = [200],
+  audioDownloadStatuses = [200],
+  audioBlob = new Blob(["mp3"]),
 } = {}) {
   const ids = [
     "#saiForm", "#saiPrompt", "#saiMessages", ".sai-send", "#saiStatus", "#saiStatusText", "#saiLogout",
@@ -140,6 +148,7 @@ async function setup(submitResponse, {
     "#saiHistoryState", "#saiHistoryRetry", "#saiUserLogin", "#saiTitle", "#saiLength",
     "#saiLengthButton", "#saiLengthPanel", "#saiLengthValue", "#saiLengthCurrent", "#saiLengthDots",
     "#saiNews", "#saiAdminLink", "#saiSettingsButton", "#saiSettings", "#saiSettingsClose",
+    "#saiVoiceButton", "#saiVoiceValue", "#saiVoiceMenu",
     "#saiPasswordForm", "#saiCurrentPassword", "#saiNewPassword", "#saiRepeatPassword",
     "#saiPasswordSave", "#saiPasswordStatus",
   ];
@@ -151,6 +160,7 @@ async function setup(submitResponse, {
   elements["#saiAdminLink"].hidden = true;
   elements["#saiSettings"].hidden = true;
   elements["#saiAdminLink"].setAttribute("href", "/admin/");
+  elements["#saiVoiceMenu"].hidden = true;
   elements["#saiLengthPanel"].append(elements["#saiLengthDots"]);
   elements["#saiLengthDots"].append(elements["#saiLength"]);
   elements["#saiLengthButton"].append(elements["#saiLengthValue"]);
@@ -193,6 +203,9 @@ async function setup(submitResponse, {
   const newsRequests = [];
   const newsSeenRequests = [];
   const passwordRequests = [];
+  const audioRequests = [];
+  const audioGetRequests = [];
+  const audioDownloadRequests = [];
   const redirects = [];
   let listCalls = 0;
   const nextStatus = (statuses, path) =>
@@ -224,7 +237,24 @@ async function setup(submitResponse, {
       return execCommandResult;
     },
   });
+  const objectUrls = [];
+  const revokedUrls = [];
+  globalThis.URL = {
+    createObjectURL: blob => {
+      const url = `blob:test-${objectUrls.length + 1}`;
+      objectUrls.push({ url, blob });
+      return url;
+    },
+    revokeObjectURL: url => { revokedUrls.push(url); },
+  };
+  const storageData = new Map();
+  const storage = {
+    getItem: key => storageData.get(key) ?? null,
+    setItem: (key, value) => { storageData.set(key, String(value)); },
+    removeItem: key => { storageData.delete(key); },
+  };
   globalThis.window = new FakeElement();
+  globalThis.window.localStorage = storage;
   globalThis.window.setTimeout = (callback, delay) => {
     const id = ++nextTimer;
     timers.set(id, callback);
@@ -252,6 +282,22 @@ async function setup(submitResponse, {
         args[0] === "/api/v1/users/me" ? meStatuses : refreshStatuses,
         args[0],
       ), user);
+    }
+    if (args[0].includes("/messages/") && args[0].includes("/audio")) {
+      if (/[?&]download=1/.test(args[0])) {
+        audioDownloadRequests.push(args);
+        const status = audioDownloadStatuses[audioDownloadRequests.length - 1] ?? audioDownloadStatuses.at(-1);
+        return { status, blob: async () => audioBlob };
+      }
+      if (args[1]?.method === "POST") {
+        audioRequests.push(args);
+        const status = audioStatuses[audioRequests.length - 1] ?? audioStatuses.at(-1);
+        return { status, json: async () => ({ status: status === 200 ? "ready" : "pending" }) };
+      }
+      audioGetRequests.push(args);
+      const status = audioGetStatuses[audioGetRequests.length - 1] ?? audioGetStatuses.at(-1);
+      if (status === 202) return { status, json: async () => ({ status: "pending" }) };
+      return { status, blob: async () => audioBlob };
     }
     if (args[0].endsWith("/feedback")) {
       feedbackRequests.push(args);
@@ -379,6 +425,15 @@ async function setup(submitResponse, {
     copied,
     execCopies,
     body,
+    audioRequests,
+    audioGetRequests,
+    audioDownloadRequests,
+    objectUrls,
+    revokedUrls,
+    voiceButton: elements["#saiVoiceButton"],
+    voiceValue: elements["#saiVoiceValue"],
+    voiceMenu: elements["#saiVoiceMenu"],
+    storage,
   };
 }
 
@@ -2052,4 +2107,186 @@ test("passwords never reach browser storage", async () => {
     delete globalThis.localStorage;
     delete globalThis.sessionStorage;
   }
+});
+
+test("a finished answer is voiced and the action becomes download", async () => {
+  const ui = await rated();
+  const [bar] = ui.feedbackBars();
+  const voice = part(bar, "sai-voice-line");
+  const [action, refresh, , state, player] = voice.children;
+  const audio = player.children[0];
+
+  assert.equal(action.textContent, "Озвучить");
+  assert.equal(refresh.hidden, true);
+  assert.equal(player.hidden, true);
+
+  await action.dispatch("click");
+  await settle();
+
+  assert.equal(ui.audioRequests.length, 1);
+  assert.equal(ui.audioRequests[0][0], "/api/v1/dialogs/dialog-1/messages/42/audio");
+  assert.equal(ui.audioRequests[0][1].method, "POST");
+  assert.deepEqual(JSON.parse(ui.audioRequests[0][1].body), { voice: "aidar" });
+  assert.equal(action.textContent, "Готовим озвучку…");
+  assert.equal(state.textContent, "Готовим озвучку…");
+  assert.equal(ui.timers.size, 1);
+
+  await ui.runNextTimer();
+  assert.equal(ui.audioGetRequests.length, 1);
+  assert.equal(
+    ui.audioGetRequests[0][0],
+    "/api/v1/dialogs/dialog-1/messages/42/audio?voice=aidar",
+  );
+  assert.equal(action.textContent, "Скачать");
+  assert.equal(player.hidden, false);
+  assert.match(audio.src, /^blob:test-/);
+  assert.equal(ui.objectUrls.length, 1);
+  assert.equal(refresh.hidden, false);
+});
+
+test("an already voiced saved answer shows download without a new POST", async () => {
+  const ui = await setup(deferred(), {
+    dialogs: SAVED,
+    transcripts: {
+      "d-2": transcript("Ракета", [
+        { id: 12, role: "assistant", content: "Однажды…", created_at: "x", feedback: null, audio_voices: ["aidar"] },
+      ]),
+    },
+  });
+  ui.historyItems()[0].dispatch("click");
+  await settle();
+
+  const [bar] = ui.feedbackBars();
+  const voice = part(bar, "sai-voice-line");
+  const [action, refresh, , , player] = voice.children;
+  const audio = player.children[0];
+  assert.equal(action.textContent, "Скачать");
+  assert.equal(refresh.hidden, false);
+  assert.equal(player.hidden, false);
+  assert.equal(
+    audio.src,
+    "/api/v1/dialogs/d-2/messages/12/audio?voice=aidar",
+  );
+  assert.equal(ui.audioRequests.length, 0);
+
+  await action.dispatch("click");
+  await settle();
+
+  assert.equal(ui.audioDownloadRequests.length, 1);
+  assert.equal(
+    ui.audioDownloadRequests[0][0],
+    "/api/v1/dialogs/d-2/messages/12/audio?voice=aidar&download=1",
+  );
+  assert.equal(ui.objectUrls.length, 1);
+  assert.equal(ui.revokedUrls.length, 0);
+  await ui.runNextTimer();
+  assert.equal(ui.revokedUrls.length, 1);
+});
+
+test("a failed voiceover leaves a safe message and the original action", async () => {
+  const ui = await rated({ audioStatuses: [503] });
+  const [bar] = ui.feedbackBars();
+  const [action, , , state] = part(bar, "sai-voice-line").children;
+
+  await action.dispatch("click");
+  await settle();
+
+  assert.equal(action.textContent, "Озвучить");
+  assert.equal(state.textContent, "Озвучка недоступна");
+  assert.equal(ui.audioGetRequests.length, 0);
+});
+
+test("switching stories stops the current player", async () => {
+  const ui = await setup(deferred(), {
+    dialogs: SAVED,
+    transcripts: {
+      "d-2": transcript("Ракета", [
+        { id: 12, role: "assistant", content: "Однажды…", created_at: "x", feedback: null, audio_voices: ["aidar"] },
+      ]),
+      "d-1": transcript("Без названия", []),
+    },
+  });
+  ui.historyItems()[0].dispatch("click");
+  await settle();
+  const player = part(ui.feedbackBars()[0], "sai-voice-line").children[4];
+  const audio = player.children[0];
+  assert.equal(player.hidden, false);
+
+  ui.historyItems()[1].dispatch("click");
+  await settle();
+
+  assert.equal(audio.paused, true);
+  assert.equal(audio.loaded, true);
+});
+
+test("the voice picker shows the current name without a label and stores the choice", async () => {
+  const ui = await setup(deferred());
+  assert.equal(ui.voiceValue.textContent, "Айдар");
+  assert.equal(ui.voiceMenu.hidden, true);
+
+  ui.voiceButton.dispatch("click");
+  assert.equal(ui.voiceMenu.hidden, false);
+  assert.equal(ui.voiceButton.getAttribute("aria-expanded"), "true");
+  assert.equal(ui.voiceMenu.children.length, 5);
+
+  const options = ui.voiceMenu.children;
+  assert.deepEqual(options.map(option => option.dataset.voice), [
+    "aidar",
+    "baya",
+    "kseniya",
+    "xenia",
+    "eugene",
+  ]);
+  assert.equal(options[0].getAttribute("aria-selected"), "true");
+  assert.equal(ui.voiceValue.textContent, "Айдар");
+  assert.equal(ui.voiceButton.textContent.includes("Голос"), false);
+
+  options[4].dispatch("click");
+  assert.equal(ui.storage.getItem("smeshariki.voice"), "eugene");
+  assert.equal(ui.voiceValue.textContent, "Евгений");
+  assert.equal(ui.voiceMenu.hidden, true);
+});
+
+test("the chosen voice is sent with a new voiceover request", async () => {
+  const response = deferred();
+  const ui = await setup(response);
+  ui.voiceButton.dispatch("click");
+  ui.voiceMenu.children[3].dispatch("click");
+
+  ui.prompt.value = "История";
+  const submission = ui.form.dispatch("submit");
+  response.resolve({ status: 202 });
+  await submission;
+  ui.source.emit("message_start");
+  ui.source.emit("message_end", { message_id: 42 });
+  await settle();
+
+  const [bar] = ui.feedbackBars();
+  const [action] = part(bar, "sai-voice-line").children;
+  await action.dispatch("click");
+  await settle();
+
+  assert.deepEqual(JSON.parse(ui.audioRequests[0][1].body), { voice: "xenia" });
+});
+
+test("the compact player has its own controls and style hooks", async () => {
+  const ui = await setup(deferred(), {
+    dialogs: SAVED,
+    transcripts: {
+      "d-2": transcript("Ракета", [
+        { id: 12, role: "assistant", content: "Однажды…", created_at: "x", feedback: null, audio_voices: ["aidar"] },
+      ]),
+    },
+  });
+  ui.historyItems()[0].dispatch("click");
+  await settle();
+
+  const line = part(ui.feedbackBars()[0], "sai-voice-line");
+  const player = part(line, "sai-player");
+  assert.equal(player.hidden, false);
+  assert.equal(player.className, "sai-player");
+  assert.equal(player.children[1].className, "sai-player-toggle");
+  assert.equal(player.children[3].className, "sai-player-progress");
+  assert.equal(part(line, "sai-voice-button").textContent, "Скачать");
+  assert.equal(part(line, "sai-voice-refresh").hidden, false);
 });

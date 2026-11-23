@@ -373,3 +373,40 @@ async def test_reviewed_reports_become_news_until_seen() -> None:
         ReportNews(first, None, None),
         ReportNews(second, tea, "Чай"),
     )
+
+
+@pytest.mark.asyncio
+async def test_get_message_returns_own_answer_with_feedback() -> None:
+    store = InMemoryHistoryStore()
+    dialog_id = await store.create(OWNER)
+    _, answer_id = await store.append(dialog_id, pair("q1", "Однажды…"))
+    await store.set_feedback(OWNER, dialog_id, answer_id, 5)
+
+    message = await store.get_message(OWNER, dialog_id, answer_id)
+
+    assert message.id == answer_id
+    assert message.role is MessageRole.ASSISTANT
+    assert message.content == "Однажды…"
+    assert message.feedback == 5
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", ["user", "stranger", "other-dialog", "missing"])
+async def test_get_message_rejects_everything_but_own_assistant_answer(
+    case: str,
+) -> None:
+    store = InMemoryHistoryStore()
+    dialog_id = await store.create(OWNER)
+    other_id = await store.create(OWNER)
+    question_id, answer_id = await store.append(dialog_id, pair("q"))
+    _, other_answer = await store.append(other_id, pair("other"))
+    owner, target_dialog, message_id = {
+        "user": (OWNER, dialog_id, question_id),
+        "stranger": (STRANGER, dialog_id, answer_id),
+        "other-dialog": (OWNER, dialog_id, other_answer),
+        "missing": (OWNER, dialog_id, 10_000),
+    }[case]
+
+    expected = DialogNotFoundError if case == "stranger" else MessageNotFoundError
+    with pytest.raises(expected):
+        await store.get_message(owner, target_dialog, message_id)

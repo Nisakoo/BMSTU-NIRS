@@ -20,6 +20,7 @@ Backend хранит постоянные данные в PostgreSQL 17. Баз�
 | `rag_lore_*` | Документы, чанки, postings, статистика и журнал BM25-поиска по лору: схема описана в [BM25-поиске](./lore.md#хранение-и-масштаб) | Реализовано, миграция `0013` |
 | `message_feedback` | Оценки ответов ассистента (1–5) | Реализовано, миграции `0005`, `0006` |
 | `message_reports` | Жалобы на ответы ассистента | Реализовано, миграции `0008`, `0009` |
+| `message_audio` | Метаданные озвучки по сообщению и голосу; MP3 — в Ceph | Реализовано, миграции `0013`, `0014` |
 
 Миграция `0010` добавляет в `rag_loads` колонку `operation` (`load` или
 `delete`), миграция `0011` — значение `restore`, миграция `0012` включает
@@ -52,6 +53,7 @@ erDiagram
     users ||--o{ refresh_sessions : "владеет"
     users ||--o{ dialogs : "владеет"
     dialogs ||--o{ messages : "содержит"
+    messages ||--o{ message_audio : "озвучивается"
     refresh_sessions |o--o| refresh_sessions : "replaced_by"
 
     users {
@@ -168,6 +170,31 @@ erDiagram
 заменяет прежнюю (`INSERT ... ON CONFLICT DO UPDATE`), снятие удаляет строку.
 Перед записью хранилище проверяет, что сообщение — ответ ассистента в
 диалоге этого пользователя. Удаление пользователя каскадно удаляет и оценки.
+
+### `message_audio`
+
+| Столбец | Тип | Ограничения |
+| --- | --- | --- |
+| `message_id` | `bigint` | часть PK, FK `messages(id) ON DELETE CASCADE` |
+| `voice_id` | `text` | часть PK, встроенный голос Silero |
+| `status` | `text` | `NOT NULL`, `CHECK status IN ('pending','ready','failed')` |
+| `text_hash` | `text` | `NOT NULL`, SHA-256 исходного текста ответа |
+| `voice_version` | `text` | `NOT NULL`, модель/голос/скорость/версия нормализации |
+| `object_key` | `text` | nullable, ключ MP3 в Ceph |
+| `size_bytes` | `int` | nullable, `>= 0` |
+| `etag` | `text` | nullable, ETag Ceph |
+| `mime_type` | `text` | nullable; `audio/mpeg` для готового аудио |
+| `duration_ms` | `int` | nullable, `>= 0` |
+| `audio_data` | `bytea` | legacy-поле для ленивого переноса в Ceph, новые записи его не пишут |
+| `error_code` | `text` | nullable |
+| `created_at`, `updated_at` | `timestamptz` | `NOT NULL DEFAULT now()` |
+
+Одна строка на пару `(message_id, voice_id)`. `object_key` указывает на
+приватный объект Ceph; при повторной генерации старый ключ сохраняется до
+успешной замены. `pending` без объекта означает генерацию, `pending` с
+существующим `object_key` после рестарта снова считается `ready`. Колонка
+`audio_data` нужна только для переноса старых строк и после backfill пуста.
+Контракт, ключи объектов и API описаны в [озвучке](./audio.md).
 
 ### `message_reports`
 

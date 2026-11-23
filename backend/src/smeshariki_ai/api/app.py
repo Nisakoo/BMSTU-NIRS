@@ -19,7 +19,7 @@ from fastapi import (
     status,
 )
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, ValidationError
 
 from smeshariki_ai.admin import AdminReportsService, AdminStatsService
@@ -32,6 +32,7 @@ from smeshariki_ai.api.auth import (
     install_auth_errors,
 )
 from smeshariki_ai.api.schemas import (
+    AudioRequest,
     DbIdPath,
     DialogListResponse,
     DialogMessageResponse,
@@ -66,6 +67,13 @@ from smeshariki_ai.dialogs import (
     ReportExistsError,
 )
 from smeshariki_ai.observability import RequestLogMiddleware, log_event
+from smeshariki_ai.speech.errors import (
+    SpeechTextTooLongError,
+    SpeechUnavailableError,
+    SpeechVoiceError,
+)
+from smeshariki_ai.speech.models import SpeechStatus
+from smeshariki_ai.speech.service import NarratorSpeechService
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +92,7 @@ def create_app(
     auth_cookie_secure: bool = False,
     admin_stats: AdminStatsService | None = None,
     admin_reports: AdminReportsService | None = None,
+    speech_service: NarratorSpeechService | None = None,
     on_shutdown: Sequence[Callable[[], Awaitable[None]]] = (),
 ) -> FastAPI:
     if heartbeat_seconds <= 0:
@@ -91,18 +100,25 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        yield
         try:
-            await agent_service.shutdown()
+            if speech_service is not None:
+                await speech_service.startup()
+            yield
         finally:
-            for close in on_shutdown:
-                await close()
+            try:
+                await agent_service.shutdown()
+            finally:
+                if speech_service is not None:
+                    await speech_service.shutdown()
+                for close in on_shutdown:
+                    await close()
 
     app = FastAPI(title="smeshariki-ai", lifespan=lifespan)
     # Added first, so it runs inside the request log and its 403 is logged.
     app.add_middleware(ForbiddenOriginMiddleware)
     app.add_middleware(RequestLogMiddleware)
     app.state.agent_service = agent_service
+    app.state.speech_service = speech_service
     install_auth_errors(app)
 
     @app.get("/agent_test", response_class=HTMLResponse, include_in_schema=False)
@@ -148,6 +164,8 @@ def create_app(
         response_class=Response,
     )
     async def delete_dialog(user: CurrentUser, dialog_id: UUID) -> Response:
+        if speech_service is not None:
+            await speech_service.delete_dialog_audio(user.id, dialog_id)
         with _dialog_errors():
             await agent_service.delete_dialog(user.id, dialog_id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -161,6 +179,16 @@ def create_app(
     ) -> DialogMessagesResponse:
         with _dialog_errors():
             transcript = await agent_service.transcript(user.id, dialog_id)
+            assistant_ids = [
+                item.id
+                for item in transcript.messages
+                if item.role.value == "assistant"
+            ]
+            audio_voices = (
+                await speech_service.available_voices(assistant_ids)
+                if speech_service is not None
+                else {}
+            )
         return DialogMessagesResponse(
             dialog_id=transcript.dialog_id,
             title=transcript.title,
@@ -173,6 +201,7 @@ def create_app(
                     feedback=item.feedback,
                     reported=item.reported,
                     report=item.report,
+                    audio_voices=sorted(audio_voices.get(item.id, ())),
                 )
                 for item in transcript.messages
             ],
@@ -197,6 +226,80 @@ def create_app(
             )
 
         return Response(status_code=status.HTTP_202_ACCEPTED)
+
+    @router.post(
+        "/dialogs/{dialog_id}/messages/{message_id}/audio",
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    async def start_audio(
+        user: CurrentUser,
+        dialog_id: UUID,
+        message_id: DbIdPath,
+        request: Request,
+    ) -> JSONResponse:
+        if speech_service is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Voiceover is unavailable.",
+            )
+        body = await _read_optional_body(request, AudioRequest)
+        with _dialog_errors():
+            await speech_service.request(
+                user.id,
+                dialog_id,
+                message_id,
+                body.voice,
+            )
+        return JSONResponse({"status": "pending"}, status_code=status.HTTP_202_ACCEPTED)
+
+    @router.get("/dialogs/{dialog_id}/messages/{message_id}/audio")
+    async def get_audio(
+        user: CurrentUser,
+        dialog_id: UUID,
+        message_id: DbIdPath,
+        voice: str | None = None,
+        download: bool = False,
+    ) -> Response:
+        if speech_service is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Voiceover is unavailable.",
+            )
+        with _dialog_errors():
+            payload = await speech_service.get(
+                user.id,
+                dialog_id,
+                message_id,
+                voice,
+            )
+        if payload is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Message not found.",
+            )
+        record = payload.record
+        if record.object_key is None and record.status is SpeechStatus.PENDING:
+            return JSONResponse(
+                {"status": "pending"}, status_code=status.HTTP_202_ACCEPTED
+            )
+        if record.object_key is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Voiceover failed.",
+            )
+        disposition = "attachment" if download else "inline"
+        return Response(
+            content=payload.data,
+            media_type=record.mime_type,
+            headers={
+                "Cache-Control": "private, no-store",
+                "Content-Disposition": (
+                    f'{disposition}; filename="smeshariki-{message_id}-'
+                    f'{record.voice_id}.mp3"'
+                ),
+                "ETag": f'"{record.etag or record.text_hash[:16]}"',
+            },
+        )
 
     @router.put(
         "/dialogs/{dialog_id}/messages/{message_id}/feedback",
@@ -340,6 +443,21 @@ def _dialog_errors() -> Iterator[None]:
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Dialog not found.",
         ) from error
+    except SpeechTextTooLongError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Answer is too long for voiceover.",
+        ) from error
+    except SpeechVoiceError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Unknown narrator voice.",
+        ) from error
+    except SpeechUnavailableError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Voiceover is unavailable.",
+        ) from error
     except (AgentServiceUnavailableError, DialogStoreUnavailableError) as error:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -391,6 +509,14 @@ async def _read_body[Body: BaseModel](request: Request, model: type[Body]) -> Bo
                 for detail in error.errors(include_url=False, include_context=False)
             ]
         ) from error
+
+
+async def _read_optional_body[Body: BaseModel](
+    request: Request, model: type[Body]
+) -> Body:
+    if not request.headers.get("content-type"):
+        return model()
+    return await _read_body(request, model)
 
 
 def _format_dialog_event(event: DialogEvent) -> str:

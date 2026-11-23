@@ -68,6 +68,7 @@ class DialogMessageResponse(ApiModel):
     feedback: Score | None
     reported: bool
     report: ReportState | None
+    audio_voices: list[str] = Field(default_factory=list)
 
 
 class DialogMessagesResponse(ApiModel):
@@ -78,6 +79,10 @@ class DialogMessagesResponse(ApiModel):
 
 class FeedbackRequest(ApiModel):
     score: Score
+
+
+class AudioRequest(ApiModel):
+    voice: str | None = None
 
 
 class ReportRequest(ApiModel):

@@ -127,7 +127,10 @@ export class AgentApi {
           || typeof item.content !== "string"
           || !(item.feedback === null || isScore(item.feedback))
           || !(item.reported === undefined || typeof item.reported === "boolean")
-          || !isReport(item.report)) {
+          || !isReport(item.report)
+          || !(item.audio_voices === undefined || Array.isArray(item.audio_voices))
+          || (Array.isArray(item.audio_voices)
+            && !item.audio_voices.every(voice => typeof voice === "string"))) {
           throw new AgentApiError("invalid_response");
         }
         return {
@@ -136,6 +139,7 @@ export class AgentApi {
           content: item.content,
           feedback: item.feedback,
           report: item.report ?? (item.reported === true ? "sent" : null),
+          audioVoices: item.audio_voices ?? [],
         };
       }),
     };
@@ -178,6 +182,84 @@ export class AgentApi {
     });
   }
 
+  async startAudio(dialogId, messageId, voice = null) {
+    const init = voice === null
+      ? { method: "POST" }
+      : {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ voice }),
+        };
+    let response;
+    try {
+      response = await this.fetchImpl(this.#audioUrl(dialogId, messageId), init);
+    } catch {
+      throw new AgentApiError("audio_failed");
+    }
+    if (response.status === 401) throw new AgentApiError("unauthorized");
+    if (response.status === 404) throw new AgentApiError("not_found");
+    if (response.status === 422) throw new AgentApiError("invalid_voice");
+    if (response.status === 503) throw new AgentApiError("audio_unavailable");
+    if (response.status !== 200 && response.status !== 202) {
+      throw new AgentApiError("audio_failed");
+    }
+    let body;
+    try {
+      body = await response.json();
+    } catch {
+      throw new AgentApiError("invalid_response");
+    }
+    if (body?.status !== "pending" && body?.status !== "ready") {
+      throw new AgentApiError("invalid_response");
+    }
+    return body.status;
+  }
+
+  async getAudio(dialogId, messageId, voice = null) {
+    let response;
+    try {
+      response = await this.fetchImpl(this.#audioUrl(dialogId, messageId, voice));
+    } catch {
+      throw new AgentApiError("audio_failed");
+    }
+    if (response.status === 401) throw new AgentApiError("unauthorized");
+    if (response.status === 404) throw new AgentApiError("not_found");
+    if (response.status === 422) throw new AgentApiError("invalid_voice");
+    if (response.status === 503) throw new AgentApiError("audio_unavailable");
+    if (response.status === 202) return { status: "pending" };
+    if (response.status !== 200 || typeof response.blob !== "function") {
+      throw new AgentApiError("audio_failed");
+    }
+    try {
+      return { status: "ready", blob: await response.blob() };
+    } catch {
+      throw new AgentApiError("invalid_response");
+    }
+  }
+
+  async downloadAudio(dialogId, messageId, voice = null) {
+    const url = this.#audioUrl(dialogId, messageId, voice);
+    const separator = voice === null ? "?" : "&";
+    let response;
+    try {
+      response = await this.fetchImpl(`${url}${separator}download=1`);
+    } catch {
+      throw new AgentApiError("audio_failed");
+    }
+    if (response.status === 401) throw new AgentApiError("unauthorized");
+    if (response.status === 404) throw new AgentApiError("not_found");
+    if (response.status === 422) throw new AgentApiError("invalid_voice");
+    if (response.status === 503) throw new AgentApiError("audio_unavailable");
+    if (response.status !== 200 || typeof response.blob !== "function") {
+      throw new AgentApiError("audio_failed");
+    }
+    try {
+      return await response.blob();
+    } catch {
+      throw new AgentApiError("invalid_response");
+    }
+  }
+
   async markReportNewsSeen(reportIds) {
     let response;
     try {
@@ -212,6 +294,11 @@ export class AgentApi {
     if (response.status === 401) throw new AgentApiError("unauthorized");
     if (response.status === 404) throw new AgentApiError("not_found");
     if (response.status !== 201 && response.status !== 409) throw new AgentApiError("report_failed");
+  }
+
+  #audioUrl(dialogId, messageId, voice = null) {
+    const base = `/api/v1/dialogs/${encodeURIComponent(dialogId)}/messages/${encodeURIComponent(messageId)}/audio`;
+    return voice === null ? base : `${base}?voice=${encodeURIComponent(voice)}`;
   }
 
   async #sendFeedback(dialogId, messageId, init) {

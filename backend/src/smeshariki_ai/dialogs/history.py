@@ -36,6 +36,15 @@ class HistoryStore(ABC):
         """Return an immutable snapshot of a dialog history."""
 
     @abstractmethod
+    async def get_message(
+        self,
+        owner_id: UUID,
+        dialog_id: UUID,
+        message_id: int,
+    ) -> StoredMessage:
+        """Return one assistant answer from the user's own dialog."""
+
+    @abstractmethod
     async def append(
         self,
         dialog_id: UUID,
@@ -169,6 +178,30 @@ class InMemoryHistoryStore(HistoryStore):
             return tuple(
                 Message(role=item.role, content=item.content)
                 for item in dialog.messages
+            )
+
+    async def get_message(
+        self,
+        owner_id: UUID,
+        dialog_id: UUID,
+        message_id: int,
+    ) -> StoredMessage:
+        async with self._lock:
+            dialog = self._owned(owner_id, dialog_id)
+            item = next(
+                (
+                    item
+                    for item in dialog.messages
+                    if item.id == message_id and item.role is MessageRole.ASSISTANT
+                ),
+                None,
+            )
+            if item is None:
+                raise MessageNotFoundError(dialog_id, message_id)
+            return replace(
+                item,
+                feedback=self._feedback.get(item.id),
+                report=self._report_state(item.id),
             )
 
     async def append(

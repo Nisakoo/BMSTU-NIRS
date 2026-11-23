@@ -10,6 +10,7 @@ from smeshariki_ai.auth import AuthConfig
 from smeshariki_ai.cache import RedisConfig
 from smeshariki_ai.db import DatabaseConfig
 from smeshariki_ai.observability import LoggingConfig
+from smeshariki_ai.speech import CephS3Config, SpeechConfig
 
 __all__ = ["Config", "load_config"]
 
@@ -23,6 +24,8 @@ class Config(BaseModel):
     auth: AuthConfig
     database: DatabaseConfig
     redis: RedisConfig
+    speech: SpeechConfig = Field(default_factory=SpeechConfig)
+    ceph: CephS3Config = Field(default_factory=CephS3Config)
 
 
 def load_config(environ: Mapping[str, str] | None = None) -> Config:
@@ -89,6 +92,30 @@ def load_config(environ: Mapping[str, str] | None = None) -> Config:
     if "REDIS_URL" in source:
         redis_values["url"] = source["REDIS_URL"]
 
+    speech_values: dict[str, Any] = {}
+    for environment_name, field_name in (
+        ("SPEECH_ENABLED", "enabled"),
+        ("SPEECH_VOICE", "voice"),
+        ("SPEECH_SPEED", "speed"),
+        ("SPEECH_MAX_CONCURRENCY", "max_concurrency"),
+        ("SPEECH_MAX_TEXT_CHARS", "max_text_chars"),
+        ("SPEECH_MODEL_PATH", "model_path"),
+    ):
+        if environment_name in source:
+            speech_values[field_name] = source[environment_name]
+
+    ceph_values: dict[str, Any] = {}
+    for environment_name, field_name in (
+        ("CEPH_S3_ENDPOINT", "endpoint"),
+        ("CEPH_S3_BUCKET", "bucket"),
+        ("CEPH_S3_ACCESS_KEY", "access_key"),
+        ("CEPH_S3_SECRET_KEY", "secret_key"),
+        ("CEPH_S3_REGION", "region"),
+        ("CEPH_S3_PREFIX", "prefix"),
+    ):
+        if environment_name in source:
+            ceph_values[field_name] = source[environment_name]
+
     return Config(
         agent=AgentConfig.model_validate(agent_values),
         llm=LiteLLMProviderConfig.model_validate(provider_values),
@@ -96,4 +123,6 @@ def load_config(environ: Mapping[str, str] | None = None) -> Config:
         auth=AuthConfig.model_validate(auth_values),
         database=DatabaseConfig.model_validate(database_values),
         redis=RedisConfig.model_validate(redis_values),
+        speech=SpeechConfig.model_validate(speech_values),
+        ceph=CephS3Config.model_validate(ceph_values),
     )

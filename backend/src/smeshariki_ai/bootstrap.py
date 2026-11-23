@@ -15,6 +15,7 @@ from smeshariki_ai.config import Config
 from smeshariki_ai.db import (
     PostgresAdminStatsStore,
     PostgresHistoryStore,
+    PostgresMessageAudioStore,
     PostgresRefreshSessionStore,
     PostgresReportStore,
     PostgresUserStore,
@@ -34,6 +35,14 @@ from smeshariki_ai.rag.memory import InMemoryKnowledgeStore
 from smeshariki_ai.rag.ports import KnowledgeReader
 from smeshariki_ai.rag.postgres import PostgresKnowledgeStore
 from smeshariki_ai.rag.tools import LookupKnowledgeTool
+from smeshariki_ai.speech.ceph import CephS3AudioObjectStore
+from smeshariki_ai.speech.encoder import AudioEncoder, FfmpegAudioEncoder
+from smeshariki_ai.speech.memory import InMemoryMessageAudioStore
+from smeshariki_ai.speech.memory_objects import InMemoryAudioObjectStore
+from smeshariki_ai.speech.objects import AudioObjectStore
+from smeshariki_ai.speech.provider import SpeechProvider
+from smeshariki_ai.speech.service import NarratorSpeechService
+from smeshariki_ai.speech.silero import SileroSpeechProvider
 
 
 def build_agent_service(
@@ -75,12 +84,15 @@ def create_application(
     *,
     llm_provider: LLMProvider | None = None,
     auth_service: AuthService | None = None,
+    speech_provider: SpeechProvider | None = None,
+    speech_encoder: AudioEncoder | None = None,
+    speech_object_store: AudioObjectStore | None = None,
 ) -> FastAPI:
     configure_logging(config.logging)
     on_shutdown = []
     admin_stats = None
     admin_reports = None
-    history_store: HistoryStore | None = None
+    audio_store = None
     knowledge_reader: KnowledgeReader | None = None
     lore_index: LoreIndex | None = None
     lore_analyzer: TextAnalyzer | None = None
@@ -88,7 +100,8 @@ def create_application(
         # Both clients are lazy: no connection is opened until the first request.
         engine = create_engine(config.database)
         redis = create_redis(config.redis)
-        history_store = PostgresHistoryStore(engine)
+        history_store: HistoryStore = PostgresHistoryStore(engine)
+        audio_store = PostgresMessageAudioStore(engine)
         knowledge_reader = PostgresKnowledgeStore(engine)
         lore_index = PostgresBm25Index(engine)
         lore_analyzer = MorphAnalyzer()
@@ -102,6 +115,25 @@ def create_application(
         admin_stats = AdminStatsService(PostgresAdminStatsStore(engine))
         admin_reports = AdminReportsService(PostgresReportStore(engine))
         on_shutdown = [engine.dispose, redis.aclose]
+    else:
+        history_store = InMemoryHistoryStore()
+    speech_service = None
+    if config.speech.enabled:
+        speech_service = NarratorSpeechService(
+            history_store=history_store,
+            audio_store=audio_store or InMemoryMessageAudioStore(),
+            object_store=speech_object_store
+            or (
+                CephS3AudioObjectStore(config.ceph)
+                if audio_store is not None
+                else InMemoryAudioObjectStore()
+            ),
+            provider=speech_provider
+            or SileroSpeechProvider.from_path(config.speech.model_path),
+            encoder=speech_encoder or FfmpegAudioEncoder(),
+            config=config.speech,
+            object_prefix=config.ceph.prefix,
+        )
     agent_service = build_agent_service(
         config,
         llm_provider=llm_provider,
@@ -116,5 +148,6 @@ def create_application(
         auth_cookie_secure=config.auth.cookie_secure,
         admin_stats=admin_stats,
         admin_reports=admin_reports,
+        speech_service=speech_service,
         on_shutdown=on_shutdown,
     )

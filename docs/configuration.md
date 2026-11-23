@@ -14,6 +14,8 @@ class Config(BaseModel):
     auth: AuthConfig
     database: DatabaseConfig
     redis: RedisConfig
+    speech: SpeechConfig
+    ceph: CephS3Config
 
 def load_config(environ: Mapping[str, str] | None = None) -> Config: ...
 ```
@@ -103,6 +105,18 @@ resource завершает старт контролируемой ошибко
 | `AUTH_REGISTER_PER_IP_WINDOW_SECONDS` | `auth.rate_limit.register_per_ip_window_seconds` | `3600`, целое число больше нуля |
 | `DATABASE_URL` | `database.url` | Обязательный URL `postgresql+asyncpg://...` |
 | `REDIS_URL` | `redis.url` | Обязательный URL `redis://` или `rediss://` |
+| `SPEECH_ENABLED` | `speech.enabled` | `true`; `false` отключает локальную озвучку без загрузки модели |
+| `SPEECH_VOICE` | `speech.voice` | `baya`; встроенный голос Silero v5 (`aidar`, `baya`, `kseniya`, `xenia`, `eugene`) |
+| `SPEECH_SPEED` | `speech.speed` | `1.0`, число от `0.5` до `2.0` |
+| `SPEECH_MAX_CONCURRENCY` | `speech.max_concurrency` | `1`, целое больше нуля |
+| `SPEECH_MAX_TEXT_CHARS` | `speech.max_text_chars` | `20000`, целое от 1 до 100000 |
+| `SPEECH_MODEL_PATH` | `speech.model_path` | `/models/silero/v5_ru.pt` |
+| `CEPH_S3_ENDPOINT` | `ceph.endpoint` | `http://ceph-rgw:7480` |
+| `CEPH_S3_BUCKET` | `ceph.bucket` | `smeshariki-audio` |
+| `CEPH_S3_ACCESS_KEY` | `ceph.access_key` | `smeshariki` |
+| `CEPH_S3_SECRET_KEY` | `ceph.secret_key` | SecretStr; задаётся только через env |
+| `CEPH_S3_REGION` | `ceph.region` | `us-east-1` |
+| `CEPH_S3_PREFIX` | `ceph.prefix` | `smeshariki-audio` |
 
 Переменная `FORWARDED_ALLOW_IPS` не входит в `Config`: её читает Uvicorn
 (см. [доверие к `X-Forwarded-For`](./auth.md#ограничение-частоты-попыток)).

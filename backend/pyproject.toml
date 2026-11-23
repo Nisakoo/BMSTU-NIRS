@@ -12,14 +12,18 @@ dependencies = [
     "alembic>=1.20.0,<2",
     "argon2-cffi>=25.1.0,<26",
     "asyncpg>=0.32.0,<1",
+    "boto3>=1.43,<2",
     "fastapi>=0.141.1,<1",
     "litellm>=1.101.0,<2",
+    "numpy>=1.26,<3",
     "pydantic>=2.13.5,<3",
     "pyjwt>=2.15.1,<3",
     "pymorphy3>=2.0,<3",
     "pyyaml>=6.0.3,<7",
     "redis>=8.1.0,<9",
+    "scipy>=1.14,<2",
     "sqlalchemy[asyncio]>=2.1.4,<3",
+    "torch>=2.9.0,<3",
     "uvicorn>=0.52.4,<1",
 ]
 
@@ -46,3 +50,11 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I", "UP"]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }

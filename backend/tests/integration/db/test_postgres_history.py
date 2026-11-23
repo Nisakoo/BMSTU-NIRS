@@ -535,3 +535,31 @@ async def test_news_of_a_deleted_story_has_no_dialog(engine: AsyncEngine) -> Non
     assert await store.report_news(owner, limit=20) == (
         ReportNews(report_id=report_id, dialog_id=None, dialog_title=None),
     )
+
+
+async def test_get_message_returns_only_own_assistant_answer(
+    engine: AsyncEngine,
+) -> None:
+    owner = await add_user(engine, "krosh")
+    stranger = await add_user(engine, "nyusha")
+    store = PostgresHistoryStore(engine)
+    dialog_id = await store.create(owner)
+    other_id = await store.create(owner)
+    question_id, answer_id = await store.append(dialog_id, pair("q", "Однажды…"))
+    _, other_answer = await store.append(other_id, pair("o"))
+    await store.set_feedback(owner, dialog_id, answer_id, 4)
+
+    message = await store.get_message(owner, dialog_id, answer_id)
+    assert message.id == answer_id
+    assert message.role is MessageRole.ASSISTANT
+    assert message.feedback == 4
+
+    for user, target, message_id, expected in (
+        (owner, dialog_id, question_id, MessageNotFoundError),
+        (stranger, dialog_id, answer_id, DialogNotFoundError),
+        (owner, dialog_id, other_answer, MessageNotFoundError),
+        (owner, dialog_id, 10_000_000, MessageNotFoundError),
+        (owner, uuid4(), answer_id, DialogNotFoundError),
+    ):
+        with pytest.raises(expected):
+            await store.get_message(user, target, message_id)

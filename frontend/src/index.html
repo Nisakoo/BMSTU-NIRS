@@ -99,6 +99,11 @@
     <div class="sai-compose-wrap">
       <form class="sai-composer" id="saiForm">
         <textarea id="saiPrompt" rows="1" placeholder="Например: Крош и Ёжик строят ракету и отправляются смотреть звёзды…" aria-label="Идея для истории" disabled></textarea>
+        <button class="sai-voice-picker" id="saiVoiceButton" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="saiVoiceMenu" aria-label="Выбрать голос рассказчика" disabled>
+          <span id="saiVoiceValue">Айдар</span>
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m7 10 5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div class="sai-voice-menu" id="saiVoiceMenu" role="listbox" aria-label="Голос рассказчика" hidden></div>
         <button class="sai-length-button" id="saiLengthButton" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="saiLengthPanel" aria-label="Длина истории: Любая" disabled>
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span id="saiLengthValue">Любая</span>
         </button>

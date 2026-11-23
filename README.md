@@ -49,15 +49,38 @@ Docker Compose проектом. Агент и RAG входят в состав 
 - `make format` — автоматическое исправление и форматирование Python-кода.
 
 После настройки `docker/.env` приложение доступно на
-[`http://localhost:8080/`](http://localhost:8080/), демо-макет панели
-администратора — на [`http://localhost:8080/admin/`](http://localhost:8080/admin/), а
-страница входа и регистрации — на [`http://localhost:8080/login/`](http://localhost:8080/login/).
+[`http://localhost:8090/`](http://localhost:8090/), демо-макет панели
+администратора — на [`http://localhost:8090/admin/`](http://localhost:8090/admin/), а
+страница входа и регистрации — на [`http://localhost:8090/login/`](http://localhost:8090/login/).
 Настройки и примеры HTTP-запросов описаны в
 [`docker/README.md`](docker/README.md). Backend использует настраиваемый
 LiteLLM-провайдер, PostgreSQL для пользователей, истории диалогов и знаний RAG,
 а также Redis для аутентификации. RAG предоставляет агенту инструмент
 `lookup_knowledge`, а знания загружаются, выгружаются и удаляются командами из
 корня репозитория.
+
+## Озвучка сказок
+
+Для локальной озвучки нужна модель Silero TTS v5 `v5_ru.pt`. Скачайте её с
+официального URL и положите в `docker/models/silero/`:
+
+```sh
+mkdir -p docker/models/silero
+curl -fL https://models.silero.ai/models/tts/ru/v5_ru.pt \
+  -o docker/models/silero/v5_ru.pt
+```
+
+Файл модели не коммитится и уже исключён в `.gitignore`. Для проверки
+SHA-256 можно использовать `docker/fetch-silero.sh`:
+
+```sh
+SILERO_MODEL_SHA256=<sha256> \
+  ./docker/fetch-silero.sh docker/models/silero/v5_ru.pt
+```
+
+После этого установите `SPEECH_ENABLED=true` в `docker/.env` и запустите
+`make run`. Если модель пока не нужна, оставьте `SPEECH_ENABLED=false`.
+Подробности — в [`docs/audio.md`](docs/audio.md).
 
 ## Документация
 

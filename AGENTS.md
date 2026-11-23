@@ -489,6 +489,38 @@
     весь пакет. Спецификации: `knowledge-export`, `knowledge-delete`,
     `knowledge-restore`, `knowledge-optimistic-lock`.
 
+## Реализованная озвучка сказок
+
+1. Пакет `smeshariki_ai.speech` содержит `SpeechConfig`, `CephS3Config`,
+   доменные модели аудио, `SpeechProvider`, локальный `SileroSpeechProvider`
+   v5, fake-провайдер, нормализацию и нарезку, MP3-кодировщик, контракт
+   `MessageAudioStore`, `AudioObjectStore`, Ceph S3-клиент и
+   `NarratorSpeechService`.
+2. Во frontend можно выбрать один из встроенных голосов Silero (`aidar`,
+   `baya`, `kseniya`, `xenia`, `eugene`). Выбор хранится в `localStorage` под
+   ключом `smeshariki.voice`, по умолчанию `aidar`, и не сохраняется на
+   backend. Контрол показывает название голоса и стрелку вниз без подписи
+   «Голос».
+3. `POST /api/v1/dialogs/{dialog_id}/messages/{message_id}/audio` принимает
+   необязательный `{"voice":"<id>"}`, а `GET` — `?voice=<id>`. Без голоса
+   используется `SPEECH_VOICE`; неизвестный голос даёт `422`. Каждый `POST`
+   перегенерирует MP3, даже если запись уже есть.
+4. MP3 хранится в приватном Ceph RGW (сервис `ceph-rgw` на `s3gw` в Compose,
+   том `ceph-data`). Ключ:
+   `smeshariki-audio/{dialog_id}/{message_id}/{voice_id}/{generation_id}.mp3`.
+   В PostgreSQL таблица `message_audio` (миграции `0013`, `0014`) хранит
+   `message_id`/`voice_id`, статус, `text_hash`, `voice_version`, `object_key`,
+   `size_bytes`, `etag`, `mime_type`, `duration_ms`, `error_code` и время.
+5. Старый объект Ceph не удаляется до успешной публикации нового; при ошибке
+   старая озвучка остаётся доступной. `GET /messages` возвращает
+   `audio_voices`; удаление диалога удаляет метаданные и объекты Ceph.
+6. Модель Silero v5 не коммитится: `docker/fetch-silero.sh` скачивает её по
+   официальному URL с проверкой SHA-256 в `docker/models/silero/v5_ru.pt`.
+   При `SPEECH_ENABLED=false` backend работает без модели и Ceph, ручки аудио
+   отвечают `503`.
+7. Спецификации: `specs/changes/silero-narrator-tts/` и
+   `specs/changes/voice-selection-ceph/`.
+
 ## Согласованные технологии
 
 - Python 3.12 — runtime backend.

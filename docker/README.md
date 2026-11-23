@@ -24,9 +24,9 @@ make run
 backend отклоняет) и `POSTGRES_PASSWORD`. Локальный `docker/.env` не отслеживается Git;
 реальные секреты не должны попадать в `.env.example`.
 
-После запуска frontend доступен на `http://localhost:8080/`, demo-макет панели
-администратора — на `http://localhost:8080/admin/`, страница входа и регистрации —
-на `http://localhost:8080/login/`, API — на том же origin по
+После запуска frontend доступен на `http://localhost:8090/`, demo-макет панели
+администратора — на `http://localhost:8090/admin/`, страница входа и регистрации —
+на `http://localhost:8090/login/`, API — на том же origin по
 пути `/api/v1/...`. Значение `APP_PORT` в `docker/.env` меняет внешний
 порт. Compose публикует только порт Caddy на `127.0.0.1`; backend и Nginx
 доступны лишь внутри его сети. Локальный вход использует HTTP: публичный домен
@@ -52,6 +52,23 @@ Backend использует LiteLLM Python SDK внутри своего про
 `LLM_THINKING=true` отклоняется при старте. Отдельный LiteLLM Proxy не
 запускается.
 
+Локальная озвучка включается `SPEECH_ENABLED` (в шаблоне и Compose по
+умолчанию `false`, пока модель не подготовлена; значение по умолчанию в
+`SpeechConfig` — `true`) и использует Silero v5 на CPU. Голос задаётся `SPEECH_VOICE` (`baya` по
+умолчанию), скорость — `SPEECH_SPEED`, одновременность — `SPEECH_MAX_CONCURRENCY`,
+а путь к модели — `SPEECH_MODEL_PATH=/models/silero/v5_ru.pt`. Модель не
+коммитится: скачайте её на хосте в `docker/models/silero/v5_ru.pt` скриптом
+`SILERO_MODEL_SHA256=<sha256> docker/fetch-silero.sh docker/models/silero/v5_ru.pt`
+и включите `SPEECH_ENABLED=true`. Compose монтирует `docker/models` в
+контейнер read-only. Без модели оставьте `SPEECH_ENABLED=false`, иначе backend
+остановится при старте.
+MP3-файлы озвучки хранятся в Ceph RGW-совместимом сервисе `ceph-rgw`
+(`quay.io/s3gw/s3gw`, файловый backend, внутренний порт `7480`, том
+`ceph-data`). Backend обращается к нему по `CEPH_S3_ENDPOINT`; bucket
+`CEPH_S3_BUCKET` создаётся идемпотентно. Секрет `CEPH_S3_SECRET_KEY`
+передаётся только через `docker/.env`. Образ `ceph-rgw` собран под
+`linux/amd64`; на Apple Silicon Docker использует эмуляцию.
+
 `LOG_LEVEL` задаёт уровень журнала backend (`DEBUG`, `INFO`, `WARNING`,
 `ERROR`), `LOG_FORMAT` выбирает читаемый формат `human` либо построчный `json`.
 По умолчанию используются `INFO` и `human`. Логи доступны через
@@ -70,11 +87,11 @@ Backend использует LiteLLM Python SDK внутри своего про
 Регистрация, вход и текущий пользователь:
 
 ```sh
-curl -i http://localhost:8080/api/v1/users \
+curl -i http://localhost:8090/api/v1/users \
   -H 'Content-Type: application/json' -d '{"login":"krosh","password":"password123"}'
-curl -i -c cookies.txt http://localhost:8080/api/v1/auth/login \
+curl -i -c cookies.txt http://localhost:8090/api/v1/auth/login \
   -H 'Content-Type: application/json' -d '{"login":"krosh","password":"password123"}'
-curl -i -b cookies.txt http://localhost:8080/api/v1/users/me
+curl -i -b cookies.txt http://localhost:8090/api/v1/users/me
 ```
 
 Ручки диалогов требуют ту же cookie: добавляйте `-b cookies.txt` к запросам
@@ -93,13 +110,13 @@ make create-admin LOGIN=sovunya
 Создание диалога:
 
 ```sh
-curl -i -X POST http://localhost:8080/api/v1/dialogs
+curl -i -X POST http://localhost:8090/api/v1/dialogs
 ```
 
 Отправка сообщения, где `<dialog_id>` взят из первого ответа:
 
 ```sh
-curl -i -X POST http://localhost:8080/api/v1/dialogs/<dialog_id>/messages \
+curl -i -X POST http://localhost:8090/api/v1/dialogs/<dialog_id>/messages \
   -H 'Content-Type: application/json' \
   -d '{"request":"Кто такой Крош?"}'
 ```
@@ -112,8 +129,8 @@ curl -i -X POST http://localhost:8080/api/v1/dialogs/<dialog_id>/messages \
 
 ## Состав
 
-- `compose.yaml` — сервисы backend, migrate, PostgreSQL, Redis, frontend/Nginx и
-  Caddy;
+- `compose.yaml` — сервисы backend, migrate, PostgreSQL, Redis, Ceph RGW,
+  frontend/Nginx и Caddy;
 - `Dockerfile` — Python 3.12 образ backend с зависимостями из `backend/uv.lock`;
 - `frontend.Dockerfile` — Node.js 22 build frontend и runtime Nginx;
 - `nginx.conf` — конфиг Nginx: относительные редиректы на каталог
@@ -124,7 +141,8 @@ curl -i -X POST http://localhost:8080/api/v1/dialogs/<dialog_id>/messages \
   [verification](../specs/changes/frontend-nginx-config/verification.md));
 - `Caddyfile` — маршруты `/api` к backend и остальных запросов к Nginx;
 - `.env.example` — несекретный шаблон порта, агента, LiteLLM-провайдера, логов,
-  аутентификации и PostgreSQL.
+  аутентификации, PostgreSQL, локальной озвучки Silero и Ceph.
+- `fetch-silero.sh` — загрузка и проверка SHA-256 модели Silero v5.
 - `compose.test.yaml` и `test-integration.sh` — временные PostgreSQL и Redis
   для `make test-integration`.
 

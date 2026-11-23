@@ -14,6 +14,7 @@ from smeshariki_ai.auth import AuthConfig, RateLimitConfig
 from smeshariki_ai.cache import RedisConfig
 from smeshariki_ai.config import Config, load_config
 from smeshariki_ai.db import DatabaseConfig
+from smeshariki_ai.speech import CephS3Config, SpeechConfig
 
 JWT_SECRET = "test-secret-with-at-least-32-bytes!!"
 DATABASE_URL = "postgresql+asyncpg://app:db-password@postgres:5432/app"
@@ -46,6 +47,8 @@ def test_config_has_component_owned_nested_configs() -> None:
         "auth",
         "database",
         "redis",
+        "speech",
+        "ceph",
     }
     assert isinstance(config.agent, AgentConfig)
     assert isinstance(config.llm, LiteLLMProviderConfig)
@@ -64,9 +67,82 @@ def test_load_config_uses_agent_and_provider_defaults() -> None:
         auth=AuthConfig(jwt_secret=JWT_SECRET),
         database=DatabaseConfig(url=DATABASE_URL),
         redis=RedisConfig(url=REDIS_URL),
+        speech=SpeechConfig(),
+        ceph=CephS3Config(),
     )
     assert config.logging.level == "INFO"
     assert config.logging.format == "human"
+
+
+def test_load_config_reads_ceph_options() -> None:
+    config = load_config(
+        {
+            **BASE_ENV,
+            "LLM_MODEL": "test/model",
+            "CEPH_S3_ENDPOINT": "http://ceph:7480/",
+            "CEPH_S3_BUCKET": "audio-test",
+            "CEPH_S3_ACCESS_KEY": "access",
+            "CEPH_S3_SECRET_KEY": "secret",
+            "CEPH_S3_REGION": "region",
+            "CEPH_S3_PREFIX": "prefix",
+        }
+    )
+
+    assert config.ceph.endpoint == "http://ceph:7480"
+    assert config.ceph.bucket == "audio-test"
+    assert config.ceph.access_key == "access"
+    assert config.ceph.secret_key.get_secret_value() == "secret"
+    assert config.ceph.region == "region"
+    assert config.ceph.prefix == "prefix"
+
+
+def test_load_config_reads_speech_options() -> None:
+    config = load_config(
+        {
+            **BASE_ENV,
+            "LLM_MODEL": "test/model",
+            "SPEECH_ENABLED": "false",
+            "SPEECH_VOICE": "aidar",
+            "SPEECH_SPEED": "1.1",
+            "SPEECH_MAX_CONCURRENCY": "2",
+            "SPEECH_MAX_TEXT_CHARS": "12345",
+            "SPEECH_MODEL_PATH": "/tmp/v5_ru.pt",
+        }
+    )
+
+    assert config.speech == SpeechConfig(
+        enabled=False,
+        voice="aidar",
+        speed=1.1,
+        max_concurrency=2,
+        max_text_chars=12_345,
+        model_path="/tmp/v5_ru.pt",
+    )
+
+
+def test_load_config_uses_speech_defaults() -> None:
+    assert load_config({**BASE_ENV, "LLM_MODEL": "test/model"}).speech == SpeechConfig()
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"SPEECH_ENABLED": "maybe"},
+        {"SPEECH_VOICE": "unknown"},
+        {"SPEECH_SPEED": "0.4"},
+        {"SPEECH_MAX_CONCURRENCY": "0"},
+        {"SPEECH_MAX_TEXT_CHARS": "abc"},
+        {"SPEECH_MODEL_PATH": " "},
+        {"CEPH_S3_ENDPOINT": "not-a-url"},
+        {"CEPH_S3_BUCKET": " "},
+        {"CEPH_S3_SECRET_KEY": ""},
+    ],
+)
+def test_load_config_rejects_invalid_speech_options(
+    change: dict[str, str],
+) -> None:
+    with pytest.raises(ValidationError):
+        load_config({**BASE_ENV, "LLM_MODEL": "test/model", **change})
 
 
 def test_load_config_reads_logging_options() -> None:

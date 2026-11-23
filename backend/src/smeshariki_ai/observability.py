@@ -54,6 +54,7 @@ _SAFE_FIELDS = frozenset(
         "error_type",
         "model",
         "message_count",
+        "char_count",
         "tool_count",
         "match_count",
         "suggestion_count",
