@@ -31,7 +31,7 @@ PostgreSQL-индекс, CLI, in-memory адаптер для тестов, ин
 - [`rag/lore/services.py`](../backend/src/smeshariki_ai/rag/lore/services.py) —
   `LoadLore` и `SearchLore`;
 - миграция
-  [`0013_lore_bm25.py`](../backend/src/smeshariki_ai/db/migrations/versions/0013_lore_bm25.py).
+  [`0015_lore_bm25.py`](../backend/src/smeshariki_ai/db/migrations/versions/0015_lore_bm25.py).
 
 ## Формула
 

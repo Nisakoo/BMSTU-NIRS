@@ -1,7 +1,7 @@
 """SQLAlchemy Core description of the ``rag_lore_*`` tables.
 
 The tables are owned by the RAG lore subsystem and have no foreign keys to
-other modules. The migration ``0013_lore_bm25`` is the source of truth for the
+other modules. The migration ``0015_lore_bm25`` is the source of truth for the
 database; a test checks that it matches this description.
 """
 
