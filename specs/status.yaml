@@ -176,6 +176,6 @@ specs:
     - name: lore-benchmark
       status: done
     - name: silero-narrator-tts
-      status: in-progress
+      status: done
     - name: voice-selection-ceph
       status: done
