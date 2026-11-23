@@ -23,6 +23,13 @@ from smeshariki_ai.db import (
 from smeshariki_ai.dialogs import HistoryStore, InMemoryHistoryStore
 from smeshariki_ai.observability import configure_logging
 from smeshariki_ai.rag.lookup import KnowledgeLookup
+from smeshariki_ai.rag.lore.analyzer import MorphAnalyzer, SimpleAnalyzer, TextAnalyzer
+from smeshariki_ai.rag.lore.context import LoreContextBuilder
+from smeshariki_ai.rag.lore.index import InMemoryBm25Index
+from smeshariki_ai.rag.lore.ports import LoreIndex
+from smeshariki_ai.rag.lore.postgres import PostgresBm25Index
+from smeshariki_ai.rag.lore.services import SearchLore
+from smeshariki_ai.rag.lore.tools import SearchLoreTool
 from smeshariki_ai.rag.memory import InMemoryKnowledgeStore
 from smeshariki_ai.rag.ports import KnowledgeReader
 from smeshariki_ai.rag.postgres import PostgresKnowledgeStore
@@ -35,10 +42,21 @@ def build_agent_service(
     llm_provider: LLMProvider | None = None,
     history_store: HistoryStore | None = None,
     knowledge_reader: KnowledgeReader | None = None,
+    lore_index: LoreIndex | None = None,
+    lore_analyzer: TextAnalyzer | None = None,
 ) -> AgentService:
     provider = LiteLLMProvider(config.llm) if llm_provider is None else llm_provider
     knowledge = KnowledgeLookup(knowledge_reader or InMemoryKnowledgeStore())
-    tool_registry = ToolRegistry((LookupKnowledgeTool(knowledge),))
+    lore = SearchLore(
+        lore_index or InMemoryBm25Index(),
+        lore_analyzer or SimpleAnalyzer(),
+    )
+    tool_registry = ToolRegistry(
+        (
+            LookupKnowledgeTool(knowledge),
+            SearchLoreTool(lore, LoreContextBuilder()),
+        )
+    )
     agent = Agent(
         llm_provider=provider,
         tool_registry=tool_registry,
@@ -64,12 +82,16 @@ def create_application(
     admin_reports = None
     history_store: HistoryStore | None = None
     knowledge_reader: KnowledgeReader | None = None
+    lore_index: LoreIndex | None = None
+    lore_analyzer: TextAnalyzer | None = None
     if auth_service is None:
         # Both clients are lazy: no connection is opened until the first request.
         engine = create_engine(config.database)
         redis = create_redis(config.redis)
         history_store = PostgresHistoryStore(engine)
         knowledge_reader = PostgresKnowledgeStore(engine)
+        lore_index = PostgresBm25Index(engine)
+        lore_analyzer = MorphAnalyzer()
         auth_service = AuthService(
             users=PostgresUserStore(engine),
             sessions=PostgresRefreshSessionStore(engine),
@@ -85,6 +107,8 @@ def create_application(
         llm_provider=llm_provider,
         history_store=history_store,
         knowledge_reader=knowledge_reader,
+        lore_index=lore_index,
+        lore_analyzer=lore_analyzer,
     )
     return create_app(
         agent_service,
