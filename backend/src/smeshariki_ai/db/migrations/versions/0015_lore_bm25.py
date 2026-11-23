@@ -1,7 +1,7 @@
 """Create the ``rag_lore_*`` tables of the BM25 lore search.
 
-Revision ID: 0013
-Revises: 0012
+Revision ID: 0015
+Revises: 0014
 Create Date: 2026-11-22
 """
 
@@ -11,8 +11,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "0013"
-down_revision: str | None = "0012"
+revision: str = "0015"
+down_revision: str | None = "0014"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

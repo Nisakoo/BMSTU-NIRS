@@ -179,3 +179,5 @@ specs:
       status: done
     - name: voice-selection-ceph
       status: done
+    - name: story-canon
+      status: done

@@ -69,7 +69,7 @@ def test_bootstrap_builds_service_with_explicit_provider() -> None:
     assert isinstance(app.state.agent_service, AgentService)
     assert [
         definition.name for definition in service._agent._tool_registry.definitions
-    ] == ["lookup_knowledge", "search_lore"]
+    ] == ["lookup_knowledge", "get_story_canon", "search_lore"]
     lore_index, lore_analyzer = lore_components(service)
     assert isinstance(lore_index, InMemoryBm25Index)
     assert isinstance(lore_analyzer, SimpleAnalyzer)
@@ -82,6 +82,10 @@ def knowledge_reader(service: AgentService) -> object:
 def lore_components(service: AgentService) -> tuple[object, object]:
     tool = service._agent._tool_registry.get("search_lore")
     return tool._search._index, tool._search._analyzer
+
+
+def story_canon_reader(service: AgentService) -> object:
+    return service._agent._tool_registry.get("get_story_canon")._lookup._reader
 
 
 async def test_service_without_knowledge_store_reports_knowledge_unavailable() -> None:
@@ -125,6 +129,12 @@ def test_production_application_keeps_history_in_postgres() -> None:
     assert isinstance(production_analyzer, MorphAnalyzer)
     assert isinstance(test_lore, InMemoryBm25Index)
     assert isinstance(test_analyzer, SimpleAnalyzer)
+    assert isinstance(
+        story_canon_reader(production.state.agent_service), PostgresKnowledgeStore
+    )
+    assert isinstance(
+        story_canon_reader(with_auth.state.agent_service), InMemoryKnowledgeStore
+    )
 
 
 def test_bootstrap_passes_exact_component_configs(
@@ -359,3 +369,6 @@ def test_create_application_accepts_explicit_auth_service(
     lore_index, lore_analyzer = lore_components(app.state.agent_service)
     assert isinstance(lore_index, InMemoryBm25Index)
     assert isinstance(lore_analyzer, SimpleAnalyzer)
+    assert isinstance(
+        story_canon_reader(app.state.agent_service), InMemoryKnowledgeStore
+    )
