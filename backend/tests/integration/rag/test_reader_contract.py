@@ -86,6 +86,14 @@ async def test_yo_and_e_give_the_same_key(loaded: Store) -> None:
     assert ids(await loaded.find(normalize_name("Самолет"))) == {"artifacts": ["plane"]}
 
 
+async def test_prop_names_are_locations_and_artifacts(loaded: Store) -> None:
+    assert set(await loaded.prop_names()) == {"Дом", "Самолёт"}
+
+
+async def test_empty_store_has_no_prop_names(store: Store) -> None:
+    assert await store.prop_names() == ()
+
+
 async def test_names_of_character_references(loaded: Store) -> None:
     found = await loaded.find("krosh")
 

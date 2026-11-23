@@ -343,6 +343,19 @@ class PostgresKnowledgeStore(KnowledgeStore, KnowledgeReader):
                 )
             )
 
+    async def prop_names(self) -> tuple[str, ...]:
+        names: list[str] = []
+        async with self._snapshot() as connection:
+            for kind in (EntityType.ARTIFACT, EntityType.LOCATION):
+                table, owner, column = _NAMES[kind]
+                statement = (
+                    select(table.c[column])
+                    .where(table.c.position == 0)
+                    .order_by(table.c[owner])
+                )
+                names.extend((await connection.scalars(statement)).all())
+        return tuple(names)
+
 
 class _PostgresTransaction(KnowledgeTransaction):
     def __init__(self, connection: AsyncConnection) -> None:

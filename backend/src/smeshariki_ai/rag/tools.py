@@ -58,9 +58,10 @@ class GetStoryCanonTool(Tool):
         "sources, places, items or episodes. Treat the profile as a constraint "
         "on character and speech, not as a plot or a list of facts to mention: "
         "do not enumerate relationships and do not add props from it unless "
-        "the user asks. For factual questions use lookup_knowledge; for "
-        "narrative tone use search_lore. If status is not_found or "
-        "unavailable, continue with the user's idea and do not invent canon."
+        "the user asks. For a story scene, object or place, call search_lore "
+        "once as well; for factual questions use lookup_knowledge. If status "
+        "is not_found or unavailable, continue with the user's idea and do "
+        "not invent canon."
     )
     arguments_model: ClassVar[type[BaseModel]] = StoryCanonArguments
 

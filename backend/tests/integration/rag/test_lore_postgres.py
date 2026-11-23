@@ -95,7 +95,11 @@ async def test_search_lore_tool_uses_postgres_and_returns_compact_context(
     )
 
     result = await registry.execute(
-        ToolCall(id="call-1", name="search_lore", arguments={"query": "Крош Ёжик"})
+        ToolCall(
+            id="call-1",
+            name="search_lore",
+            arguments={"query": "Крош Ёжик поссорились"},
+        )
     )
 
     assert result.error is None

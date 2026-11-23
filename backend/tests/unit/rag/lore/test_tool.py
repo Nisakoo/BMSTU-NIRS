@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 
 from smeshariki_ai.agent.models import ToolCall
@@ -90,7 +91,7 @@ async def test_found_passages_are_compact_json() -> None:
         )
     )
 
-    result = await registry(index).execute(call({"query": "Крош Ёжик"}))
+    result = await registry(index).execute(call({"query": "Крош Ёжик поссорились"}))
 
     assert result.error is None
     assert result.output["status"] == "found"
@@ -121,6 +122,39 @@ async def test_unavailable_index_returns_safe_status() -> None:
     assert result.output["status"] == "unavailable"
     assert result.output["passages"] == []
     assert "недоступна" in result.output["message"]
+
+
+async def test_name_only_query_returns_no_context() -> None:
+    index = InMemoryBm25Index()
+    await index.replace((entry("a", "Полянка", "Крош и Ёжик поссорились из-за игры."),))
+
+    result = await registry(index).execute(call({"query": "Крош и Ёжик"}))
+
+    assert result.error is None
+    assert result.output["status"] == "empty"
+    assert result.output["passages"] == []
+
+
+async def test_events_show_retrieval_and_context_without_text(caplog) -> None:
+    index = InMemoryBm25Index()
+    await index.replace((entry("a", "Полянка", "Крош и Ёжик построили качели."),))
+    registry_ = ToolRegistry(
+        (
+            SearchLoreTool(
+                SearchLore(index, ANALYZER),
+                LoreContextBuilder(min_score=0.5),
+            ),
+        )
+    )
+    caplog.set_level(logging.INFO)
+
+    await registry_.execute(call({"query": "Крош Ёжик качели"}))
+
+    assert "lore.tool.completed" in caplog.text
+    assert "passage_count=1" in caplog.text
+    assert "context_chars=" in caplog.text
+    assert "quality" not in caplog.text
+    assert "Полянка" not in caplog.text
 
 
 async def test_invalid_arguments_do_not_execute_the_index() -> None:

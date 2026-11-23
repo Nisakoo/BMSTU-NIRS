@@ -9,10 +9,14 @@ descriptions, sources, locations and artifacts never leave the canon.
 from __future__ import annotations
 
 import logging
+import re
 import time
+import unicodedata
 from collections.abc import Sequence
-from typing import Annotated, Literal
+from functools import lru_cache
+from typing import Annotated, Any, Literal
 
+import pymorphy3
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from smeshariki_ai.observability import log_event, utc_now
@@ -46,6 +50,48 @@ UNAVAILABLE_MESSAGE = (
 )
 
 StoryStatus = Literal["found", "not_found", "unavailable"]
+
+_WORD = re.compile(r"[a-zа-я0-9]+(?:-[a-zа-я0-9]+)*")
+
+
+@lru_cache(maxsize=1)
+def _morphology() -> pymorphy3.MorphAnalyzer:
+    return pymorphy3.MorphAnalyzer()
+
+
+def _words(text: str) -> tuple[str, ...]:
+    folded = unicodedata.normalize("NFC", text).casefold().replace("ё", "е")
+    return tuple(match.group(0) for match in _WORD.finditer(folded))
+
+
+def _parse(word: str) -> Any | None:
+    try:
+        return _morphology().parse(word)[0]
+    except (IndexError, ValueError):
+        return None
+
+
+def _prop_lemmas(names: Sequence[str]) -> frozenset[str]:
+    """Nouns of artifact and location names, without adjectives and names."""
+
+    lemmas: set[str] = set()
+    for name in names:
+        for word in _words(name):
+            parsed = _parse(word)
+            if parsed is None or "NOUN" not in parsed.tag:
+                continue
+            if any(tag in parsed.tag for tag in ("Name", "Surn", "Geox", "Orgn")):
+                continue
+            lemmas.add(parsed.normal_form)
+    return frozenset(lemmas)
+
+
+def _trait_names_a_prop(trait: str, prop_lemmas: frozenset[str]) -> bool:
+    for word in _words(trait):
+        parsed = _parse(word)
+        if parsed is not None and parsed.normal_form in prop_lemmas:
+            return True
+    return False
 
 
 class StoryModel(BaseModel):
@@ -114,6 +160,7 @@ class StoryCanonLookup:
         found_version = False
 
         try:
+            prop_lemmas = _prop_lemmas(await self._reader.prop_names())
             for name in clean:
                 found = await self._reader.find(normalize_name(name))
                 if not found.entities.characters:
@@ -138,6 +185,7 @@ class StoryCanonLookup:
                         version,
                         target,
                         found.names,
+                        prop_lemmas,
                     )
                     if len(collected) >= self._limit:
                         break
@@ -199,6 +247,7 @@ class StoryCanonLookup:
         version: CharacterVersion,
         continuity: str,
         names: dict[EntityType, dict[str, str]],
+        prop_lemmas: frozenset[str],
     ) -> StoryCharacter:
         speaker = version.speech_style
         relationships: list[StoryRelationship] = []
@@ -213,13 +262,18 @@ class StoryCanonLookup:
                 continue
             seen.add(key)
             relationships.append(StoryRelationship(to=to, type=relationship.type))
+        traits = tuple(
+            trait
+            for trait in version.traits
+            if not _trait_names_a_prop(trait, prop_lemmas)
+        )
         return StoryCharacter(
             id=character.id,
             name=character.name,
             species=character.species,
             continuity=continuity,
             age_group=version.age_group,
-            traits=version.traits,
+            traits=traits,
             speech_style=StorySpeechStyle(
                 register=speaker.register_,
                 markers=speaker.markers,

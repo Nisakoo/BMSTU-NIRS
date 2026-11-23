@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from typing import Annotated, Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, StringConstraints
 
 from smeshariki_ai.agent.tools import Tool
+from smeshariki_ai.observability import log_event, utc_now
 from smeshariki_ai.rag.lore.context import LoreContextBuilder
 from smeshariki_ai.rag.lore.models import LoreQuery
 from smeshariki_ai.rag.lore.ports import LoreStoreError
 from smeshariki_ai.rag.lore.services import SearchLore
+
+logger = logging.getLogger(__name__)
 
 UNAVAILABLE_MESSAGE = (
     "База лора сейчас недоступна. Продолжай по идее пользователя и не выдавай "
@@ -50,18 +55,47 @@ class SearchLoreTool(Tool):
 
     async def execute(self, arguments: BaseModel) -> dict[str, Any]:
         assert isinstance(arguments, SearchLoreArguments)
+        started_at = utc_now()
+        started = time.monotonic()
+        terms = self._search.analyze(arguments.query)
         try:
             result = await self._search.search(
                 LoreQuery(text=arguments.query, top_k=self._context.retrieval_k)
             )
         except LoreStoreError:
+            log_event(
+                logger,
+                logging.WARNING,
+                "lore.tool.completed",
+                started_at=started_at,
+                duration_ms=round((time.monotonic() - started) * 1000, 3),
+                outcome="unavailable",
+                match_count=0,
+                hit_count=0,
+                passage_count=0,
+                context_chars=0,
+                query_term_count=len(terms),
+            )
             return {
                 "status": "unavailable",
                 "passages": [],
                 "message": UNAVAILABLE_MESSAGE,
             }
 
-        context = self._context.build(result)
+        context = self._context.build(result, query_terms=terms)
+        log_event(
+            logger,
+            logging.INFO,
+            "lore.tool.completed",
+            started_at=started_at,
+            duration_ms=round((time.monotonic() - started) * 1000, 3),
+            outcome=context.status,
+            match_count=result.total,
+            hit_count=result.total,
+            passage_count=len(context.passages),
+            context_chars=sum(len(passage.text) for passage in context.passages),
+            query_term_count=len(terms),
+        )
         return {
             "status": context.status,
             "passages": [

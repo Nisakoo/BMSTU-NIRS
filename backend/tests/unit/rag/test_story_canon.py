@@ -6,7 +6,7 @@ import pytest
 from test_lookup import BASE, load
 
 from smeshariki_ai.rag.memory import InMemoryKnowledgeStore
-from smeshariki_ai.rag.models import Character
+from smeshariki_ai.rag.models import Artifact, Character
 from smeshariki_ai.rag.story_canon import (
     NO_VERSION_MESSAGE,
     NOT_FOUND_MESSAGE,
@@ -57,13 +57,53 @@ KROSH_WITH_BENCH = Character.model_validate(
         ],
     }
 )
+YOZHIK_WITH_HOBBIES = Character.model_validate(
+    {
+        "id": "yozhik",
+        "name": "Ёжик",
+        "species": "ёж",
+        "versions": [
+            {
+                "continuities": ["classic"],
+                "age_group": "child",
+                "traits": [
+                    "застенчивый",
+                    "коллекционирует фантики",
+                    "сентиментальный, дорожит старыми вещами",
+                ],
+                "speech_style": {"register": "тихий"},
+            }
+        ],
+    }
+)
+WRAPPERS = Artifact.model_validate(
+    {
+        "id": "candy_wrapper_collection",
+        "name": "Коллекция фантиков",
+        "artifact_type": "коллекция",
+        "description": "Редкие фантики.",
+        "continuities": ["classic"],
+    }
+)
+OLD_UMBRELLA = Artifact.model_validate(
+    {
+        "id": "old_umbrella",
+        "name": "Старый зонтик Бараша",
+        "artifact_type": "зонтик",
+        "description": "Памятная вещь.",
+        "continuities": ["classic"],
+    }
+)
 
 
 @pytest.fixture
 async def store() -> InMemoryKnowledgeStore:
     value = InMemoryKnowledgeStore()
     await load(value, BASE)
-    await load(value, [BARASH, KROSH_WITH_BENCH])
+    await load(
+        value,
+        [BARASH, KROSH_WITH_BENCH, YOZHIK_WITH_HOBBIES, WRAPPERS, OLD_UMBRELLA],
+    )
     return value
 
 
@@ -88,6 +128,18 @@ async def test_story_profile_has_no_free_text_or_artifacts(
     assert "sources" not in text
     assert "locations" not in text
     assert "artifacts" not in text
+
+
+async def test_traits_that_name_an_artifact_are_dropped(
+    store: InMemoryKnowledgeStore,
+) -> None:
+    result = await StoryCanonLookup(store).lookup(["Ёжик"])
+
+    assert result.status == "found"
+    [character] = result.characters
+    assert "коллекционирует фантики" not in character.traits
+    assert "сентиментальный, дорожит старыми вещами" in character.traits
+    assert "фантик" not in str(result.model_dump(mode="json", by_alias=True))
 
 
 async def test_multiple_names_are_deduplicated(

@@ -169,3 +169,13 @@ class KnowledgeReader(ABC):
     @abstractmethod
     async def has_knowledge(self) -> bool:
         """Whether at least one load has completed."""
+
+    async def prop_names(self) -> tuple[str, ...]:
+        """Canonical names of artifacts and locations.
+
+        Story mode uses this list to keep concrete props and places out of the
+        character profile even when a free-text trait mentions them. Readers
+        that do not support the query return an empty tuple.
+        """
+
+        return ()

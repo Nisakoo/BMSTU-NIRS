@@ -58,12 +58,47 @@ def test_at_most_three_passages_and_one_per_document() -> None:
     )
 
 
-def test_weak_matches_are_dropped() -> None:
-    context = LoreContextBuilder().build(
+def test_weak_matches_are_dropped_by_an_absolute_floor() -> None:
+    context = LoreContextBuilder(min_score=5.0).build(
         result(hit("a", 10.0), hit("b", 4.9), hit("c", 4.0))
     )
 
     assert [passage.title for passage in context.passages] == ["A"]
+
+
+def test_absolute_floor_keeps_a_second_relevant_episode() -> None:
+    # The first story is much stronger but the second is still relevant: a
+    # relative cutoff would drop it, an absolute floor keeps it.
+    context = LoreContextBuilder(min_score=2.0).build(
+        result(hit("a", 7.3), hit("b", 3.6), hit("c", 3.4))
+    )
+
+    assert [passage.title for passage in context.passages] == ["A", "B", "C"]
+
+
+def test_name_only_query_returns_empty_context() -> None:
+    context = LoreContextBuilder().build(
+        result(hit("a", 10.0)),
+        query_terms=("крош", "и", "ежик"),
+    )
+
+    assert context.status == "empty"
+    assert context.passages == ()
+
+
+def test_query_with_a_content_term_is_not_rejected() -> None:
+    context = LoreContextBuilder().build(
+        result(hit("a", 10.0)),
+        query_terms=("крош", "строить", "скамейка"),
+    )
+
+    assert context.status == "found"
+
+
+def test_builder_without_query_terms_does_not_apply_the_content_rule() -> None:
+    context = LoreContextBuilder().build(result(hit("a", 10.0)))
+
+    assert context.status == "found"
 
 
 def test_long_text_is_clipped_to_the_character_budget() -> None:
@@ -105,4 +140,4 @@ def test_invalid_builder_settings_are_rejected() -> None:
     with pytest.raises(ValueError):
         LoreContextBuilder(max_chars=0)
     with pytest.raises(ValueError):
-        LoreContextBuilder(score_ratio=1.1)
+        LoreContextBuilder(min_score=-1)

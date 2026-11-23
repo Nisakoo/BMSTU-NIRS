@@ -181,3 +181,9 @@ specs:
       status: done
     - name: story-canon
       status: done
+    - name: lore-context-precision
+      status: done
+    - name: lore-tool-observability
+      status: done
+    - name: rag-real-corpus
+      status: done

@@ -58,6 +58,14 @@ SSE-подключение имеет собственный `request_id`; св�
 запроса, подсказки и знания в журнал не попадают
 ([страница RAG](./rag.md#инструмент-lookup_knowledge)).
 
+BM25 пишет `lore.search.completed` с `outcome`, `match_count`, `hit_count`,
+`query_term_count`, `top_score`, `index_version`, `started_at` и
+`duration_ms`. Инструмент `search_lore` добавляет `lore.tool.completed` с
+`passage_count` и `context_chars`: по этим полям видно, сколько фрагментов
+реально ушло в контекст. Текст запроса, фрагменты, заголовки документов и
+идентификаторы чанков в журнал не попадают
+([BM25-поиск](./lore.md#инструмент-search_lore)).
+
 Обслуживание знаний пишет `rag.export.completed`, `rag.delete.completed`,
 `rag.restore.completed` и `rag.load.completed` с `outcome`, `started_at`,
 `duration_ms` и числовыми счётчиками `entity_count`, `deleted_count` или

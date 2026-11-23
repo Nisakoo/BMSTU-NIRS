@@ -159,6 +159,14 @@ class InMemoryKnowledgeStore(KnowledgeStore, KnowledgeReader):
     async def has_knowledge(self) -> bool:
         return any(r.summary is not None for r in self._state.loads.values())
 
+    async def prop_names(self) -> tuple[str, ...]:
+        entities = self._state.entities
+        return tuple(
+            _name(entities[ref])
+            for ref in sorted(entities, key=lambda item: (item.type.value, item.id))
+            if ref.type in (EntityType.ARTIFACT, EntityType.LOCATION)
+        )
+
     async def snapshot(self) -> KnowledgeSnapshot:
         state = self._state
         return KnowledgeSnapshot(

@@ -67,7 +67,7 @@ class SearchLore:
     async def search(self, query: LoreQuery) -> LoreSearchResult:
         started_at = utc_now()
         started = time.monotonic()
-        terms = self._analyzer.terms(query.text)
+        terms = self.analyze(query.text)
         try:
             hits = (
                 await self._index.search(terms, query.top_k, self._config.bm25)
@@ -84,6 +84,7 @@ class SearchLore:
                 duration_ms=round((time.monotonic() - started) * 1000, 3),
                 outcome="failed",
                 match_count=0,
+                query_term_count=len(terms),
                 error_type=type(error).__name__,
             )
             raise
@@ -95,9 +96,17 @@ class SearchLore:
             duration_ms=round((time.monotonic() - started) * 1000, 3),
             outcome="found" if hits else "empty",
             match_count=len(hits),
+            hit_count=len(hits),
+            query_term_count=len(terms),
+            top_score=round(hits[0].score, 3) if hits else None,
             index_version=version,
         )
         return LoreSearchResult(hits=hits, total=len(hits), version=version)
+
+    def analyze(self, text: str) -> tuple[str, ...]:
+        """Analyze a query the same way documents were analyzed."""
+
+        return self._analyzer.terms(text)
 
 
 class LoadLore:
