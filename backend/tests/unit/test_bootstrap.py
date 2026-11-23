@@ -33,6 +33,9 @@ from smeshariki_ai.config import Config
 from smeshariki_ai.db import DatabaseConfig, PostgresHistoryStore
 from smeshariki_ai.dialogs import InMemoryHistoryStore
 from smeshariki_ai.observability import LoggingConfig
+from smeshariki_ai.rag.lore.analyzer import MorphAnalyzer, SimpleAnalyzer
+from smeshariki_ai.rag.lore.index import InMemoryBm25Index
+from smeshariki_ai.rag.lore.postgres import PostgresBm25Index
 from smeshariki_ai.rag.memory import InMemoryKnowledgeStore
 from smeshariki_ai.rag.postgres import PostgresKnowledgeStore
 
@@ -62,11 +65,19 @@ def test_bootstrap_builds_service_with_explicit_provider() -> None:
     assert isinstance(app.state.agent_service, AgentService)
     assert [
         definition.name for definition in service._agent._tool_registry.definitions
-    ] == ["lookup_knowledge"]
+    ] == ["lookup_knowledge", "search_lore"]
+    lore_index, lore_analyzer = lore_components(service)
+    assert isinstance(lore_index, InMemoryBm25Index)
+    assert isinstance(lore_analyzer, SimpleAnalyzer)
 
 
 def knowledge_reader(service: AgentService) -> object:
     return service._agent._tool_registry.get("lookup_knowledge")._lookup._reader
+
+
+def lore_components(service: AgentService) -> tuple[object, object]:
+    tool = service._agent._tool_registry.get("search_lore")
+    return tool._search._index, tool._search._analyzer
 
 
 async def test_service_without_knowledge_store_reports_knowledge_unavailable() -> None:
@@ -102,6 +113,14 @@ def test_production_application_keeps_history_in_postgres() -> None:
     assert isinstance(
         with_auth.state.agent_service._history_store, InMemoryHistoryStore
     )
+    production_lore, production_analyzer = lore_components(
+        production.state.agent_service
+    )
+    test_lore, test_analyzer = lore_components(with_auth.state.agent_service)
+    assert isinstance(production_lore, PostgresBm25Index)
+    assert isinstance(production_analyzer, MorphAnalyzer)
+    assert isinstance(test_lore, InMemoryBm25Index)
+    assert isinstance(test_analyzer, SimpleAnalyzer)
 
 
 def test_bootstrap_passes_exact_component_configs(
@@ -280,3 +299,6 @@ def test_create_application_accepts_explicit_auth_service(
     assert app.state.auth_service is auth_service
     assert isinstance(app.state.agent_service._history_store, InMemoryHistoryStore)
     assert isinstance(knowledge_reader(app.state.agent_service), InMemoryKnowledgeStore)
+    lore_index, lore_analyzer = lore_components(app.state.agent_service)
+    assert isinstance(lore_index, InMemoryBm25Index)
+    assert isinstance(lore_analyzer, SimpleAnalyzer)

@@ -25,6 +25,13 @@ from smeshariki_ai.rag.postgres import PostgresKnowledgeStore
 
 
 def only_rag_tables(name: str | None, type_: str, parent_names: Any) -> bool:
+    # This contract covers structured knowledge; lore has its own schema test.
+    if name and "rag_lore_" in name:
+        return False
+    if isinstance(parent_names, dict) and any(
+        "rag_lore_" in str(value) for value in parent_names.values()
+    ):
+        return False
     return type_ != "table" or bool(name and name.startswith("rag_"))
 
 
@@ -115,7 +122,7 @@ async def test_schema_matches_table_description(engine: AsyncEngine) -> None:
         )
 
     assert differences == []
-    assert len(await rag_table_names(engine)) == 23
+    assert len(await rag_table_names(engine)) == 29
 
 
 async def test_downgrade_removes_tables_and_upgrade_restores_them(
@@ -125,7 +132,7 @@ async def test_downgrade_removes_tables_and_upgrade_restores_them(
     assert await rag_table_names(engine) == set()
 
     await asyncio.to_thread(upgrade, create_engine(database_config))
-    assert len(await rag_table_names(engine)) == 23
+    assert len(await rag_table_names(engine)) == 29
 
 
 async def test_title_key_migration_fills_existing_episodes(

@@ -1,0 +1,255 @@
+# BM25-поиск по лору
+
+[← Глобальный каталог](./README.md) · [RAG](./rag.md)
+
+BM25-поиск ищет **нарративные фрагменты**: сценарии, описания эпизодов и
+сюжетные заготовки. Он не заменяет структурированный канон: точные факты о
+персонажах, локациях, артефактах и эпизодах по-прежнему отдаёт
+[`lookup_knowledge`](./rag.md#инструмент-lookup_knowledge). Лор нужен, чтобы
+агент мог опереться на тон и примеры историй, а не пересказывать справочник.
+
+Состояние: реализованы ядро BM25, YAML-пакет лора, загрузка в PostgreSQL,
+PostgreSQL-индекс, CLI, in-memory адаптер для тестов, инструмент агента
+`search_lore` с контекстным бюджетом и benchmark 30/10/5 с четырьмя метриками.
+
+## Где находится реализация
+
+- [`rag/lore/models.py`](../backend/src/smeshariki_ai/rag/lore/models.py) —
+  документы, чанки, запросы и результаты;
+- [`rag/lore/bm25.py`](../backend/src/smeshariki_ai/rag/lore/bm25.py) — чистый
+  расчёт BM25;
+- [`rag/lore/analyzer.py`](../backend/src/smeshariki_ai/rag/lore/analyzer.py) —
+  `SimpleAnalyzer` и `MorphAnalyzer`;
+- [`rag/lore/chunking.py`](../backend/src/smeshariki_ai/rag/lore/chunking.py) —
+  детерминированное чанкование;
+- [`rag/lore/package.py`](../backend/src/smeshariki_ai/rag/lore/package.py) —
+  проверка YAML-пакета;
+- [`rag/lore/index.py`](../backend/src/smeshariki_ai/rag/lore/index.py) —
+  in-memory индекс для тестов и benchmark;
+- [`rag/lore/postgres.py`](../backend/src/smeshariki_ai/rag/lore/postgres.py) —
+  загрузка, хранение и PostgreSQL-поиск;
+- [`rag/lore/services.py`](../backend/src/smeshariki_ai/rag/lore/services.py) —
+  `LoadLore` и `SearchLore`;
+- миграция
+  [`0013_lore_bm25.py`](../backend/src/smeshariki_ai/db/migrations/versions/0013_lore_bm25.py).
+
+## Формула
+
+Используется вариант из методички:
+
+```text
+IDF(t) = ln(1 + (N - df(t) + 0.5) / (df(t) + 0.5))
+
+BM25(q, d) = Σ IDF(t) * tf(t,d) * (k1 + 1)
+             / (tf(t,d) + k1 * (1 - b + b * |d| / avgdl))
+```
+
+- `N` — число чанков;
+- `df(t)` — число чанков с термом;
+- `tf(t,d)` — число вхождений терма в чанк;
+- `|d|` — длина чанка в термах, `avgdl` — средняя длина;
+- `k1 = 1.2`, `b = 0.75`; параметры можно менять в `Bm25Params` и проверять
+  benchmark-ом;
+- термы запроса дедуплицируются, как в примере методички;
+- сортировка — по убыванию балла, затем по `(document_id, position)`;
+- балл — только для ранжирования, не вероятность правильного ответа.
+
+## Предобработка
+
+Оба анализатора приводят текст к NFC, нижнему регистру, `ё → е`, схлопывают
+пробелы и выделяют слова, включая дефисные имена (`кар-карыч`).
+
+- `SimpleAnalyzer` не использует морфологию. Он остаётся для тестов и
+  сравнения.
+- `MorphAnalyzer` применяет `pymorphy3`: русские словоформы приводятся к
+  начальной форме. Дефисные имена не лемматизируются по частям, чтобы не
+  искажать `Кар-Карыч`.
+- Стоп-слова в первой версии не удаляются: IDF уже снижает вклад частых слов.
+  Если benchmark покажет шум, список будет добавлен отдельным решением.
+- Запрос и документы проходят один и тот же анализатор.
+
+## Пакет лора
+
+Пакет — каталог вне Git, например `data/lore/`:
+
+```text
+lore/
+├── package.yaml
+└── documents/
+    ├── d01.yaml
+    └── d02.yaml
+```
+
+```yaml
+# package.yaml
+format_version: 1
+```
+
+```yaml
+# documents/d01.yaml
+id: d01
+title: Крош и Ёжик на полянке
+text: |
+  Крош предложил Ёжику построить качели. Ёжик испугался высоты, но
+  друзья придумали, как сделать качели безопасными.
+source: Синтетический сценарий
+continuity: classic
+characters: [krosh, ezhik]
+tags: [дружба, страх]
+```
+
+- `id` — slug и совпадает с именем файла;
+- `title` и `text` обязательны и непусты;
+- `source`, `continuity`, `characters`, `tags` необязательны;
+- лишние файлы, каталоги, символьные ссылки, YAML-теги и якоря запрещены;
+- реальные сценарии не коммитятся: рабочая копия лежит в `data/`, в Git
+  попадает только `encrypted/data.enc` (см.
+  [шифрование данных](../.agents/skills/data-crypt/SKILL.md)).
+
+### Чанкование
+
+Документ режется на предложения, затем на чанки:
+
+- целевой размер — 150–250 слов;
+- перекрытие — 30–50 слов;
+- границы документа не пересекаются;
+- слишком длинное предложение режется по словам;
+- короткий хвост сливается с предыдущим чанком, если помещается в максимум.
+
+Чанк хранит `document_id`, `position`, текст и число термов. По позиции
+строится стабильный tie-break.
+
+## Хранение и масштаб
+
+Production-индекс не загружает весь корпус в память. В PostgreSQL хранятся:
+
+| Таблица | Назначение |
+| --- | --- |
+| `rag_lore_documents` | Документы, заголовки и метаданные |
+| `rag_lore_chunks` | Чанки, позиции и длины |
+| `rag_lore_terms` | Термы и `df` |
+| `rag_lore_postings` | `term → chunk → tf` |
+| `rag_lore_stats` | `n_chunks`, `avgdl`, версия корпуса |
+| `rag_lore_loads` | Журнал загрузок |
+
+`lore-load` заменяет корпус целиком в одной транзакции под advisory lock:
+сначала очищаются старые строки, затем пакетами пишутся документы, чанки и
+postings, после чего SQL-агрегаты считают `df`, `n_chunks` и `avgdl`. Читатель
+видит либо старый, либо новый корпус. `rag_lore_loads` не очищается, поэтому
+версия корпуса монотонно растёт.
+
+`PostgresBm25Index` считает BM25 одним set-based SQL-запросом: `unnest` термов
+запроса соединяется с `rag_lore_terms`, `rag_lore_postings` и
+`rag_lore_chunks`, сумма вкладов группируется по чанку и сортируется. Число
+запросов не зависит от числа документов. Индексы по `term` и
+`document_id`/`position` поддерживают выборку.
+
+`InMemoryBm25Index` реализует те же порты, но хранит postings в памяти. Он
+используется только в unit-тестах и benchmark; контрактный тест сравнивает его
+порядок с PostgreSQL.
+
+## Инструмент `search_lore`
+
+Агент получает лор через инструмент `search_lore`. Он не отдаёт модели сырые
+postings или карточки: `LoreContextBuilder` оставляет не более **3**
+фрагментов, не более одного на документ и не более **1600** символов. Слабые
+совпадения ниже `0.5` от лучшего score отбрасываются.
+
+```json
+{
+  "status": "found",
+  "passages": [
+    {
+      "title": "Крош и Ёжик на полянке",
+      "source": "Синтетический сценарий",
+      "text": "Крош предложил построить качели..."
+    }
+  ],
+  "message": null
+}
+```
+
+- `status` — `found`, `empty` или `unavailable`;
+- `passages` содержат только `title`, `source`, `text`;
+- score, `document_id`, `chunk_id` и `position` наружу не выходят;
+- при `empty`/`unavailable` сообщение предлагает продолжить по идее
+  пользователя и не выдавать выдуманные факты за канон;
+- описание инструмента требует использовать его не более одного раза на
+  сказку и воспринимать фрагменты как ориентир, а не готовый сюжет.
+
+Production bootstrap регистрирует `search_lore` рядом с `lookup_knowledge`,
+используя `PostgresBm25Index` и `MorphAnalyzer`. В тестах без БД применяется
+пустой `InMemoryBm25Index` и `SimpleAnalyzer`.
+
+## Benchmark
+
+Benchmark проверяет поиск и ответы на синтетическом наборе из **30 документов**:
+**10 обычных вопросов** (у каждого не менее трёх релевантных документов) и
+**5 вопросов-ловушек** без ответа в корпусе. Набор лежит в
+[`backend/tests/fixtures/lore_benchmark/`](../backend/tests/fixtures/lore_benchmark/).
+
+```text
+lore_benchmark/
+├── lore/                 # обычный YAML-пакет лора
+├── questions.yaml        # вопросы, эталоны и relevant_documents
+└── answers.json          # готовые ответы для офлайн-прогона
+```
+
+Метрики:
+
+- `Recall@k` — доля релевантных документов в первых `k` результатах;
+- `MRR@k` — обратный ранг первого релевантного документа;
+- `Accuracy` — доля полностью правильных ответов на обычные вопросы;
+- `Correct Rejection Rate` — доля корректных отказов на ловушки.
+
+Для обычного вопроса `required_facts` должны все присутствовать в ответе. Для
+ловушки ответ должен содержать маркер отказа, например «В документах нет этой
+информации». `lore-benchmark` не требует БД: индекс строится in-memory из
+пакета. Ответы можно передать готовым JSON (`--answers`) или получить через
+LLM (`--answers` не указан; нужен `LLM_MODEL` и остальной конфиг).
+
+## Команды
+
+```sh
+python -m smeshariki_ai.rag lore-check <path> [--format text|json]
+python -m smeshariki_ai.rag lore-load <path> [--format text|json]
+python -m smeshariki_ai.rag lore-search "<query>" [--top-k 5] [--format text|json]
+python -m smeshariki_ai.rag lore-benchmark <path> --questions <yaml> [--k 5] [--answers <json>] [--format text|json]
+
+make lore-check DIR=<path>
+make lore-load DIR=<path>
+make lore-search QUERY="..." [TOPK=5]
+make lore-benchmark DIR=<path> QUESTIONS=<yaml> [K=5] [ANSWERS=<json>]
+```
+
+- `lore-check` не читает environment и не требует БД;
+- `lore-load` и `lore-search` читают `DATABASE_URL` через общий
+  `load_config`; `make`-цели запускают их в Compose-сервисе `migrate`;
+- `lore-benchmark` не требует БД, но без `--answers` читает конфиг LLM;
+- коды возврата: `0` — успех, `1` — ошибка пакета/БД/ответов, `2` — неверные
+  аргументы;
+- JSON-вывод предназначен для автора контента и его агента.
+
+## Ограничения
+
+- BM25 — лексический поиск. «Вернуть деньги» и «возврат оплаты» могут не
+  совпасть; лемматизация помогает со словоформами, но не с синонимами.
+- Поиск по смыслу, embeddings и `pgvector` в это изменение не входят.
+- Оценка ответов в benchmark эвристическая: `required_facts` и маркеры отказа,
+  а не семантический судья.
+- Корпус заменяется целиком; инкрементальная загрузка отдельных документов
+  появится только при реальной потребности.
+- Реальные данные не коммитятся; тесты и benchmark используют синтетические
+  пакеты.
+
+## SDD-артефакты
+
+- [спецификация](../specs/changes/lore-bm25-core/spec.md);
+- [план](../specs/changes/lore-bm25-core/plan.md);
+- [результат проверки](../specs/changes/lore-bm25-core/verification.md);
+- [`search_lore`](../specs/changes/lore-search-tool/spec.md),
+  [план](../specs/changes/lore-search-tool/plan.md),
+  [результат проверки](../specs/changes/lore-search-tool/verification.md);
+- benchmark: [спецификация](../specs/changes/lore-benchmark/spec.md),
+  [план](../specs/changes/lore-benchmark/plan.md),
+  [результат проверки](../specs/changes/lore-benchmark/verification.md).

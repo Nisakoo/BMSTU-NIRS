@@ -16,6 +16,19 @@ from typing import Any, TextIO
 
 from pydantic import ValidationError
 
+from smeshariki_ai.rag.lore.analyzer import MorphAnalyzer
+from smeshariki_ai.rag.lore.benchmark import (
+    BenchmarkError,
+    BenchmarkReport,
+    BenchmarkRunner,
+    StaticAnswerer,
+    read_benchmark_questions,
+)
+from smeshariki_ai.rag.lore.models import LoreQuery, LoreSearchResult
+from smeshariki_ai.rag.lore.package import LoreCheckReport
+from smeshariki_ai.rag.lore.package import check_package as lore_check_package
+from smeshariki_ai.rag.lore.ports import LoreIndex, LoreStore, LoreStoreError
+from smeshariki_ai.rag.lore.services import LoadLore, LoreLoadReport, SearchLore
 from smeshariki_ai.rag.maintenance import (
     DeleteReport,
     ExportReport,
@@ -35,6 +48,8 @@ from smeshariki_ai.rag.services import (
 )
 
 StoreFactory = Callable[[], AbstractAsyncContextManager[KnowledgeStore]]
+LoreStoreFactory = Callable[[], AbstractAsyncContextManager[LoreStore]]
+LoreIndexFactory = Callable[[], AbstractAsyncContextManager[LoreIndex]]
 
 
 class ConfigurationError(Exception):
@@ -61,10 +76,50 @@ async def postgres_store() -> AsyncIterator[KnowledgeStore]:
         await engine.dispose()
 
 
+@asynccontextmanager
+async def postgres_lore_store() -> AsyncIterator[LoreStore]:
+    """The production lore writer; imported lazily so ``check`` needs no config."""
+
+    from smeshariki_ai.config import load_config
+    from smeshariki_ai.db import create_engine
+    from smeshariki_ai.rag.lore.postgres import PostgresLoreStore
+
+    try:
+        config = load_config()
+    except ValidationError as error:
+        raise ConfigurationError from error
+    engine = create_engine(config.database)
+    try:
+        yield PostgresLoreStore(engine)
+    finally:
+        await engine.dispose()
+
+
+@asynccontextmanager
+async def postgres_lore_index() -> AsyncIterator[LoreIndex]:
+    """The production lore reader; imported lazily so other commands stay light."""
+
+    from smeshariki_ai.config import load_config
+    from smeshariki_ai.db import create_engine
+    from smeshariki_ai.rag.lore.postgres import PostgresBm25Index
+
+    try:
+        config = load_config()
+    except ValidationError as error:
+        raise ConfigurationError from error
+    engine = create_engine(config.database)
+    try:
+        yield PostgresBm25Index(engine)
+    finally:
+        await engine.dispose()
+
+
 def main(
     argv: Sequence[str] | None = None,
     stdout: TextIO = sys.stdout,
     store: StoreFactory = postgres_store,
+    lore_store: LoreStoreFactory = postgres_lore_store,
+    lore_index: LoreIndexFactory = postgres_lore_index,
 ) -> int:
     parser = _parser()
     try:
@@ -80,6 +135,33 @@ def main(
         report = check_package(arguments.path)
         _write(stdout, arguments.format, report, _write_check)
         return 0 if report.valid else 1
+
+    if arguments.command == "lore-check":
+        report = lore_check_package(arguments.path)
+        _write_lore_check(stdout, arguments.format, report)
+        return 0 if report.valid else 1
+
+    if arguments.command == "lore-load":
+        report = asyncio.run(_lore_load(arguments.path, lore_store))
+        _write_lore_load(stdout, arguments.format, report)
+        return 0 if report.loaded else 1
+
+    if arguments.command == "lore-search":
+        result = asyncio.run(_lore_search(arguments.query, arguments.top_k, lore_index))
+        _write_lore_search(stdout, arguments.format, result)
+        return 0 if result is not None else 1
+
+    if arguments.command == "lore-benchmark":
+        report = asyncio.run(
+            _lore_benchmark(
+                arguments.path,
+                arguments.questions,
+                arguments.k,
+                arguments.answers,
+            )
+        )
+        _write_lore_benchmark(stdout, arguments.format, report)
+        return 0 if report is not None else 1
 
     if arguments.command == "export":
         types = (
@@ -157,6 +239,68 @@ async def _restore(
         return RestoreReport(restored=False, issues=(_configuration_issue(),))
 
 
+async def _lore_load(path: Path, store: LoreStoreFactory) -> LoreLoadReport:
+    try:
+        async with store() as opened:
+            return await LoadLore(MorphAnalyzer()).load(path, opened)
+    except ConfigurationError:
+        return LoreLoadReport(loaded=False, issues=(_configuration_issue(),))
+
+
+async def _lore_search(
+    query: str,
+    top_k: int,
+    index: LoreIndexFactory,
+) -> LoreSearchResult | None:
+    try:
+        searched = LoreQuery(text=query, top_k=top_k)
+    except ValidationError:
+        return None
+    try:
+        async with index() as opened:
+            return await SearchLore(opened, MorphAnalyzer()).search(searched)
+    except ConfigurationError:
+        return None
+    except LoreStoreError:
+        return None
+
+
+async def _lore_benchmark(
+    package: Path,
+    questions_path: Path,
+    k: int,
+    answers_path: Path | None,
+) -> BenchmarkReport | None:
+    try:
+        questions = read_benchmark_questions(questions_path)
+        if answers_path is not None:
+            try:
+                raw = json.loads(answers_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                return None
+            if not isinstance(raw, dict) or not all(
+                isinstance(key, str) and isinstance(value, str)
+                for key, value in raw.items()
+            ):
+                return None
+            answerer = StaticAnswerer(raw)
+        else:
+            from smeshariki_ai.agent import LiteLLMProvider
+            from smeshariki_ai.config import load_config
+            from smeshariki_ai.rag.lore.benchmark_llm import LiteLLMAnswerer
+
+            try:
+                config = load_config()
+            except ValidationError:
+                return None
+            answerer = LiteLLMAnswerer(LiteLLMProvider(config.llm))
+        return await BenchmarkRunner(MorphAnalyzer(), answerer, k=k).run(
+            package, questions
+        )
+    except (BenchmarkError, ConfigurationError):
+        return None
+
+
 def _configuration_issue() -> Issue:
     return Issue(
         file=".",
@@ -176,6 +320,36 @@ def _parser() -> argparse.ArgumentParser:
     for command in (check, load):
         command.add_argument("path", type=Path, help="каталог пакета")
         command.add_argument("--format", choices=("text", "json"), default="text")
+    lore_check = commands.add_parser(
+        "lore-check", help="проверить YAML-пакет лора без БД"
+    )
+    lore_check.add_argument("path", type=Path, help="каталог пакета лора")
+    lore_check.add_argument("--format", choices=("text", "json"), default="text")
+
+    lore_load = commands.add_parser(
+        "lore-load", help="заменить корпус лора и построить BM25-индекс"
+    )
+    lore_load.add_argument("path", type=Path, help="каталог пакета лора")
+    lore_load.add_argument("--format", choices=("text", "json"), default="text")
+
+    lore_search = commands.add_parser("lore-search", help="найти фрагменты лора")
+    lore_search.add_argument("query", help="поисковый запрос")
+    lore_search.add_argument("--top-k", type=_positive_int, default=5)
+    lore_search.add_argument("--format", choices=("text", "json"), default="text")
+
+    lore_benchmark = commands.add_parser(
+        "lore-benchmark", help="оценить BM25 на вопросах и ловушках"
+    )
+    lore_benchmark.add_argument("path", type=Path, help="каталог пакета лора")
+    lore_benchmark.add_argument(
+        "--questions", type=Path, required=True, help="YAML с вопросами"
+    )
+    lore_benchmark.add_argument("--k", type=_positive_int, default=5)
+    lore_benchmark.add_argument(
+        "--answers", type=Path, help="JSON с готовыми ответами по id вопроса"
+    )
+    lore_benchmark.add_argument("--format", choices=("text", "json"), default="text")
+
     export = commands.add_parser("export", help="выгрузить знания в пакет")
     export.add_argument("path", type=Path, help="каталог назначения")
     export.add_argument(
@@ -354,3 +528,90 @@ def _write_restore(stdout: TextIO, report: RestoreReport) -> None:
         f"Всего сущностей в БД: {report.entity_count}. "
         f"Длительность: {report.duration_ms} мс.\n"
     )
+
+
+def _write_lore_check(stdout: TextIO, output: str, report: LoreCheckReport) -> None:
+    if output == "json":
+        _write_json(stdout, report.model_dump(mode="json"))
+        return
+    _write_issues(stdout, report.issues)
+    stdout.write(f"Документов: {report.document_count}\n")
+    if report.valid:
+        stdout.write("Пакет лора валиден.\n")
+    else:
+        stdout.write(f"Ошибок: {len(report.issues)}\n")
+
+
+def _write_lore_load(stdout: TextIO, output: str, report: LoreLoadReport) -> None:
+    if output == "json":
+        _write_json(stdout, report.model_dump(mode="json"))
+        return
+    if not report.loaded or report.summary is None:
+        _write_issues(stdout, report.issues)
+        stdout.write(
+            f"Загрузка отменена, БД не изменена. Ошибок: {len(report.issues)}\n"
+        )
+        return
+    summary = report.summary
+    stdout.write(f"Загрузка {summary.version} выполнена.\n")
+    stdout.write(
+        f"Документов: {summary.document_count}, чанков: {summary.chunk_count}, "
+        f"термов: {summary.term_count}.\n"
+    )
+    stdout.write(f"Длительность: {report.duration_ms} мс.\n")
+
+
+def _write_lore_search(
+    stdout: TextIO, output: str, result: LoreSearchResult | None
+) -> None:
+    if output == "json":
+        if result is None:
+            _write_json(stdout, {"error": "search_failed"})
+        else:
+            _write_json(stdout, result.model_dump(mode="json"))
+        return
+    if result is None:
+        stdout.write("Поиск не выполнен: проверьте конфигурацию и БД.\n")
+        return
+    if not result.hits:
+        stdout.write("Ничего не найдено.\n")
+        return
+    for hit in result.hits:
+        stdout.write(
+            f"{hit.rank}. [{hit.document_id}/{hit.position}] "
+            f"{hit.title} — {hit.score:.3f}\n{hit.text}\n"
+        )
+
+
+def _write_lore_benchmark(
+    stdout: TextIO, output: str, report: BenchmarkReport | None
+) -> None:
+    if output == "json":
+        if report is None:
+            _write_json(stdout, {"error": "benchmark_failed"})
+        else:
+            _write_json(stdout, report.model_dump(mode="json"))
+        return
+    if report is None:
+        stdout.write(
+            "Бенчмарк не выполнен: проверьте пакет, вопросы, ответы или конфиг LLM.\n"
+        )
+        return
+    stdout.write(
+        f"Документов: {report.document_count}; вопросов: {report.question_count} "
+        f"(обычных {report.normal_count}, ловушек {report.trap_count}); "
+        f"k={report.k}.\n"
+    )
+    stdout.write(f"Recall@{report.k}: {_metric(report.recall_at_k)}\n")
+    stdout.write(f"MRR@{report.k}: {_metric(report.mrr)}\n")
+    stdout.write(f"Accuracy: {_metric(report.accuracy)}\n")
+    stdout.write(f"Correct Rejection Rate: {_metric(report.correct_rejection_rate)}\n")
+    for item in report.results:
+        stdout.write(
+            f"{item.question_id}: recall={_metric(item.recall)}, "
+            f"rr={_metric(item.reciprocal_rank)}, correct={item.correct}\n"
+        )
+
+
+def _metric(value: float | None) -> str:
+    return "—" if value is None else f"{value:.3f}"

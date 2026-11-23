@@ -169,3 +169,9 @@ specs:
       status: done
     - name: agent-improving
       status: done
+    - name: lore-bm25-core
+      status: done
+    - name: lore-search-tool
+      status: done
+    - name: lore-benchmark
+      status: done

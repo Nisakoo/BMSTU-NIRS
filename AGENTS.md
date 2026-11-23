@@ -84,7 +84,9 @@
 2. Frontend взаимодействует с backend по HTTP. Для потоковой передачи ответов используется SSE, если спецификация конкретного сценария не требует другого транспорта.
 3. Агент работает через отдельный сервисный интерфейс и не должен быть связан напрямую с HTTP-слоем.
 4. Интеграция с LLM скрывается за внутренней абстракцией, чтобы поставщика модели можно было заменить без изменения бизнес-логики и интерфейса RAG.
-5. RAG предоставляется агенту инструментами, перечисленными в `docs/rag.md`; первый из них — `lookup_knowledge`. Агент самостоятельно решает, когда вызвать инструмент.
+5. RAG предоставляется агенту инструментами, перечисленными в `docs/rag.md`
+   (`lookup_knowledge` и `search_lore`); агент самостоятельно решает, когда
+   вызвать инструмент.
 6. Внутри RAG разделяются индексация документов и поиск. Загрузка и переиндексация запускаются командой backend, а не отдельным постоянно работающим приложением.
 7. Хранилище RAG — PostgreSQL backend, таблицы с префиксом `rag_`; при необходимости используются встроенный полнотекстовый поиск, `pg_trgm` и `pgvector`. Отдельное векторное хранилище не используется.
 8. Для первой версии используется простой цикл tool calling. LangGraph добавляется только при появлении требований к сложным ветвящимся процессам, длительному состоянию, возобновлению выполнения или human-in-the-loop.
@@ -238,8 +240,8 @@
     (`messages`, `feedback`, `report`, `reports/news/seen`) с `Content-Type`,
     отличным от `application/json`, и не использует cookie для выбора диалога.
     Bootstrap собирает приложение с настроенным `LiteLLMProvider`,
-    `ToolRegistry` (только `lookup_knowledge`), `PostgresHistoryStore` и
-    `InMemoryDialogEventBroker`; fake-провайдер применяется только как явная
+    `ToolRegistry` (`lookup_knowledge` и `search_lore`), `PostgresHistoryStore`
+    и `InMemoryDialogEventBroker`; fake-провайдер применяется только как явная
     тестовая зависимость.
 12. Диалог принадлежит создателю: `AgentService` и `HistoryStore` получают
     `user_id` во всех операциях диалога. Для чужого диалога (в том числе для
@@ -461,11 +463,23 @@
    `found`/`not_found`/`unavailable`, до 10 карточек с именами вместо slug и
    без `sources` и отдельное поле `suggestions`. Чтение —
    `REPEATABLE READ READ ONLY` без advisory lock загрузки; ошибки хранилища
-   дают `unavailable`. Bootstrap регистрирует `lookup_knowledge` как
-   единственный production-инструмент: production — `PostgresKnowledgeStore`
-   на общем engine, без него — пустой `InMemoryKnowledgeStore`. Спецификация:
+   дают `unavailable`. Bootstrap регистрирует `lookup_knowledge` и
+   `search_lore`; для структурированного канона production использует
+   `PostgresKnowledgeStore` на общем engine, без него — пустой
+   `InMemoryKnowledgeStore`. Спецификация:
    `specs/changes/knowledge-lookup-tool/`.
-10. `python -m smeshariki_ai.rag export <path>` выгружает знания в обычный
+10. Инструмент агента `search_lore` (`rag/lore/tools.py`) использует
+    `SearchLore` (`rag/lore/services.py`) и `LoreContextBuilder`
+    (`rag/lore/context.py`). BM25-поиск по YAML-пакетам лора, PostgreSQL-индекс
+    `rag_lore_*` и in-memory адаптер реализованы в `lore-bm25-core`; инструмент
+    отдаёт не более 3 фрагментов, один на документ, до 1600 символов и без
+    score/id. Спецификация: `specs/changes/lore-search-tool/`.
+11. Benchmark лора (`rag/lore/benchmark.py`, `benchmark_llm.py`) работает
+    офлайн: 30 документов, 10 обычных вопросов и 5 ловушек; считает
+    `Recall@k`, `MRR`, `Accuracy` и `Correct Rejection Rate`. Ответы можно
+    передать JSON (`--answers`) или получить через LLM; БД не требуется.
+    Спецификация: `specs/changes/lore-benchmark/`.
+12. `python -m smeshariki_ai.rag export <path>` выгружает знания в обычный
     пакет в read-only снимке; `delete <type>/<id>...` по умолчанию делает
     dry-run, а с `--apply` удаляет в одной транзакции после проверки ссылок и
     пишет ревизию `delete`; `restore <type>/<id>` выбирает последнюю или

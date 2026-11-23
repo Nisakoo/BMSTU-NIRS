@@ -1,0 +1,91 @@
+questions:
+  - id: q01
+    text: Что нужно, чтобы взять книги в библиотеке и на сколько?
+    kind: normal
+    relevant_documents: [d01, d02, d03]
+    reference_answer: Нужен читательский билет. До трёх книг на 14 дней.
+    required_facts: [читательский билет, 14 дней, трёх книг]
+  - id: q02
+    text: Как вернуть деньги за заказ, оплаченный картой?
+    kind: normal
+    relevant_documents: [d04, d05, d06]
+    reference_answer: При оплате картой деньги возвращают на карту; наличные возвращают в кассе.
+    required_facts: [на карту, в кассе]
+  - id: q03
+    text: Где Пин строит ракету и что нужно для ремонта?
+    kind: normal
+    relevant_documents: [d07, d08, d09]
+    reference_answer: Пин строит ракету в мастерской; для ремонта нужны инструменты.
+    required_facts: [мастерской, инструменты]
+  - id: q04
+    text: Из-за чего поссорились Крош и Ёжик и как они помирились?
+    kind: normal
+    relevant_documents: [d10, d11, d12]
+    reference_answer: Они поссорились из-за качелей, но построили их вместе и помирились.
+    required_facts: [качелей, помирились]
+  - id: q05
+    text: На чём друзья хотят полететь к звезде?
+    kind: normal
+    relevant_documents: [d13, d14, d15]
+    reference_answer: Пин построил ракету для полёта к звезде.
+    required_facts: [ракету, звезде]
+  - id: q06
+    text: Кто помогает Нюше сочинять песню?
+    kind: normal
+    relevant_documents: [d16, d17, d18]
+    reference_answer: Бараш помогает Нюше с рифмой.
+    required_facts: [Бараш, рифмой]
+  - id: q07
+    text: Кто собирает мёд и чем угощает друзей?
+    kind: normal
+    relevant_documents: [d19, d20, d21]
+    reference_answer: Копатыч собирает мёд и угощает им друзей.
+    required_facts: [Копатыч, мёдом]
+  - id: q08
+    text: Как друзья узнают о дожде и что берут?
+    kind: normal
+    relevant_documents: [d22, d23, d24]
+    reference_answer: Совунья предсказывает дождь по облакам, и друзья берут зонт.
+    required_facts: [Совунья, зонт]
+  - id: q09
+    text: Что делает Кар-Карыч за вечерним чаем?
+    kind: normal
+    relevant_documents: [d25, d26, d27]
+    reference_answer: Кар-Карыч пьёт чай и рассказывает истории.
+    required_facts: [рассказывает, истории]
+  - id: q10
+    text: Чем Совунья лечит простуду?
+    kind: normal
+    relevant_documents: [d28, d29, d30]
+    reference_answer: Совунья лечит травами и даёт тёплый чай.
+    required_facts: [травами, тёплый чай]
+  - id: q11
+    text: Сколько стоит билет в кино?
+    kind: trap
+    relevant_documents: []
+    reference_answer: В документах нет этой информации.
+    required_facts: []
+  - id: q12
+    text: Какая погода на Марсе?
+    kind: trap
+    relevant_documents: []
+    reference_answer: В документах нет этой информации.
+    required_facts: []
+  - id: q13
+    text: Кто директор школы?
+    kind: trap
+    relevant_documents: []
+    reference_answer: В документах нет этой информации.
+    required_facts: []
+  - id: q14
+    text: Сколько лет Совунье?
+    kind: trap
+    relevant_documents: []
+    reference_answer: В документах нет этой информации.
+    required_facts: []
+  - id: q15
+    text: Какие книги есть в библиотеке?
+    kind: trap
+    relevant_documents: []
+    reference_answer: В документах нет этой информации.
+    required_facts: []
