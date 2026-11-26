@@ -207,3 +207,5 @@ specs:
       status: done
     - name: lore-ranking-quality
       status: done
+    - name: canon-lookup-benchmark
+      status: done

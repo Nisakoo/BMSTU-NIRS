@@ -16,6 +16,12 @@ from typing import Any, TextIO
 
 from pydantic import ValidationError
 
+from smeshariki_ai.rag.knowledge_benchmark import (
+    KnowledgeBenchmarkError,
+    KnowledgeBenchmarkReport,
+    KnowledgeBenchmarkRunner,
+    read_knowledge_questions,
+)
 from smeshariki_ai.rag.lore.analyzer import MorphAnalyzer
 from smeshariki_ai.rag.lore.benchmark import (
     Answerer,
@@ -148,6 +154,11 @@ def main(
         report = clean_package(arguments.path, apply=arguments.apply)
         _write_lore_clean(stdout, arguments.format, report)
         return 0 if not report.issues else 1
+
+    if arguments.command == "knowledge-benchmark":
+        report = asyncio.run(_knowledge_benchmark(arguments.path, arguments.questions))
+        _write_knowledge_benchmark(stdout, arguments.format, report)
+        return 0 if report is not None else 1
 
     if arguments.command == "lore-load":
         report = asyncio.run(_lore_load(arguments.path, lore_store))
@@ -345,6 +356,22 @@ async def _lore_benchmark(
         return None
 
 
+async def _knowledge_benchmark(
+    package: Path,
+    questions_path: Path,
+) -> KnowledgeBenchmarkReport | None:
+    try:
+        questions = read_knowledge_questions(questions_path)
+        from smeshariki_ai.rag.lookup import KnowledgeLookup
+        from smeshariki_ai.rag.memory import InMemoryKnowledgeStore
+
+        return await KnowledgeBenchmarkRunner(
+            KnowledgeLookup(InMemoryKnowledgeStore())
+        ).run(package, questions)
+    except (KnowledgeBenchmarkError, ConfigurationError):
+        return None
+
+
 def _configuration_issue() -> Issue:
     return Issue(
         file=".",
@@ -380,6 +407,18 @@ def _parser() -> argparse.ArgumentParser:
         help="записать очищенные файлы; без флага выполняется dry-run",
     )
     lore_clean.add_argument("--format", choices=("text", "json"), default="text")
+
+    knowledge_benchmark = commands.add_parser(
+        "knowledge-benchmark",
+        help="оценить точный поиск по канону на вопросах и ловушках",
+    )
+    knowledge_benchmark.add_argument("path", type=Path, help="каталог пакета знаний")
+    knowledge_benchmark.add_argument(
+        "--questions", type=Path, required=True, help="YAML с вопросами"
+    )
+    knowledge_benchmark.add_argument(
+        "--format", choices=("text", "json"), default="text"
+    )
 
     lore_load = commands.add_parser(
         "lore-load", help="заменить корпус лора и построить BM25-индекс"
@@ -677,6 +716,36 @@ def _write_lore_search(
         stdout.write(
             f"{hit.rank}. [{hit.document_id}/{hit.position}] "
             f"{hit.title} — {hit.score:.3f}\n{hit.text}\n"
+        )
+
+
+def _write_knowledge_benchmark(
+    stdout: TextIO,
+    output: str,
+    report: KnowledgeBenchmarkReport | None,
+) -> None:
+    if output == "json":
+        if report is None:
+            _write_json(stdout, {"error": "benchmark_failed"})
+        else:
+            _write_json(stdout, report.model_dump(mode="json"))
+        return
+    if report is None:
+        stdout.write("Бенчмарк не выполнен: проверьте пакет знаний и файл вопросов.\n")
+        return
+    stdout.write(
+        f"Вопросов: {report.question_count} (точных {report.exact_count}, "
+        f"опечаток {report.typo_count}, ловушек {report.negative_count}).\n"
+    )
+    stdout.write(f"Accuracy: {_metric(report.accuracy)}\n")
+    stdout.write(f"Exact match rate: {_metric(report.exact_match_rate)}\n")
+    stdout.write(f"Suggestion rate: {_metric(report.suggestion_rate)}\n")
+    stdout.write(f"False positive rate: {_metric(report.false_positive_rate)}\n")
+    for item in report.results:
+        mark = "ok" if item.correct else "miss"
+        stdout.write(
+            f"{item.question_id}: {mark} status={item.status} "
+            f"expected={item.expected}\n"
         )
 
 

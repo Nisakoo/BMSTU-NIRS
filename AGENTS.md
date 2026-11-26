@@ -544,6 +544,15 @@
     `revisions` из `package.yaml` с текущими ревизиями и при конфликте отменяет
     весь пакет. Спецификации: `knowledge-export`, `knowledge-delete`,
     `knowledge-restore`, `knowledge-optimistic-lock`.
+17. `knowledge-benchmark` (`rag/knowledge_benchmark.py`, команда
+    `python -m smeshariki_ai.rag knowledge-benchmark` и
+    `make knowledge-benchmark DIR=<path> QUESTIONS=<yaml>`) измеряет точный
+    поиск канона офлайн через `InMemoryKnowledgeStore`: точные имена, алиасы,
+    названия эпизодов, опечатки и ловушки. Метрики: `accuracy`,
+    `exact_match_rate`, `suggestion_rate`, `false_positive_rate`. Golden set —
+    в игнорируемом `data/knowledge-golden/questions.yaml`; контрольный прогон:
+    `accuracy 0.986`, `exact_match_rate 1.000`, `suggestion_rate 0.875`,
+    `false_positive_rate 0.000`. Спецификация: `canon-lookup-benchmark`.
 
 ## Реализованная озвучка сказок
 

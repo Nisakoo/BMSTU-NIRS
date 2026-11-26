@@ -296,7 +296,10 @@ flowchart LR
   по исходному запросу; результат кэшируется. Параметры окна и бюджета
   контекста задаются `RAG_LORE_*`.
 - Команды: `lore-check`, `lore-clean`, `lore-load`, `lore-search`,
-  `lore-benchmark` и соответствующие Make-цели. `lore-clean` удаляет из
+  `lore-benchmark`, `knowledge-benchmark` и соответствующие Make-цели.
+  `knowledge-benchmark` измеряет точный поиск канона (имена, алиасы, названия
+  эпизодов, опечатки, ловушки): `accuracy`, `exact_match_rate`,
+  `suggestion_rate`, `false_positive_rate`. `lore-clean` удаляет из
   документов технический мусор экспорта (ссылки на видео) и не трогает
   стилистику. Инструмент агента `search_lore` отдаёт не более
   3 фрагментов, один на документ, до 1600 символов и без score/id. Слабые

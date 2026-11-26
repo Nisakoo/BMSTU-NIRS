@@ -16,7 +16,8 @@ help:
 	@echo "  make knowledge-delete REFS=\"<type>/<id> ...\" [APPLY=1] [FORMAT=json] Delete knowledge entities"
 	@echo "  make knowledge-restore REF=<type>/<id> [REVISION=N] [APPLY=1] [FORMAT=json] Restore a knowledge entity"
 	@echo "  make lore-check DIR=<path> Check a lore YAML package"
-	@echo "  make lore-clean DIR=<path> [APPLY=1] Remove technical noise from a lore package"	@echo "  make lore-load DIR=<path> [FORMAT=json] Replace the lore corpus and BM25 index"
+	@echo "  make lore-clean DIR=<path> [APPLY=1] Remove technical noise from a lore package"
+	@echo "  make knowledge-benchmark DIR=<path> QUESTIONS=<yaml> Benchmark exact canon lookup"	@echo "  make lore-load DIR=<path> [FORMAT=json] Replace the lore corpus and BM25 index"
 	@echo "  make lore-search QUERY=\"...\" [TOPK=5] [FORMAT=json] Search the lore corpus"
 	@echo "  make lore-benchmark DIR=<path> QUESTIONS=<yaml> [K=5] [ANSWERS=<json>] [CONTEXT=1] [EXPAND=1] Run the lore benchmark"
 	@echo "  make data-encrypt Encrypt data/ into encrypted/data.enc (asks for the passphrase)"
@@ -183,6 +184,20 @@ lore-clean:
 	}
 	@uv run --project backend --locked python -m smeshariki_ai.rag lore-clean "$(DIR)" \
 		$(if $(filter 1,$(APPLY)),--apply,) --format "$(or $(FORMAT),text)"
+
+.PHONY: knowledge-benchmark
+
+knowledge-benchmark:
+	@test -n "$(DIR)" || { \
+		echo "Usage: make knowledge-benchmark DIR=<path> QUESTIONS=<yaml>" >&2; \
+		exit 2; \
+	}
+	@test -n "$(QUESTIONS)" || { \
+		echo "Usage: make knowledge-benchmark DIR=<path> QUESTIONS=<yaml>" >&2; \
+		exit 2; \
+	}
+	@uv run --project backend --locked python -m smeshariki_ai.rag knowledge-benchmark "$(DIR)" \
+		--questions "$(QUESTIONS)" --format "$(or $(FORMAT),text)"
 
 .PHONY: lore-load
 
