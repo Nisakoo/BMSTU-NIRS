@@ -493,11 +493,20 @@
     офлайн: 30 документов, 10 обычных вопросов и 5 ловушек; считает
     `Recall@k`, `MRR`, `Accuracy` и `Correct Rejection Rate`. Ответы можно
     передать JSON (`--answers`) или получить через LLM; БД не требуется.
-    Синтетический набор лежит в тестах, реальный — в игнорируемом
-    `data/lore-benchmark/`. Честный golden set — в `data/lore-golden/`:
-    полный корпус 84 документа, 20 обычных вопросов и 10 ловушек;
-    контрольный прогон: `Recall@5 0.450`, `MRR@5 0.637`. Спецификации:
-    `lore-benchmark`, `rag-real-corpus`, `lore-golden-set`.
+    Флаг `--context` (`make lore-benchmark ... CONTEXT=1`) прогоняет те же
+    вопросы через путь `search_lore`: пассажи выбирает общая с инструментом
+    функция `LoreContextBuilder.select`, отчёт получает `context_recall`,
+    `context_any_relevant`, `context_found_rate` и `trap_passage_rate`;
+    контрольный прогон на golden: `Context Recall 0.283`,
+    `Trap Passage Rate 1.000`. Команда `lore-clean` (dry-run по умолчанию,
+    `--apply` пишет и делает резервную копию) детерминированно удаляет из
+    документов ссылки на видео и не трогает стилистику, время в диалоге и
+    дубли строк. Синтетический набор лежит в тестах, реальный —
+    в игнорируемом `data/lore-benchmark/`. Честный golden set — в
+    `data/lore-golden/`: полный корпус 84 документа, 20 обычных вопросов и
+    10 ловушек; контрольный прогон: `Recall@5 0.450`, `MRR@5 0.637`.
+    Спецификации: `lore-benchmark`, `rag-real-corpus`, `lore-golden-set`,
+    `lore-tool-benchmark`, `lore-corpus-cleanup`.
 13. `lookup_knowledge` остаётся точным фактическим инструментом, но принимает
     необязательный `fields` (`speech`, `traits`, `relationships`), чтобы
     сказка запрашивала факт под сцену, а не всю карточку героя. Спецификация:

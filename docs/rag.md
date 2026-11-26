@@ -285,16 +285,19 @@ flowchart LR
 - In-memory индекс используется только для тестов и benchmark и проходит тот
   же контракт, что PostgreSQL-адаптер.
 - Лемматизация — `pymorphy3`; `SimpleAnalyzer` остаётся для сравнения.
-- Команды: `lore-check`, `lore-load`, `lore-search`, `lore-benchmark` и
-  соответствующие Make-цели. Инструмент агента `search_lore` отдаёт не более
+- Команды: `lore-check`, `lore-clean`, `lore-load`, `lore-search`,
+  `lore-benchmark` и соответствующие Make-цели. `lore-clean` удаляет из
+  документов технический мусор экспорта (ссылки на видео) и не трогает
+  стилистику. Инструмент агента `search_lore` отдаёт не более
   3 фрагментов, один на документ, до 1600 символов и без score/id. Слабые
   фрагменты отсекает абсолютный `min_score`, а запрос только из имён
   персонажей даёт пустой контекст. Режим `mode` (`any`, `style`, `plot`,
   `facts`) фильтрует документы по `tags`: `style` ищет диалоги и примеры
   голоса, `plot` — сюжетные ходы. Benchmark 30/10/5 считает `Recall@k`,
-  `MRR`, `Accuracy` и `Correct Rejection Rate`; отдельный прогон на реальном
-  корпусе и честный golden set описаны на
-  [странице лора](./lore.md#реальный-корпус).
+  `MRR`, `Accuracy` и `Correct Rejection Rate`; флаг `--context` добавляет
+  метрики пути `search_lore` — контекстный Recall и долю ловушек, получивших
+  пассажи. Отдельный прогон на реальном корпусе и честный golden set описаны
+  на [странице лора](./lore.md#реальный-корпус).
 - События `lore.search.completed` и `lore.tool.completed` содержат
   `query_term_count`, `hit_count`, `top_score`, `passage_count` и
   `context_chars` без текста запроса и фрагментов.

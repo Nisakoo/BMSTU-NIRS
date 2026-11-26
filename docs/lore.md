@@ -264,22 +264,93 @@ LLM (`--answers` не указан; нужен `LLM_MODEL` и остальной
 а не живую LLM. Набор не коммитится и не используется для подгонки
 формулировок.
 
+### Контекстный режим (`--context`)
+
+Обычный прогон измеряет сырой BM25: первые `k` чанков без фильтрации. Агент
+получает другой результат — контекст после `LoreContextBuilder`: окно
+`retrieval_k` хитов, не более 3 пассажей, один на документ, абсолютный
+`min_score` и отказ для запросов из одних имён. Флаг `--context` прогоняет те
+же вопросы через этот путь: пассажи выбирает та же функция `select`, что
+работает в продакшн-инструменте `search_lore`, поэтому метрики показывают, что
+реально видит агент, а не что находит индекс.
+
+- `Context Recall` — средняя доля релевантных документов, дошедших до
+  контекста; пустой контекст даёт 0;
+- `Context Any-Relevant` — доля обычных вопросов хотя бы с одним релевантным
+  пассажем;
+- `Context Found` — доля обычных вопросов со статусом `found`;
+- `Trap Passage Rate` — доля ловушек, которым инструмент отдал пассажи.
+  Корректный отказ в продакшне остаётся на LLM: `Correct Rejection Rate` с
+  подготовленными ответами его не измеряет.
+
+Контрольный прогон на golden set, `k=5`:
+
+| Метрика | Значение |
+| --- | --- |
+| `Context Recall` | `0.283` |
+| `Context Any-Relevant` | `0.750` |
+| `Context Found` | `1.000` |
+| `Trap Passage Rate` | `1.000` |
+
+`Trap Passage Rate = 1.000` — честная констатация: инструмент сам не отказывает
+ловушкам, и все десять получают по два пассажа. Прежние метрики флагом не
+меняются (`Recall@5 0.450`, `MRR@5 0.637`); без `--context` новые поля равны
+`None`.
+
+
+## Чистка корпуса
+
+Экспорт транскриптов оставлял в тексте каждого документа ссылку на видео
+первой строкой (`https://youtu.be/...`, 28 символов). Её термы попадали в
+BM25-индекс, а агент видел URL в начале первого пассажа. Команда `lore-clean`
+удаляет такие строки детерминированно:
+
+```sh
+python -m smeshariki_ai.rag lore-clean <path> [--apply] [--format text|json]
+make lore-clean DIR=<path> [APPLY=1]
+```
+
+- по умолчанию выполняется dry-run: файлы не меняются, отчёт показывает число
+  документов, удалённых строк и символов;
+- `--apply` перезаписывает документы атомарно и предварительно копирует
+  исходники в `<каталог-данных>/.backups/<имя-пакета>-<UTC>/` (вне каталога
+  пакета, поэтому `lore-check` не считает копию лишним каталогом);
+- правило идемпотентно и трогает только поле `text`;
+- коды возврата: `0` — успех или допустимый dry-run, `1` — ошибка пакета или
+  записи, `2` — неверные аргументы.
+
+Сознательно **не** чистится автоматически: реплики с повторами («Ха-ха-ха»,
+«Бац-бац-бац»), время в диалоге («в 9:00 утра»), многоточия и одинаковые
+соседние строки. Это либо авторская стилистика, либо неотличимо от неё;
+опечатки распознавания («диховке», «Да Дима.») правятся только вручную.
+
+Влияние чистки на метрики: сырой поиск не изменился (`Recall@5 0.450`,
+`MRR@5 0.637`), `Context Recall` сместился `0.300 → 0.283`. Причина не в
+качестве ранжирования: удаление 30 символов у `futbol_2_oy_taym` убрало
+границу нарезки, документ стал одним чанком на 1636 символов, тот упёрся в
+бюджет контекста 1600 символов и вытеснил второй релевантный пассаж. Это
+свойство чанкования и бюджета контекста, а не чистки.
+
 
 ## Команды
 
 ```sh
 python -m smeshariki_ai.rag lore-check <path> [--format text|json]
+python -m smeshariki_ai.rag lore-clean <path> [--apply] [--format text|json]
 python -m smeshariki_ai.rag lore-load <path> [--format text|json]
 python -m smeshariki_ai.rag lore-search "<query>" [--top-k 5] [--format text|json]
-python -m smeshariki_ai.rag lore-benchmark <path> --questions <yaml> [--k 5] [--answers <json>] [--format text|json]
+python -m smeshariki_ai.rag lore-benchmark <path> --questions <yaml> [--k 5] [--answers <json>] [--context] [--format text|json]
 
 make lore-check DIR=<path>
 make lore-load DIR=<path>
 make lore-search QUERY="..." [TOPK=5]
-make lore-benchmark DIR=<path> QUESTIONS=<yaml> [K=5] [ANSWERS=<json>]
+make lore-benchmark DIR=<path> QUESTIONS=<yaml> [K=5] [ANSWERS=<json>] [CONTEXT=1]
+make lore-clean DIR=<path> [APPLY=1]
 ```
 
 - `lore-check` не читает environment и не требует БД;
+- `lore-clean` не читает environment, не требует БД и Docker, по умолчанию
+  работает как dry-run;
 - `lore-load` и `lore-search` читают `DATABASE_URL` через общий
   `load_config`; `make`-цели запускают их в Compose-сервисе `migrate`;
 - `lore-benchmark` не требует БД, но без `--answers` читает конфиг LLM;
@@ -298,6 +369,11 @@ make lore-benchmark DIR=<path> QUESTIONS=<yaml> [K=5] [ANSWERS=<json>]
   появится только при реальной потребности.
 - Реальные данные не коммитятся; тесты используют синтетические пакеты, а
   реальный benchmark лежит только в игнорируемом `data/lore-benchmark/`.
+- Границы чанкования чувствительны к небольшим правкам: удаление одной строки
+  меняет число чанков документа, а один чанк, превысивший бюджет контекста,
+  может вытеснить другие релевантные пассажи.
+- Стоп-слова в индекс не добавлялись: шум от частых общих слов («герой»,
+  «делать») остаётся и ограничивает `Recall@5`.
 
 ## SDD-артефакты
 
@@ -309,4 +385,12 @@ make lore-benchmark DIR=<path> QUESTIONS=<yaml> [K=5] [ANSWERS=<json>]
   [результат проверки](../specs/changes/lore-search-tool/verification.md);
 - benchmark: [спецификация](../specs/changes/lore-benchmark/spec.md),
   [план](../specs/changes/lore-benchmark/plan.md),
-  [результат проверки](../specs/changes/lore-benchmark/verification.md).
+  [результат проверки](../specs/changes/lore-benchmark/verification.md);
+- контекстный режим бенчмарка:
+  [спецификация](../specs/changes/lore-tool-benchmark/spec.md),
+  [план](../specs/changes/lore-tool-benchmark/plan.md),
+  [результат проверки](../specs/changes/lore-tool-benchmark/verification.md);
+- чистка корпуса:
+  [спецификация](../specs/changes/lore-corpus-cleanup/spec.md),
+  [план](../specs/changes/lore-corpus-cleanup/plan.md),
+  [результат проверки](../specs/changes/lore-corpus-cleanup/verification.md).

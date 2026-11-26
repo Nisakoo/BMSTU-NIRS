@@ -195,3 +195,7 @@ specs:
       status: done
     - name: lore-golden-set
       status: done
+    - name: lore-tool-benchmark
+      status: done
+    - name: lore-corpus-cleanup
+      status: done
