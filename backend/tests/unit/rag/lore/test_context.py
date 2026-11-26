@@ -141,3 +141,70 @@ def test_invalid_builder_settings_are_rejected() -> None:
         LoreContextBuilder(max_chars=0)
     with pytest.raises(ValueError):
         LoreContextBuilder(min_score=-1)
+
+
+def test_select_returns_the_same_passages_build_uses() -> None:
+    builder = LoreContextBuilder()
+    search_result = result(
+        hit("a", 10.0, text="Первый фрагмент."),
+        hit("a", 9.0, position=1, text="Дубль первого документа."),
+        hit("b", 8.0, text="Второй фрагмент."),
+        hit("c", 7.0, text="Третий фрагмент."),
+    )
+
+    selected = builder.select(search_result)
+    context = builder.build(search_result)
+
+    assert [item[0].document_id for item in selected] == ["a", "b", "c"]
+    assert [item[1] for item in selected] == [
+        passage.text for passage in context.passages
+    ]
+    assert context.status == "found"
+
+
+def test_select_keeps_internal_ids_and_scores_that_build_drops() -> None:
+    selected = LoreContextBuilder().select(result(hit("d01", 10.0)))
+
+    assert selected[0][0].document_id == "d01"
+    assert selected[0][0].score == 10.0
+    assert selected[0][1] == "Текст фрагмента."
+
+
+def test_select_returns_empty_for_a_name_only_query() -> None:
+    selected = LoreContextBuilder().select(
+        result(hit("a", 10.0)),
+        query_terms=("крош", "и", "ежик"),
+    )
+
+    assert selected == ()
+
+
+def test_select_returns_empty_when_no_hits_were_found() -> None:
+    assert LoreContextBuilder().select(result()) == ()
+
+
+def test_select_applies_the_absolute_floor() -> None:
+    builder = LoreContextBuilder(min_score=5.0)
+    selected = builder.select(
+        result(
+            hit("a", 10.0, text="а" * 30),
+            hit("b", 4.9, text="б" * 30),
+        )
+    )
+
+    assert [item[0].document_id for item in selected] == ["a"]
+    assert selected[0][1] == "а" * 30
+
+
+def test_select_clips_text_to_the_shared_character_budget() -> None:
+    builder = LoreContextBuilder(max_chars=45)
+    selected = builder.select(
+        result(
+            hit("a", 10.0, text="а" * 40),
+            hit("b", 9.0, text="б" * 30),
+        )
+    )
+
+    assert [item[0].document_id for item in selected] == ["a", "b"]
+    assert selected[0][1] == "а" * 40
+    assert selected[1][1] == "б" * 4 + "…"

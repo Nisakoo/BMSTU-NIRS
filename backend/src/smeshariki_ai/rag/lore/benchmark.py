@@ -9,11 +9,13 @@ from typing import Literal, Protocol
 from pydantic import Field, model_validator
 
 from smeshariki_ai.rag.lore.analyzer import TextAnalyzer, normalize_text
+from smeshariki_ai.rag.lore.context import LoreContextBuilder
 from smeshariki_ai.rag.lore.index import InMemoryBm25Index
 from smeshariki_ai.rag.lore.models import (
     LoreHit,
     LoreModel,
     LoreQuery,
+    LoreSearchResult,
     NonEmptyText,
     Slug,
 )
@@ -89,6 +91,9 @@ class BenchmarkQuestionResult(LoreModel):
     reciprocal_rank: float | None = None
     answer: str = ""
     correct: bool | None = None
+    context_status: Literal["found", "empty"] | None = None
+    context_documents: tuple[str, ...] = ()
+    context_relevant: int | None = None
 
 
 class BenchmarkReport(LoreModel):
@@ -101,6 +106,10 @@ class BenchmarkReport(LoreModel):
     mrr: float | None = None
     accuracy: float | None = None
     correct_rejection_rate: float | None = None
+    context_recall: float | None = None
+    context_any_relevant: float | None = None
+    context_found_rate: float | None = None
+    trap_passage_rate: float | None = None
     results: tuple[BenchmarkQuestionResult, ...] = ()
 
 
@@ -130,12 +139,14 @@ class BenchmarkRunner:
         answerer: Answerer,
         *,
         k: int = 5,
+        context: LoreContextBuilder | None = None,
     ) -> None:
         if k <= 0:
             raise ValueError("k must be positive")
         self._analyzer = analyzer
         self._answerer = answerer
         self._k = k
+        self._context = context
 
     async def run(
         self,
@@ -148,15 +159,42 @@ class BenchmarkRunner:
             raise BenchmarkError("the lore package could not be loaded")
 
         search = SearchLore(index, self._analyzer)
+        # With a context builder the tool-like window is wider than ``k``:
+        # raw metrics stay sliced to ``k``, the context to ``retrieval_k``.
+        top_k = (
+            self._k
+            if self._context is None
+            else max(self._k, self._context.retrieval_k)
+        )
         results: list[BenchmarkQuestionResult] = []
         for question in questions.questions:
-            result = await search.search(LoreQuery(text=question.text, top_k=self._k))
-            retrieved = tuple(dict.fromkeys(hit.document_id for hit in result.hits))
+            result = await search.search(LoreQuery(text=question.text, top_k=top_k))
+            raw_hits = result.hits[: self._k]
+            retrieved = tuple(dict.fromkeys(hit.document_id for hit in raw_hits))
             relevant = set(question.relevant_documents)
             found = relevant & set(retrieved)
             recall = len(found) / len(relevant) if relevant else None
             reciprocal_rank = _reciprocal_rank(retrieved, relevant)
-            answer = await self._answerer.answer(question, result.hits)
+            context_status: Literal["found", "empty"] | None = None
+            context_documents: tuple[str, ...] = ()
+            context_relevant: int | None = None
+            if self._context is not None:
+                builder_result = LoreSearchResult(
+                    hits=result.hits[: self._context.retrieval_k],
+                    total=min(len(result.hits), self._context.retrieval_k),
+                    version=result.version,
+                )
+                selected = self._context.select(
+                    builder_result,
+                    query_terms=self._analyzer.terms(question.text),
+                )
+                context_documents = tuple(
+                    dict.fromkeys(hit.document_id for hit, _ in selected)
+                )
+                context_status = "found" if selected else "empty"
+                if question.kind == "normal":
+                    context_relevant = len(set(context_documents) & relevant)
+            answer = await self._answerer.answer(question, raw_hits)
             correct = _is_correct(question, answer)
             results.append(
                 BenchmarkQuestionResult(
@@ -169,11 +207,15 @@ class BenchmarkRunner:
                     reciprocal_rank=reciprocal_rank,
                     answer=answer,
                     correct=correct,
+                    context_status=context_status,
+                    context_documents=context_documents,
+                    context_relevant=context_relevant,
                 )
             )
 
         normal = [item for item in results if item.kind == "normal"]
         traps = [item for item in results if item.kind == "trap"]
+        context_on = self._context is not None
         return BenchmarkReport(
             k=self._k,
             document_count=loaded.summary.document_count,
@@ -184,6 +226,35 @@ class BenchmarkRunner:
             mrr=_mean(item.reciprocal_rank for item in normal),
             accuracy=_mean(item.correct for item in normal),
             correct_rejection_rate=_mean(item.correct for item in traps),
+            context_recall=(
+                _mean(
+                    [
+                        (item.context_relevant or 0) / len(item.relevant_documents)
+                        for item in normal
+                    ]
+                )
+                if context_on
+                else None
+            ),
+            context_any_relevant=(
+                _mean([1.0 if item.context_relevant else 0.0 for item in normal])
+                if context_on
+                else None
+            ),
+            context_found_rate=(
+                _mean(
+                    [1.0 if item.context_status == "found" else 0.0 for item in normal]
+                )
+                if context_on
+                else None
+            ),
+            trap_passage_rate=(
+                _mean(
+                    [1.0 if item.context_status == "found" else 0.0 for item in traps]
+                )
+                if context_on
+                else None
+            ),
             results=tuple(results),
         )
 

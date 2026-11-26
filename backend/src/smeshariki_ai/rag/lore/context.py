@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Literal
 
 from smeshariki_ai.rag.lore.models import (
+    LoreHit,
     LoreModel,
     LoreSearchResult,
 )
@@ -126,6 +127,8 @@ class LoreContextBuilder:
 
     The builder deliberately drops scores and internal ids: the model needs
     text and a human-readable source, not ranking data or database keys.
+    ``select`` keeps them for internal consumers, such as the offline
+    benchmark, so both use one selection path.
     """
 
     def __init__(
@@ -149,22 +152,24 @@ class LoreContextBuilder:
         self._max_chars = max_chars
         self._min_score = min_score
 
-    def build(
+    def select(
         self,
         result: LoreSearchResult,
         query_terms: tuple[str, ...] = (),
-    ) -> LoreContext:
-        if query_terms and not _has_content_term(query_terms):
-            return LoreContext(status="empty", message=EMPTY_MESSAGE)
-        if not result.hits:
-            return LoreContext(status="empty", message=EMPTY_MESSAGE)
+    ) -> tuple[tuple[LoreHit, str], ...]:
+        """Selected ``(hit, final text)`` pairs the agent context is built from."""
 
-        passages: list[LorePassage] = []
+        if query_terms and not _has_content_term(query_terms):
+            return ()
+        if not result.hits:
+            return ()
+
+        selected: list[tuple[LoreHit, str]] = []
         seen_documents: set[str] = set()
         used = 0
 
         for hit in result.hits:
-            if len(passages) >= self._max_passages:
+            if len(selected) >= self._max_passages:
                 break
             if hit.document_id in seen_documents:
                 continue
@@ -182,19 +187,27 @@ class LoreContextBuilder:
                     break
                 text = text[: remaining - 1].rstrip() + "…"
 
-            passages.append(
-                LorePassage(
-                    title=hit.title,
-                    source=hit.source,
-                    text=text,
-                )
-            )
+            selected.append((hit, text))
             seen_documents.add(hit.document_id)
             used += len(text)
 
-        if not passages:
+        return tuple(selected)
+
+    def build(
+        self,
+        result: LoreSearchResult,
+        query_terms: tuple[str, ...] = (),
+    ) -> LoreContext:
+        selected = self.select(result, query_terms)
+        if not selected:
             return LoreContext(status="empty", message=EMPTY_MESSAGE)
-        return LoreContext(status="found", passages=tuple(passages))
+        return LoreContext(
+            status="found",
+            passages=tuple(
+                LorePassage(title=hit.title, source=hit.source, text=text)
+                for hit, text in selected
+            ),
+        )
 
 
 def _has_content_term(terms: tuple[str, ...]) -> bool:

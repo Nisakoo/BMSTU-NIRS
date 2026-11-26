@@ -12,10 +12,12 @@ from smeshariki_ai.rag.lore.benchmark import (
     BenchmarkError,
     BenchmarkQuestion,
     BenchmarkRunner,
+    BenchmarkSet,
     StaticAnswerer,
     read_benchmark_questions,
 )
 from smeshariki_ai.rag.lore.benchmark_llm import LiteLLMAnswerer
+from smeshariki_ai.rag.lore.context import LoreContextBuilder
 from smeshariki_ai.rag.lore.models import LoreHit
 from smeshariki_ai.rag.lore.package import check_package
 
@@ -159,3 +161,133 @@ def test_invalid_questions_file_is_a_safe_error(tmp_path: Path) -> None:
 
     with pytest.raises(BenchmarkError):
         read_benchmark_questions(tmp_path / "missing.yaml")
+
+
+MINI_QUESTIONS = """\
+questions:
+- id: q01
+  text: Какие блюда из морковки готовят герои?
+  kind: normal
+  relevant_documents: [d01, d02, d03]
+  reference_answer: Блюдо из морковки.
+  required_facts: [блюдо]
+- id: t01
+  text: Крош и Ёжик
+  kind: trap
+  reference_answer: В документах нет этой информации.
+- id: t02
+  text: Какая машина у Пина?
+  kind: trap
+  reference_answer: В документах нет этой информации.
+"""
+
+MINI_ANSWERS = {
+    "q01": "Блюдо из морковки.",
+    "t01": "В документах нет этой информации.",
+    "t02": "В документах нет этой информации.",
+}
+
+
+def write_mini_package(root: Path) -> None:
+    documents = {
+        "d01": (
+            "Блюда из морковки",
+            "Блюдо из морковки — любимое блюдо. Морковка полезна. "
+            "Блюдо из морковки просто готовить.",
+        ),
+        "d02": (
+            "Разговор Кроша",
+            "Крош вспоминает морковку. Морковка — любимый овощ Кроша.",
+        ),
+        "d03": (
+            "Машина Пина",
+            "Машина Пина едет быстро. Машина — полезная штука.",
+        ),
+    }
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "package.yaml").write_text("format_version: 1\n", encoding="utf-8")
+    documents_dir = root / "documents"
+    documents_dir.mkdir()
+    for document_id, (title, text) in documents.items():
+        (documents_dir / f"{document_id}.yaml").write_text(
+            f"id: {document_id}\ntitle: {title}\ntext: |\n  {text}\n",
+            encoding="utf-8",
+        )
+
+
+def mini_questions(root: Path) -> BenchmarkSet:
+    path = root / "questions.yaml"
+    path.write_text(MINI_QUESTIONS, encoding="utf-8")
+    return read_benchmark_questions(path)
+
+
+async def test_context_metrics_measure_the_agent_path(tmp_path: Path) -> None:
+    package = tmp_path / "lore"
+    write_mini_package(package)
+    questions = mini_questions(tmp_path)
+    runner = BenchmarkRunner(
+        MorphAnalyzer(),
+        StaticAnswerer(MINI_ANSWERS),
+        k=5,
+        context=LoreContextBuilder(min_score=0.0),
+    )
+
+    report = await runner.run(package, questions)
+
+    q01 = next(item for item in report.results if item.question_id == "q01")
+    t01 = next(item for item in report.results if item.question_id == "t01")
+    t02 = next(item for item in report.results if item.question_id == "t02")
+
+    assert q01.context_status == "found"
+    assert q01.context_documents == ("d01", "d02")
+    assert q01.context_relevant == 2
+    assert report.context_recall == pytest.approx(2 / 3)
+    assert report.context_any_relevant == 1.0
+    assert report.context_found_rate == 1.0
+    assert t01.context_status == "empty"
+    assert t01.context_relevant is None
+    assert t02.context_status == "found"
+    assert report.trap_passage_rate == 0.5
+    assert report.recall_at_k == pytest.approx(2 / 3)
+    assert report.mrr == 1.0
+
+
+async def test_without_a_context_builder_context_metrics_are_none(
+    tmp_path: Path,
+) -> None:
+    package = tmp_path / "lore"
+    write_mini_package(package)
+    questions = mini_questions(tmp_path)
+    runner = BenchmarkRunner(MorphAnalyzer(), StaticAnswerer(MINI_ANSWERS), k=5)
+
+    report = await runner.run(package, questions)
+
+    assert report.context_recall is None
+    assert report.context_any_relevant is None
+    assert report.context_found_rate is None
+    assert report.trap_passage_rate is None
+    q01 = next(item for item in report.results if item.question_id == "q01")
+    assert q01.context_status is None
+    assert q01.context_documents == ()
+    assert q01.context_relevant is None
+
+
+async def test_context_selection_uses_only_the_first_retrieval_k_hits(
+    tmp_path: Path,
+) -> None:
+    package = tmp_path / "lore"
+    write_mini_package(package)
+    questions = mini_questions(tmp_path)
+    runner = BenchmarkRunner(
+        MorphAnalyzer(),
+        StaticAnswerer(MINI_ANSWERS),
+        k=5,
+        context=LoreContextBuilder(retrieval_k=1, min_score=0.0),
+    )
+
+    report = await runner.run(package, questions)
+
+    q01 = next(item for item in report.results if item.question_id == "q01")
+    assert q01.context_documents == ("d01",)
+    assert q01.context_relevant == 1
+    assert report.context_recall == pytest.approx(1 / 3)
