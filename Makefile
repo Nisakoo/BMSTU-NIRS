@@ -16,9 +16,9 @@ help:
 	@echo "  make knowledge-delete REFS=\"<type>/<id> ...\" [APPLY=1] [FORMAT=json] Delete knowledge entities"
 	@echo "  make knowledge-restore REF=<type>/<id> [REVISION=N] [APPLY=1] [FORMAT=json] Restore a knowledge entity"
 	@echo "  make lore-check DIR=<path> Check a lore YAML package"
-	@echo "  make lore-load DIR=<path> [FORMAT=json] Replace the lore corpus and BM25 index"
+	@echo "  make lore-clean DIR=<path> [APPLY=1] Remove technical noise from a lore package"	@echo "  make lore-load DIR=<path> [FORMAT=json] Replace the lore corpus and BM25 index"
 	@echo "  make lore-search QUERY=\"...\" [TOPK=5] [FORMAT=json] Search the lore corpus"
-	@echo "  make lore-benchmark DIR=<path> QUESTIONS=<yaml> [K=5] [ANSWERS=<json>] Run the lore benchmark"
+	@echo "  make lore-benchmark DIR=<path> QUESTIONS=<yaml> [K=5] [ANSWERS=<json>] [CONTEXT=1] Run the lore benchmark"
 	@echo "  make data-encrypt Encrypt data/ into encrypted/data.enc (asks for the passphrase)"
 	@echo "  make data-decrypt [FORCE=1] Restore data/ from encrypted/data.enc (asks for the passphrase)"
 	@echo "  make frontend Run the Vite frontend development server"
@@ -174,6 +174,16 @@ lore-check:
 	}
 	@uv run --project backend --locked python -m smeshariki_ai.rag lore-check "$(DIR)" --format "$(or $(FORMAT),text)"
 
+.PHONY: lore-clean
+
+lore-clean:
+	@test -n "$(DIR)" || { \
+		echo "Usage: make lore-clean DIR=<path> [APPLY=1]" >&2; \
+		exit 2; \
+	}
+	@uv run --project backend --locked python -m smeshariki_ai.rag lore-clean "$(DIR)" \
+		$(if $(filter 1,$(APPLY)),--apply,) --format "$(or $(FORMAT),text)"
+
 .PHONY: lore-load
 
 lore-load:
@@ -217,11 +227,11 @@ lore-search:
 
 lore-benchmark:
 	@test -n "$(DIR)" || { \
-		echo "Usage: make lore-benchmark DIR=<path> QUESTIONS=<yaml> [K=5] [ANSWERS=<json>]" >&2; \
+		echo "Usage: make lore-benchmark DIR=<path> QUESTIONS=<yaml> [K=5] [ANSWERS=<json>] [CONTEXT=1]" >&2; \
 		exit 2; \
 	}
 	@test -n "$(QUESTIONS)" || { \
-		echo "Usage: make lore-benchmark DIR=<path> QUESTIONS=<yaml> [K=5] [ANSWERS=<json>]" >&2; \
+		echo "Usage: make lore-benchmark DIR=<path> QUESTIONS=<yaml> [K=5] [ANSWERS=<json>] [CONTEXT=1]" >&2; \
 		exit 2; \
 	}
 	@test -d "$(DIR)" || { \
@@ -240,6 +250,7 @@ lore-benchmark:
 			migrate python -m smeshariki_ai.rag lore-benchmark /lore \
 			--questions /questions.yaml --k "$(or $(K),5)" \
 			$(if $(ANSWERS),--answers /answers.json,) \
+			$(if $(filter 1,$(CONTEXT)),--context,) \
 			--format "$(or $(FORMAT),text)"; \
 	else \
 		docker compose -f "$(COMPOSE_FILE)" run --rm \
@@ -249,6 +260,7 @@ lore-benchmark:
 			migrate python -m smeshariki_ai.rag lore-benchmark /lore \
 			--questions /questions.yaml --k "$(or $(K),5)" \
 			$(if $(ANSWERS),--answers /answers.json,) \
+			$(if $(filter 1,$(CONTEXT)),--context,) \
 			--format "$(or $(FORMAT),text)"; \
 	fi
 

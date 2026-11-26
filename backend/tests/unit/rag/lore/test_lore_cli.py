@@ -168,3 +168,155 @@ def test_lore_benchmark_json_is_machine_readable() -> None:
     assert report["normal_count"] == 10
     assert report["trap_count"] == 5
     assert report["correct_rejection_rate"] == 1.0
+
+
+def test_lore_benchmark_context_prints_tool_path_metrics() -> None:
+    output = io.StringIO()
+
+    code = main(
+        [
+            "lore-benchmark",
+            str(BENCHMARK_FIXTURE / "lore"),
+            "--questions",
+            str(BENCHMARK_FIXTURE / "questions.yaml"),
+            "--answers",
+            str(BENCHMARK_FIXTURE / "answers.json"),
+            "--context",
+        ],
+        stdout=output,
+    )
+
+    assert code == 0
+    assert "Context Recall:" in output.getvalue()
+    assert "Context Any-Relevant:" in output.getvalue()
+    assert "Context Found:" in output.getvalue()
+    assert "Trap Passage Rate:" in output.getvalue()
+
+
+def test_lore_benchmark_without_context_keeps_the_old_output() -> None:
+    output = io.StringIO()
+
+    code = main(
+        [
+            "lore-benchmark",
+            str(BENCHMARK_FIXTURE / "lore"),
+            "--questions",
+            str(BENCHMARK_FIXTURE / "questions.yaml"),
+            "--answers",
+            str(BENCHMARK_FIXTURE / "answers.json"),
+        ],
+        stdout=output,
+    )
+
+    assert code == 0
+    assert "Context Recall:" not in output.getvalue()
+    assert "Trap Passage Rate:" not in output.getvalue()
+
+
+def test_lore_benchmark_context_json_contains_context_fields() -> None:
+    output = io.StringIO()
+
+    code = main(
+        [
+            "lore-benchmark",
+            str(BENCHMARK_FIXTURE / "lore"),
+            "--questions",
+            str(BENCHMARK_FIXTURE / "questions.yaml"),
+            "--answers",
+            str(BENCHMARK_FIXTURE / "answers.json"),
+            "--format",
+            "json",
+            "--context",
+        ],
+        stdout=output,
+    )
+
+    report = json.loads(output.getvalue())
+    assert code == 0
+    assert report["context_recall"] is not None
+    assert report["context_any_relevant"] is not None
+    assert report["context_found_rate"] is not None
+    assert report["trap_passage_rate"] is not None
+    first = report["results"][0]
+    assert first["context_status"] in ("found", "empty")
+    assert isinstance(first["context_documents"], list)
+
+
+URL = "https://youtu.be/9IsFUwqf188"
+
+
+def write_package_with_url(root: Path) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "package.yaml").write_text("format_version: 1\n", encoding="utf-8")
+    (root / "documents").mkdir()
+    path = root / "documents" / "d01.yaml"
+    path.write_text(
+        f"id: d01\ntitle: Возврат\ntext: |\n  {URL}\n  Возврат оплаты на карту.\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_lore_clean_defaults_to_dry_run(tmp_path: Path) -> None:
+    path = write_package_with_url(tmp_path / "lore")
+    before = path.read_text(encoding="utf-8")
+    output = io.StringIO()
+
+    code = main(["lore-clean", str(tmp_path / "lore")], stdout=output)
+
+    assert code == 0
+    assert "Будет очищено документов: 1" in output.getvalue()
+    assert "--apply" in output.getvalue()
+    assert path.read_text(encoding="utf-8") == before
+
+
+def test_lore_clean_apply_rewrites_and_reports_backup(tmp_path: Path) -> None:
+    path = write_package_with_url(tmp_path / "lore")
+    output = io.StringIO()
+
+    code = main(
+        ["lore-clean", str(tmp_path / "lore"), "--apply"],
+        stdout=output,
+    )
+
+    assert code == 0
+    assert "Очищено документов: 1" in output.getvalue()
+    assert "Резервная копия:" in output.getvalue()
+    assert URL not in path.read_text(encoding="utf-8")
+
+
+def test_lore_clean_apply_twice_reports_nothing_to_do(tmp_path: Path) -> None:
+    write_package_with_url(tmp_path / "lore")
+    main(["lore-clean", str(tmp_path / "lore"), "--apply"], stdout=io.StringIO())
+    output = io.StringIO()
+
+    code = main(["lore-clean", str(tmp_path / "lore"), "--apply"], stdout=output)
+
+    assert code == 0
+    assert "Чистить нечего" in output.getvalue()
+
+
+def test_lore_clean_json_is_machine_readable(tmp_path: Path) -> None:
+    write_package_with_url(tmp_path / "lore")
+    output = io.StringIO()
+
+    code = main(
+        ["lore-clean", str(tmp_path / "lore"), "--format", "json"], stdout=output
+    )
+
+    report = json.loads(output.getvalue())
+    assert code == 0
+    assert report["applied"] is False
+    assert report["document_count"] == 1
+    assert report["changed_count"] == 1
+    assert report["removed_lines"] == 1
+
+
+def test_lore_clean_invalid_package_returns_one(tmp_path: Path) -> None:
+    (tmp_path / "lore").mkdir()
+    output = io.StringIO()
+
+    code = main(["lore-clean", str(tmp_path / "lore")], stdout=output)
+
+    assert code == 1
+    assert "Чистка отменена" in output.getvalue()

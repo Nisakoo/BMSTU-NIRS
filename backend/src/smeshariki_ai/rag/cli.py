@@ -24,6 +24,8 @@ from smeshariki_ai.rag.lore.benchmark import (
     StaticAnswerer,
     read_benchmark_questions,
 )
+from smeshariki_ai.rag.lore.cleanup import CleanReport, clean_package
+from smeshariki_ai.rag.lore.context import LoreContextBuilder
 from smeshariki_ai.rag.lore.models import LoreQuery, LoreSearchResult
 from smeshariki_ai.rag.lore.package import LoreCheckReport
 from smeshariki_ai.rag.lore.package import check_package as lore_check_package
@@ -141,6 +143,11 @@ def main(
         _write_lore_check(stdout, arguments.format, report)
         return 0 if report.valid else 1
 
+    if arguments.command == "lore-clean":
+        report = clean_package(arguments.path, apply=arguments.apply)
+        _write_lore_clean(stdout, arguments.format, report)
+        return 0 if not report.issues else 1
+
     if arguments.command == "lore-load":
         report = asyncio.run(_lore_load(arguments.path, lore_store))
         _write_lore_load(stdout, arguments.format, report)
@@ -158,6 +165,7 @@ def main(
                 arguments.questions,
                 arguments.k,
                 arguments.answers,
+                arguments.context,
             )
         )
         _write_lore_benchmark(stdout, arguments.format, report)
@@ -270,6 +278,7 @@ async def _lore_benchmark(
     questions_path: Path,
     k: int,
     answers_path: Path | None,
+    context: bool,
 ) -> BenchmarkReport | None:
     try:
         questions = read_benchmark_questions(questions_path)
@@ -294,9 +303,12 @@ async def _lore_benchmark(
             except ValidationError:
                 return None
             answerer = LiteLLMAnswerer(LiteLLMProvider(config.llm))
-        return await BenchmarkRunner(MorphAnalyzer(), answerer, k=k).run(
-            package, questions
-        )
+        return await BenchmarkRunner(
+            MorphAnalyzer(),
+            answerer,
+            k=k,
+            context=LoreContextBuilder() if context else None,
+        ).run(package, questions)
     except (BenchmarkError, ConfigurationError):
         return None
 
@@ -326,6 +338,17 @@ def _parser() -> argparse.ArgumentParser:
     lore_check.add_argument("path", type=Path, help="каталог пакета лора")
     lore_check.add_argument("--format", choices=("text", "json"), default="text")
 
+    lore_clean = commands.add_parser(
+        "lore-clean", help="удалить технический мусор из пакета лора"
+    )
+    lore_clean.add_argument("path", type=Path, help="каталог пакета лора")
+    lore_clean.add_argument(
+        "--apply",
+        action="store_true",
+        help="записать очищенные файлы; без флага выполняется dry-run",
+    )
+    lore_clean.add_argument("--format", choices=("text", "json"), default="text")
+
     lore_load = commands.add_parser(
         "lore-load", help="заменить корпус лора и построить BM25-индекс"
     )
@@ -347,6 +370,11 @@ def _parser() -> argparse.ArgumentParser:
     lore_benchmark.add_argument("--k", type=_positive_int, default=5)
     lore_benchmark.add_argument(
         "--answers", type=Path, help="JSON с готовыми ответами по id вопроса"
+    )
+    lore_benchmark.add_argument(
+        "--context",
+        action="store_true",
+        help="оценить также контекст агента (путь search_lore)",
     )
     lore_benchmark.add_argument("--format", choices=("text", "json"), default="text")
 
@@ -542,6 +570,33 @@ def _write_lore_check(stdout: TextIO, output: str, report: LoreCheckReport) -> N
         stdout.write(f"Ошибок: {len(report.issues)}\n")
 
 
+def _write_lore_clean(stdout: TextIO, output: str, report: CleanReport) -> None:
+    if output == "json":
+        _write_json(stdout, report.model_dump(mode="json"))
+        return
+    if report.issues:
+        _write_issues(stdout, report.issues)
+        stdout.write(
+            f"Чистка отменена, файлы не изменены. Ошибок: {len(report.issues)}\n"
+        )
+        return
+    if not report.changed_count:
+        stdout.write("Чистить нечего: в пакете лора нет технического мусора.\n")
+        return
+    action = "Очищено" if report.applied else "Будет очищено"
+    stdout.write(
+        f"{action} документов: {report.changed_count} из {report.document_count}; "
+        f"удалено строк: {report.removed_lines}, символов: {report.removed_chars}.\n"
+    )
+    if report.applied:
+        if report.backup_path is None:
+            stdout.write("Резервную копию создать не удалось.\n")
+        else:
+            stdout.write(f"Резервная копия: {report.backup_path}\n")
+    else:
+        stdout.write("Запустите с --apply, чтобы записать изменения.\n")
+
+
 def _write_lore_load(stdout: TextIO, output: str, report: LoreLoadReport) -> None:
     if output == "json":
         _write_json(stdout, report.model_dump(mode="json"))
@@ -606,6 +661,11 @@ def _write_lore_benchmark(
     stdout.write(f"MRR@{report.k}: {_metric(report.mrr)}\n")
     stdout.write(f"Accuracy: {_metric(report.accuracy)}\n")
     stdout.write(f"Correct Rejection Rate: {_metric(report.correct_rejection_rate)}\n")
+    if report.context_recall is not None:
+        stdout.write(f"Context Recall: {_metric(report.context_recall)}\n")
+        stdout.write(f"Context Any-Relevant: {_metric(report.context_any_relevant)}\n")
+        stdout.write(f"Context Found: {_metric(report.context_found_rate)}\n")
+        stdout.write(f"Trap Passage Rate: {_metric(report.trap_passage_rate)}\n")
     for item in report.results:
         stdout.write(
             f"{item.question_id}: recall={_metric(item.recall)}, "
