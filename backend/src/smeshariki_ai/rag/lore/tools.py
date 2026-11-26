@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, StringConstraints
 from smeshariki_ai.agent.tools import Tool
 from smeshariki_ai.observability import log_event, utc_now
 from smeshariki_ai.rag.lore.context import LoreContextBuilder
+from smeshariki_ai.rag.lore.expansion import QueryExpander
 from smeshariki_ai.rag.lore.models import LoreQuery
 from smeshariki_ai.rag.lore.ports import LoreStoreError
 from smeshariki_ai.rag.lore.services import SearchLore
@@ -61,19 +62,35 @@ class SearchLoreTool(Tool):
         self,
         search: SearchLore,
         context: LoreContextBuilder | None = None,
+        expander: QueryExpander | None = None,
     ) -> None:
         self._search = search
         self._context = context or LoreContextBuilder()
+        self._expander = expander
 
     async def execute(self, arguments: BaseModel) -> dict[str, Any]:
         assert isinstance(arguments, SearchLoreArguments)
         started_at = utc_now()
         started = time.monotonic()
-        terms = self._search.analyze(arguments.query)
+        expanded = (
+            ()
+            if self._expander is None
+            else await self._expander.expand(arguments.query)
+        )
+        # The original query is always kept: expansion only adds signal.
+        search_text = (
+            arguments.query
+            if not expanded
+            else f"{arguments.query} {' '.join(expanded)}"
+        )
+        # The "names only" rule looks at the original query, so an expansion
+        # cannot turn a bare character name into a story premise.
+        original_terms = self._search.analyze(arguments.query)
+        terms = self._search.analyze(search_text)
         try:
             result = await self._search.search(
                 LoreQuery(
-                    text=arguments.query,
+                    text=search_text,
                     top_k=self._context.retrieval_k,
                     tags=_MODE_TAGS[arguments.mode],
                 )
@@ -98,7 +115,7 @@ class SearchLoreTool(Tool):
                 "message": UNAVAILABLE_MESSAGE,
             }
 
-        context = self._context.build(result, query_terms=terms)
+        context = self._context.build(result, query_terms=original_terms)
         log_event(
             logger,
             logging.INFO,

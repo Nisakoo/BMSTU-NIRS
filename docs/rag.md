@@ -288,6 +288,10 @@ flowchart LR
   анализатора удаляют стоп-слова (`rag/lore/stopwords.py`), поэтому документ и
   запрос фильтруются одинаково; после изменения анализа индекс перезагружается
   `make lore-load`.
+- Запрос перед поиском можно расширить ключевыми словами LLM
+  (`QueryExpander` и `LiteLLMQueryExpander` в `rag/lore/expansion.py`); флаг
+  `RAG_QUERY_EXPANSION_ENABLED`, по умолчанию выключен. При сбое модели поиск
+  идёт по исходному запросу.
 - Команды: `lore-check`, `lore-clean`, `lore-load`, `lore-search`,
   `lore-benchmark` и соответствующие Make-цели. `lore-clean` удаляет из
   документов технический мусор экспорта (ссылки на видео) и не трогает

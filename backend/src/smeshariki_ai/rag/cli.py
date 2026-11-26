@@ -18,6 +18,7 @@ from pydantic import ValidationError
 
 from smeshariki_ai.rag.lore.analyzer import MorphAnalyzer
 from smeshariki_ai.rag.lore.benchmark import (
+    Answerer,
     BenchmarkError,
     BenchmarkReport,
     BenchmarkRunner,
@@ -166,6 +167,7 @@ def main(
                 arguments.k,
                 arguments.answers,
                 arguments.context,
+                arguments.expand,
             )
         )
         _write_lore_benchmark(stdout, arguments.format, report)
@@ -279,9 +281,11 @@ async def _lore_benchmark(
     k: int,
     answers_path: Path | None,
     context: bool,
+    expand: bool,
 ) -> BenchmarkReport | None:
     try:
         questions = read_benchmark_questions(questions_path)
+        answerer: Answerer | None = None
         if answers_path is not None:
             try:
                 raw = json.loads(answers_path.read_text(encoding="utf-8"))
@@ -293,21 +297,34 @@ async def _lore_benchmark(
             ):
                 return None
             answerer = StaticAnswerer(raw)
-        else:
+
+        provider = None
+        if answerer is None or expand:
             from smeshariki_ai.agent import LiteLLMProvider
             from smeshariki_ai.config import load_config
-            from smeshariki_ai.rag.lore.benchmark_llm import LiteLLMAnswerer
 
             try:
                 config = load_config()
             except ValidationError:
                 return None
-            answerer = LiteLLMAnswerer(LiteLLMProvider(config.llm))
+            provider = LiteLLMProvider(config.llm)
+            if answerer is None:
+                from smeshariki_ai.rag.lore.benchmark_llm import LiteLLMAnswerer
+
+                answerer = LiteLLMAnswerer(provider)
+
+        expander = None
+        if expand and provider is not None:
+            from smeshariki_ai.rag.lore.expansion import LiteLLMQueryExpander
+
+            expander = LiteLLMQueryExpander(provider)
+
         return await BenchmarkRunner(
             MorphAnalyzer(),
             answerer,
             k=k,
             context=LoreContextBuilder() if context else None,
+            expander=expander,
         ).run(package, questions)
     except (BenchmarkError, ConfigurationError):
         return None
@@ -375,6 +392,11 @@ def _parser() -> argparse.ArgumentParser:
         "--context",
         action="store_true",
         help="оценить также контекст агента (путь search_lore)",
+    )
+    lore_benchmark.add_argument(
+        "--expand",
+        action="store_true",
+        help="расширить вопросы ключевыми словами через LLM перед поиском",
     )
     lore_benchmark.add_argument("--format", choices=("text", "json"), default="text")
 

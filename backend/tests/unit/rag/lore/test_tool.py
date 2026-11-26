@@ -8,6 +8,7 @@ from smeshariki_ai.agent.tools import ToolRegistry
 from smeshariki_ai.rag.lore.analyzer import SimpleAnalyzer
 from smeshariki_ai.rag.lore.bm25 import Bm25Params
 from smeshariki_ai.rag.lore.context import LoreContextBuilder
+from smeshariki_ai.rag.lore.expansion import QueryExpander
 from smeshariki_ai.rag.lore.index import InMemoryBm25Index
 from smeshariki_ai.rag.lore.models import (
     LoreChunk,
@@ -45,12 +46,14 @@ def entry(
 def registry(
     index: LoreIndex,
     context: LoreContextBuilder | None = None,
+    expander: QueryExpander | None = None,
 ) -> ToolRegistry:
     return ToolRegistry(
         (
             SearchLoreTool(
                 SearchLore(index, ANALYZER),
                 context or LoreContextBuilder(),
+                expander,
             ),
         )
     )
@@ -133,6 +136,63 @@ async def test_unavailable_index_returns_safe_status() -> None:
     assert result.output["status"] == "unavailable"
     assert result.output["passages"] == []
     assert "недоступна" in result.output["message"]
+
+
+class FixedExpander(QueryExpander):
+    def __init__(self, terms: tuple[str, ...]) -> None:
+        self.terms = terms
+        self.queries: list[str] = []
+
+    async def expand(self, query: str) -> tuple[str, ...]:
+        self.queries.append(query)
+        return self.terms
+
+
+async def test_expansion_adds_terms_to_the_search() -> None:
+    index = InMemoryBm25Index()
+    await index.replace(
+        (entry("a", "Футбол", "Герои играют в футбол и гоняют мяч по траве."),)
+    )
+    expander = FixedExpander(("футбол",))
+
+    without = await registry(index, LoreContextBuilder(min_score=0.0)).execute(
+        call({"query": "игра"})
+    )
+    with_expansion = await registry(
+        index, LoreContextBuilder(min_score=0.0), expander
+    ).execute(call({"query": "игра"}))
+
+    assert without.output["status"] == "empty"
+    assert with_expansion.output["status"] == "found"
+    assert expander.queries == ["игра"]
+
+
+async def test_expansion_does_not_make_a_name_only_query_meaningful() -> None:
+    index = InMemoryBm25Index()
+    await index.replace(
+        (entry("a", "Футбол", "Герои играют в футбол и гоняют мяч по траве."),)
+    )
+    expander = FixedExpander(("футбол", "мяч"))
+
+    result = await registry(index, LoreContextBuilder(min_score=0.0), expander).execute(
+        call({"query": "Крош Ёжик"})
+    )
+
+    assert result.error is None
+    assert result.output["status"] == "empty"
+
+
+async def test_no_expander_keeps_the_previous_behaviour() -> None:
+    index = InMemoryBm25Index()
+    await index.replace(
+        (entry("a", "Футбол", "Герои играют в футбол и гоняют мяч по траве."),)
+    )
+
+    result = await registry(index, LoreContextBuilder(min_score=0.0)).execute(
+        call({"query": "футбол"})
+    )
+
+    assert result.output["status"] == "found"
 
 
 async def test_style_mode_uses_tagged_documents() -> None:

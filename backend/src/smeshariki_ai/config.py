@@ -10,6 +10,7 @@ from smeshariki_ai.auth import AuthConfig
 from smeshariki_ai.cache import RedisConfig
 from smeshariki_ai.db import DatabaseConfig
 from smeshariki_ai.observability import LoggingConfig
+from smeshariki_ai.rag.config import RagConfig
 from smeshariki_ai.speech import CephS3Config, SpeechConfig
 
 __all__ = ["Config", "load_config"]
@@ -26,6 +27,7 @@ class Config(BaseModel):
     redis: RedisConfig
     speech: SpeechConfig = Field(default_factory=SpeechConfig)
     ceph: CephS3Config = Field(default_factory=CephS3Config)
+    rag: RagConfig = Field(default_factory=RagConfig)
 
 
 def load_config(environ: Mapping[str, str] | None = None) -> Config:
@@ -116,6 +118,13 @@ def load_config(environ: Mapping[str, str] | None = None) -> Config:
         if environment_name in source:
             ceph_values[field_name] = source[environment_name]
 
+    rag_values: dict[str, Any] = {}
+    for environment_name, field_name in (
+        ("RAG_QUERY_EXPANSION_ENABLED", "query_expansion_enabled"),
+    ):
+        if environment_name in source and source[environment_name].strip():
+            rag_values[field_name] = source[environment_name]
+
     return Config(
         agent=AgentConfig.model_validate(agent_values),
         llm=LiteLLMProviderConfig.model_validate(provider_values),
@@ -125,4 +134,5 @@ def load_config(environ: Mapping[str, str] | None = None) -> Config:
         redis=RedisConfig.model_validate(redis_values),
         speech=SpeechConfig.model_validate(speech_values),
         ceph=CephS3Config.model_validate(ceph_values),
+        rag=RagConfig.model_validate(rag_values),
     )

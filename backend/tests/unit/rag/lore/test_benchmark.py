@@ -18,6 +18,7 @@ from smeshariki_ai.rag.lore.benchmark import (
 )
 from smeshariki_ai.rag.lore.benchmark_llm import LiteLLMAnswerer
 from smeshariki_ai.rag.lore.context import LoreContextBuilder
+from smeshariki_ai.rag.lore.expansion import QueryExpander
 from smeshariki_ai.rag.lore.models import LoreHit
 from smeshariki_ai.rag.lore.package import check_package
 
@@ -291,3 +292,90 @@ async def test_context_selection_uses_only_the_first_retrieval_k_hits(
     assert q01.context_documents == ("d01",)
     assert q01.context_relevant == 1
     assert report.context_recall == pytest.approx(1 / 3)
+
+
+class FixedExpander(QueryExpander):
+    def __init__(self, terms: tuple[str, ...]) -> None:
+        self.terms = terms
+        self.queries: list[str] = []
+
+    async def expand(self, query: str) -> tuple[str, ...]:
+        self.queries.append(query)
+        return self.terms
+
+
+EXPANSION_QUESTIONS = """\
+questions:
+- id: q01
+  text: Что герои готовят на обед?
+  kind: normal
+  relevant_documents: [d01, d02, d03]
+  reference_answer: Блюдо из морковки.
+  required_facts: [блюдо]
+- id: t01
+  text: Крош и Ёжик
+  kind: trap
+  reference_answer: В документах нет этой информации.
+"""
+
+
+def write_expansion_package(root: Path) -> None:
+    documents = {
+        "d01": ("Первое", "Морковка полезна. Морковка растёт на грядке."),
+        "d02": ("Второе", "Морковка сладкая. Морковка нравится всем."),
+        "d03": ("Третье", "Морковка хрустит. Морковка лежит в подвале."),
+    }
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "package.yaml").write_text("format_version: 1\n", encoding="utf-8")
+    documents_dir = root / "documents"
+    documents_dir.mkdir()
+    for document_id, (title, text) in documents.items():
+        (documents_dir / f"{document_id}.yaml").write_text(
+            f"id: {document_id}\ntitle: {title}\ntext: |\n  {text}\n",
+            encoding="utf-8",
+        )
+
+
+async def test_expander_is_used_and_can_raise_recall(tmp_path: Path) -> None:
+    package = tmp_path / "lore"
+    write_expansion_package(package)
+    (tmp_path / "questions.yaml").write_text(EXPANSION_QUESTIONS, encoding="utf-8")
+    questions = read_benchmark_questions(tmp_path / "questions.yaml")
+    answers = {"q01": "Блюдо из морковки.", "t01": "В документах нет информации."}
+
+    baseline = await BenchmarkRunner(MorphAnalyzer(), StaticAnswerer(answers), k=5).run(
+        package, questions
+    )
+
+    expander = FixedExpander(("морковка",))
+    expanded = await BenchmarkRunner(
+        MorphAnalyzer(), StaticAnswerer(answers), k=5, expander=expander
+    ).run(package, questions)
+
+    assert expander.queries == sorted(expander.queries, key=expander.queries.index)
+    assert "Что герои готовят на обед?" in expander.queries
+    assert baseline.recall_at_k == 0.0
+    assert expanded.recall_at_k == 1.0
+
+
+async def test_expander_returning_nothing_keeps_the_metrics(
+    tmp_path: Path,
+) -> None:
+    package = tmp_path / "lore"
+    write_expansion_package(package)
+    (tmp_path / "questions.yaml").write_text(EXPANSION_QUESTIONS, encoding="utf-8")
+    questions = read_benchmark_questions(tmp_path / "questions.yaml")
+    answers = {"q01": "Блюдо из морковки.", "t01": "В документах нет информации."}
+
+    baseline = await BenchmarkRunner(MorphAnalyzer(), StaticAnswerer(answers), k=5).run(
+        package, questions
+    )
+    empty = await BenchmarkRunner(
+        MorphAnalyzer(),
+        StaticAnswerer(answers),
+        k=5,
+        expander=FixedExpander(()),
+    ).run(package, questions)
+
+    assert baseline.recall_at_k == empty.recall_at_k
+    assert baseline.mrr == empty.mrr

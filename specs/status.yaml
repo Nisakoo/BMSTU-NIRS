@@ -201,3 +201,7 @@ specs:
       status: done
     - name: lore-stopwords
       status: done
+    - name: lore-query-expansion
+      status: done
+    - name: lore-semantic-evaluation
+      status: done

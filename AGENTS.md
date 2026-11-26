@@ -509,16 +509,25 @@
     `data/lore-golden/`: полный корпус 84 документа, 20 обычных вопросов и
     10 ловушек; контрольный прогон: `Recall@5 0.483`, `MRR@5 0.713`.
     Спецификации: `lore-benchmark`, `rag-real-corpus`, `lore-golden-set`,
-    `lore-tool-benchmark`, `lore-corpus-cleanup`, `lore-stopwords`.
-13. `lookup_knowledge` остаётся точным фактическим инструментом, но принимает
+    `lore-tool-benchmark`, `lore-corpus-cleanup`, `lore-stopwords`,
+    `lore-query-expansion`, `lore-semantic-evaluation`.
+13. Расширение запроса перед BM25: `QueryExpander` и `LiteLLMQueryExpander`
+    (`rag/lore/expansion.py`) получают 5–10 ключевых слов от той же LLM через
+    `LLMProvider`. Исходный запрос сохраняется в строке поиска, правило «имена
+    без содержания» проверяется по исходному запросу, при сбое модели поиск
+    идёт по исходному запросу. Включается `RAG_QUERY_EXPANSION_ENABLED`
+    (по умолчанию `false`); замер на golden: `Recall@5 0.483 → 0.533`,
+    `MRR@5 0.713 → 0.692`. Embeddings и `pgvector` не внедрены: замер дал
+    прирост в пределах шума (`lore-semantic-evaluation`).
+14. `lookup_knowledge` остаётся точным фактическим инструментом, но принимает
     необязательный `fields` (`speech`, `traits`, `relationships`), чтобы
     сказка запрашивала факт под сцену, а не всю карточку героя. Спецификация:
     `lookup-scene-fields`.
-14. Структурированный канон содержит 84 эпизода (32 исходных и 52 новых
+15. Структурированный канон содержит 84 эпизода (32 исходных и 52 новых
     сценария из второго плейлиста), персонажи новых эпизодов проставлены
     только по фактическим упоминаниям в тексте. Спецификация:
     `rag-real-corpus`.
-15. `python -m smeshariki_ai.rag export <path>` выгружает знания в обычный
+16. `python -m smeshariki_ai.rag export <path>` выгружает знания в обычный
     пакет в read-only снимке; `delete <type>/<id>...` по умолчанию делает
     dry-run, а с `--apply` удаляет в одной транзакции после проверки ссылок и
     пишет ревизию `delete`; `restore <type>/<id>` выбирает последнюю или

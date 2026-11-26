@@ -10,6 +10,7 @@ from pydantic import Field, model_validator
 
 from smeshariki_ai.rag.lore.analyzer import TextAnalyzer, normalize_text
 from smeshariki_ai.rag.lore.context import LoreContextBuilder
+from smeshariki_ai.rag.lore.expansion import QueryExpander
 from smeshariki_ai.rag.lore.index import InMemoryBm25Index
 from smeshariki_ai.rag.lore.models import (
     LoreHit,
@@ -140,6 +141,7 @@ class BenchmarkRunner:
         *,
         k: int = 5,
         context: LoreContextBuilder | None = None,
+        expander: QueryExpander | None = None,
     ) -> None:
         if k <= 0:
             raise ValueError("k must be positive")
@@ -147,6 +149,7 @@ class BenchmarkRunner:
         self._answerer = answerer
         self._k = k
         self._context = context
+        self._expander = expander
 
     async def run(
         self,
@@ -168,7 +171,12 @@ class BenchmarkRunner:
         )
         results: list[BenchmarkQuestionResult] = []
         for question in questions.questions:
-            result = await search.search(LoreQuery(text=question.text, top_k=top_k))
+            search_text = question.text
+            if self._expander is not None:
+                extra = await self._expander.expand(question.text)
+                if extra:
+                    search_text = f"{question.text} {' '.join(extra)}"
+            result = await search.search(LoreQuery(text=search_text, top_k=top_k))
             raw_hits = result.hits[: self._k]
             retrieved = tuple(dict.fromkeys(hit.document_id for hit in raw_hits))
             relevant = set(question.relevant_documents)

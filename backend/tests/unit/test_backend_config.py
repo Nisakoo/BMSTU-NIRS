@@ -14,6 +14,7 @@ from smeshariki_ai.auth import AuthConfig, RateLimitConfig
 from smeshariki_ai.cache import RedisConfig
 from smeshariki_ai.config import Config, load_config
 from smeshariki_ai.db import DatabaseConfig
+from smeshariki_ai.rag.config import RagConfig
 from smeshariki_ai.speech import CephS3Config, SpeechConfig
 
 JWT_SECRET = "test-secret-with-at-least-32-bytes!!"
@@ -49,9 +50,11 @@ def test_config_has_component_owned_nested_configs() -> None:
         "redis",
         "speech",
         "ceph",
+        "rag",
     }
     assert isinstance(config.agent, AgentConfig)
     assert isinstance(config.llm, LiteLLMProviderConfig)
+    assert isinstance(config.rag, RagConfig)
     assert not hasattr(config_module, "ApplicationConfig")
 
 
@@ -122,6 +125,25 @@ def test_load_config_reads_speech_options() -> None:
 
 def test_load_config_uses_speech_defaults() -> None:
     assert load_config({**BASE_ENV, "LLM_MODEL": "test/model"}).speech == SpeechConfig()
+
+
+def test_query_expansion_is_off_by_default() -> None:
+    config = load_config({**BASE_ENV, "LLM_MODEL": "test/model"})
+
+    assert config.rag == RagConfig()
+    assert config.rag.query_expansion_enabled is False
+
+
+def test_query_expansion_flag_is_read_from_the_environment() -> None:
+    config = load_config(
+        {
+            **BASE_ENV,
+            "LLM_MODEL": "test/model",
+            "RAG_QUERY_EXPANSION_ENABLED": "true",
+        }
+    )
+
+    assert config.rag.query_expansion_enabled is True
 
 
 @pytest.mark.parametrize(

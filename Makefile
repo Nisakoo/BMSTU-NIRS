@@ -18,7 +18,7 @@ help:
 	@echo "  make lore-check DIR=<path> Check a lore YAML package"
 	@echo "  make lore-clean DIR=<path> [APPLY=1] Remove technical noise from a lore package"	@echo "  make lore-load DIR=<path> [FORMAT=json] Replace the lore corpus and BM25 index"
 	@echo "  make lore-search QUERY=\"...\" [TOPK=5] [FORMAT=json] Search the lore corpus"
-	@echo "  make lore-benchmark DIR=<path> QUESTIONS=<yaml> [K=5] [ANSWERS=<json>] [CONTEXT=1] Run the lore benchmark"
+	@echo "  make lore-benchmark DIR=<path> QUESTIONS=<yaml> [K=5] [ANSWERS=<json>] [CONTEXT=1] [EXPAND=1] Run the lore benchmark"
 	@echo "  make data-encrypt Encrypt data/ into encrypted/data.enc (asks for the passphrase)"
 	@echo "  make data-decrypt [FORCE=1] Restore data/ from encrypted/data.enc (asks for the passphrase)"
 	@echo "  make frontend Run the Vite frontend development server"
@@ -251,6 +251,7 @@ lore-benchmark:
 			--questions /questions.yaml --k "$(or $(K),5)" \
 			$(if $(ANSWERS),--answers /answers.json,) \
 			$(if $(filter 1,$(CONTEXT)),--context,) \
+			$(if $(filter 1,$(EXPAND)),--expand,) \
 			--format "$(or $(FORMAT),text)"; \
 	else \
 		docker compose -f "$(COMPOSE_FILE)" run --rm \
@@ -261,6 +262,7 @@ lore-benchmark:
 			--questions /questions.yaml --k "$(or $(K),5)" \
 			$(if $(ANSWERS),--answers /answers.json,) \
 			$(if $(filter 1,$(CONTEXT)),--context,) \
+			$(if $(filter 1,$(EXPAND)),--expand,) \
 			--format "$(or $(FORMAT),text)"; \
 	fi
 

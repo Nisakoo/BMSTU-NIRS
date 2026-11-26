@@ -158,6 +158,50 @@ postings, после чего SQL-агрегаты считают `df`, `n_chunk
 используется только в unit-тестах и benchmark; контрактный тест сравнивает его
 порядок с PostgreSQL.
 
+## Расширение запроса (`lore-query-expansion`)
+
+Лексический поиск промахивается, когда в вопросе нет слов документа: «в какие
+игры играют герои» против эпизода «Футбол 1-й тайм». Перед поиском вопрос
+можно расширить ключевыми словами через уже настроенную LLM:
+
+```text
+search_lore("В какие игры играют герои?")
+  → расширение: «игры забавы развлечения спорт хобби»
+  → BM25 ищет по строке «вопрос + расширение»
+```
+
+- порт `QueryExpander` и реализация `LiteLLMQueryExpander`
+  ([`rag/lore/expansion.py`](../backend/src/smeshariki_ai/rag/lore/expansion.py))
+  используют существующую абстракцию `LLMProvider`: SDK LiteLLM в RAG не
+  проникает;
+- промпт просит 5–10 слов; ответ разбирается защитно (только слова, без
+  нумерации, дубликатов и лишних терминов);
+- исходный запрос всегда сохраняется в строке поиска, поэтому расширение только
+  добавляет сигнал;
+- правило «запрос из одних имён даёт пустой контекст» проверяется по исходному
+  запросу: расширение не превращает имя героя в сюжетную идею;
+- при сбое модели инструмент ищет по исходному запросу, пишет
+  `lore.query_expansion.completed` с `outcome=failed` и `error_type` и не
+  поднимает исключение;
+- включается флагом `RAG_QUERY_EXPANSION_ENABLED` (по умолчанию `false`), в
+  production задаётся в `docker/.env`; для локального замера есть
+  `lore-benchmark --expand` и `make lore-benchmark ... EXPAND=1`.
+
+Замер на golden set, `k=5` (расширения сняты с модели и закэшированы, чтобы
+исключить нестабильность провайдера):
+
+| Вариант | `Recall@5` | `MRR@5` | `Context Recall` | `Any-Relevant` |
+| --- | --- | --- | --- | --- |
+| без расширения | `0.483` | `0.713` | `0.300` | `0.750` |
+| вопрос + расширение | `0.533` | `0.692` | `0.300` | `0.700` |
+| только расширение | `0.500` | `0.721` | `0.317` | `0.750` |
+
+Эффект скромный и неоднозначный: полнота растёт (`Recall@5 +0.050`), но
+точность ранжирования немного падает, потому что синонимы разбавляют точные
+слова. Поэтому функция выключена по умолчанию: включать её стоит, когда важнее
+найти больше материалов, чем сохранить порядок выдачи. При сбое модели поиск
+идёт по исходному запросу.
+
 ## Инструмент `search_lore`
 
 Агент получает лор через инструмент `search_lore`. Он не отдаёт модели сырые
@@ -353,7 +397,7 @@ python -m smeshariki_ai.rag lore-check <path> [--format text|json]
 python -m smeshariki_ai.rag lore-clean <path> [--apply] [--format text|json]
 python -m smeshariki_ai.rag lore-load <path> [--format text|json]
 python -m smeshariki_ai.rag lore-search "<query>" [--top-k 5] [--format text|json]
-python -m smeshariki_ai.rag lore-benchmark <path> --questions <yaml> [--k 5] [--answers <json>] [--context] [--format text|json]
+python -m smeshariki_ai.rag lore-benchmark <path> --questions <yaml> [--k 5] [--answers <json>] [--context] [--expand] [--format text|json]
 
 make lore-check DIR=<path>
 make lore-load DIR=<path>
@@ -413,4 +457,11 @@ make lore-clean DIR=<path> [APPLY=1]
 - стоп-слова:
   [спецификация](../specs/changes/lore-stopwords/spec.md),
   [план](../specs/changes/lore-stopwords/plan.md),
-  [результат проверки](../specs/changes/lore-stopwords/verification.md).
+  [результат проверки](../specs/changes/lore-stopwords/verification.md);
+- расширение запроса:
+  [спецификация](../specs/changes/lore-query-expansion/spec.md),
+  [план](../specs/changes/lore-query-expansion/plan.md),
+  [результат проверки](../specs/changes/lore-query-expansion/verification.md);
+- оценка семантического поиска:
+  [спецификация](../specs/changes/lore-semantic-evaluation/spec.md),
+  [результат проверки](../specs/changes/lore-semantic-evaluation/verification.md).
