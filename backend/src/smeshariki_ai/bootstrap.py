@@ -26,7 +26,7 @@ from smeshariki_ai.observability import configure_logging
 from smeshariki_ai.rag.lookup import KnowledgeLookup
 from smeshariki_ai.rag.lore.analyzer import MorphAnalyzer, SimpleAnalyzer, TextAnalyzer
 from smeshariki_ai.rag.lore.context import LoreContextBuilder
-from smeshariki_ai.rag.lore.expansion import LiteLLMQueryExpander
+from smeshariki_ai.rag.lore.expansion import CachedQueryExpander, LiteLLMQueryExpander
 from smeshariki_ai.rag.lore.index import InMemoryBm25Index
 from smeshariki_ai.rag.lore.ports import LoreIndex
 from smeshariki_ai.rag.lore.postgres import PostgresBm25Index
@@ -65,13 +65,26 @@ def build_agent_service(
         lore_analyzer or SimpleAnalyzer(),
     )
     expander = (
-        LiteLLMQueryExpander(provider) if config.rag.query_expansion_enabled else None
+        CachedQueryExpander(LiteLLMQueryExpander(provider))
+        if config.rag.query_expansion_enabled
+        else None
+    )
+    lore_context = LoreContextBuilder(
+        retrieval_k=config.rag.lore_retrieval_k,
+        max_passages=config.rag.lore_max_passages,
+        max_chars=config.rag.lore_max_chars,
+        min_score=config.rag.lore_min_score,
     )
     tool_registry = ToolRegistry(
         (
             LookupKnowledgeTool(knowledge),
             GetStoryCanonTool(story_canon),
-            SearchLoreTool(lore, LoreContextBuilder(), expander),
+            SearchLoreTool(
+                lore,
+                lore_context,
+                expander,
+                config.rag.query_expansion_mode,
+            ),
         )
     )
     agent = Agent(

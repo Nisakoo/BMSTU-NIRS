@@ -111,6 +111,31 @@ def test_long_text_is_clipped_to_the_character_budget() -> None:
     assert context.passages[0].text.endswith("…")
 
 
+def test_clipping_prefers_a_sentence_end() -> None:
+    sentence = "Крош и Ёжик играют на полянке и смеются. " * 8
+    limit = 200
+    context = LoreContextBuilder(max_chars=limit).build(
+        result(hit("a", 10.0, text=f"{sentence}{'х' * 400}"))
+    )
+
+    text = context.passages[0].text
+    assert len(text) <= limit
+    assert text.endswith(".")
+    assert not text.endswith("…")
+
+
+def test_a_stub_below_the_minimum_is_not_shown() -> None:
+    context = LoreContextBuilder(max_chars=120).build(
+        result(
+            hit("a", 10.0, text="первый " * 30),
+            hit("b", 9.0, text="второй " * 30),
+        )
+    )
+
+    assert [passage.title for passage in context.passages] == ["A"]
+    assert len(context.passages[0].text) <= 120
+
+
 def test_character_budget_is_shared_by_all_passages() -> None:
     context = LoreContextBuilder(max_chars=60).build(
         result(

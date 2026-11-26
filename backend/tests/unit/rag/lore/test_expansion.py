@@ -12,7 +12,10 @@ from smeshariki_ai.agent import (
     Message,
 )
 from smeshariki_ai.rag.lore.expansion import (
+    CachedQueryExpander,
     LiteLLMQueryExpander,
+    QueryExpander,
+    StaticQueryExpander,
     parse_expansion,
 )
 
@@ -79,3 +82,48 @@ async def test_expander_returns_nothing_for_an_empty_answer() -> None:
 def test_expander_rejects_a_non_positive_limit() -> None:
     with pytest.raises(ValueError):
         LiteLLMQueryExpander(ScriptedProvider("x"), max_terms=0)
+
+
+async def test_static_expander_uses_the_exact_query() -> None:
+    expander = StaticQueryExpander({"В какие игры?": "Футбол, гольф!"})
+
+    assert await expander.expand("В какие игры?") == ("футбол", "гольф")
+    assert await expander.expand("Другой вопрос") == ()
+
+
+class CountingExpander(QueryExpander):
+    def __init__(self, terms: tuple[str, ...]) -> None:
+        self.calls = 0
+        self._terms = terms
+
+    async def expand(self, query: str) -> tuple[str, ...]:
+        self.calls += 1
+        return self._terms
+
+
+async def test_cached_expander_calls_the_inner_expander_once() -> None:
+    inner = CountingExpander(("мяч",))
+    expander = CachedQueryExpander(inner)
+
+    first = await expander.expand("В какие игры играют герои?")
+    second = await expander.expand("в какие  ИГРЫ играют герои?")
+
+    assert first == ("мяч",)
+    assert second == ("мяч",)
+    assert inner.calls == 1
+
+
+async def test_cached_expander_is_bounded() -> None:
+    inner = CountingExpander(("мяч",))
+    expander = CachedQueryExpander(inner, max_entries=1)
+
+    await expander.expand("первый")
+    await expander.expand("второй")
+    await expander.expand("первый")
+
+    assert inner.calls == 3
+
+
+def test_cached_expander_rejects_a_non_positive_size() -> None:
+    with pytest.raises(ValueError):
+        CachedQueryExpander(CountingExpander(()), max_entries=0)

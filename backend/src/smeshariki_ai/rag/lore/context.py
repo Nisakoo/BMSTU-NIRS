@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Literal
 
 from smeshariki_ai.rag.lore.models import (
@@ -17,6 +18,11 @@ EMPTY_MESSAGE = (
     "В лоре нет подходящих фрагментов. Продолжай по идее пользователя и не "
     "выдавай придуманные факты за канонические."
 )
+
+# A clipped passage shorter than this is not worth showing to the model.
+MIN_PASSAGE_CHARS = 80
+# Sentence ends that allow a clean cut: ``.``, ``!``, ``?`` and ``…``.
+_SENTENCE_END = re.compile(r"[.!?…](?=\s)")
 
 # Character names alone do not describe a story premise. They are lemmatized
 # by ``MorphAnalyzer`` (``Кроша`` → ``крош``, ``Ёжика`` → ``ежик``).
@@ -112,9 +118,10 @@ class LoreContextBuilder:
             if not text:
                 continue
             if len(text) > remaining:
-                if remaining == 1:
+                clipped = _clip_to_budget(text, remaining)
+                if clipped is None:
                     break
-                text = text[: remaining - 1].rstrip() + "…"
+                text = clipped
 
             selected.append((hit, text))
             seen_documents.add(hit.document_id)
@@ -146,6 +153,30 @@ def _has_content_term(terms: tuple[str, ...]) -> bool:
         term not in CHARACTER_NAME_TERMS and term not in NON_CONTENT_TERMS
         for term in terms
     )
+
+
+def _clip_to_budget(text: str, limit: int) -> str | None:
+    """Cut a passage at a sentence end, or at a word end when unavoidable.
+
+    ``None`` means nothing meaningful fits into the remaining budget: the
+    builder stops instead of appending a one-word stub.
+    """
+
+    if limit <= 1:
+        return None
+    window = text[: limit - 1]
+    sentence_end = None
+    for match in _SENTENCE_END.finditer(window):
+        sentence_end = match.end()
+    if sentence_end is not None and sentence_end >= MIN_PASSAGE_CHARS:
+        return window[:sentence_end].rstrip()
+    space = window.rfind(" ")
+    if space >= MIN_PASSAGE_CHARS:
+        return f"{window[:space].rstrip()}…"
+    # Last resort for tiny budgets and texts without spaces: the caller still
+    # gets the strongest passage, cut at the budget, rather than nothing.
+    stripped = window.rstrip()
+    return None if not stripped else f"{stripped}…"
 
 
 __all__ = [

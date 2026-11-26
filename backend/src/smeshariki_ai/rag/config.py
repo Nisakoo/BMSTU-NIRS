@@ -1,6 +1,10 @@
 """Configuration of the RAG module."""
 
-from pydantic import BaseModel, ConfigDict
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+ExpansionMode = Literal["append", "replace"]
 
 
 class RagConfig(BaseModel):
@@ -10,6 +14,12 @@ class RagConfig(BaseModel):
 
     # Off by default: the production Compose stack enables it explicitly.
     query_expansion_enabled: bool = False
+    # ``replace`` wins on the golden set: better MRR and context recall.
+    query_expansion_mode: ExpansionMode = "replace"
+    lore_retrieval_k: int = Field(default=10, ge=1)
+    lore_max_passages: int = Field(default=3, ge=1)
+    lore_max_chars: int = Field(default=1600, ge=1)
+    lore_min_score: float = Field(default=2.0, ge=0)
 
 
-__all__ = ["RagConfig"]
+__all__ = ["ExpansionMode", "RagConfig"]

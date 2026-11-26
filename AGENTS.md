@@ -497,27 +497,35 @@
     вопросы через путь `search_lore`: пассажи выбирает общая с инструментом
     функция `LoreContextBuilder.select`, отчёт получает `context_recall`,
     `context_any_relevant`, `context_found_rate` и `trap_passage_rate`;
-    контрольный прогон на golden: `Context Recall 0.300`,
-    `Trap Passage Rate 1.000`. Команда `lore-clean` (dry-run по умолчанию,
-    `--apply` пишет и делает резервную копию) детерминированно удаляет из
-    документов ссылки на видео и не трогает стилистику, время в диалоге и
-    дубли строк. Оба анализатора удаляют стоп-слова (`rag/lore/stopwords.py`:
-    служебные части речи и лёгкие глаголы; имена персонажей и содержательные
-    слова сохраняются), поэтому после выкладки production-индекс
-    перезагружается `make lore-load`. Синтетический набор лежит в тестах,
-    реальный — в игнорируемом `data/lore-benchmark/`. Честный golden set — в
-    `data/lore-golden/`: полный корпус 84 документа, 20 обычных вопросов и
-    10 ловушек; контрольный прогон: `Recall@5 0.483`, `MRR@5 0.713`.
+    контрольный прогон на golden: `Context Recall 0.367`,
+    `Trap Passage Rate 1.000`, документные `Doc Recall@5 0.550` и
+    `Doc MRR@5 0.722` (метрики считаются и по чанкам, и по документам;
+    документные дедуплицируют хиты до среза `k`). Параметры контекста задаются
+    `RAG_LORE_RETRIEVAL_K`, `RAG_LORE_MAX_PASSAGES`, `RAG_LORE_MAX_CHARS`,
+    `RAG_LORE_MIN_SCORE`; длинный пассаж обрезается по границе предложения,
+    чтобы освободить бюджет следующему. Команда `lore-clean` (dry-run по
+    умолчанию, `--apply` пишет и делает резервную копию) детерминированно
+    удаляет из документов ссылки на видео и не трогает стилистику, время в
+    диалоге и дубли строк. Оба анализатора удаляют стоп-слова
+    (`rag/lore/stopwords.py`: служебные части речи и лёгкие глаголы; имена
+    персонажей и содержательные слова сохраняются), поэтому после выкладки
+    production-индекс перезагружается `make lore-load`. Синтетический набор
+    лежит в тестах, реальный — в игнорируемом `data/lore-benchmark/`. Честный
+    golden set — в `data/lore-golden/`: полный корпус 84 документа, 20 обычных
+    вопросов и 10 ловушек; контрольный прогон: `Recall@5 0.483`,
+    `MRR@5 0.713`.
     Спецификации: `lore-benchmark`, `rag-real-corpus`, `lore-golden-set`,
     `lore-tool-benchmark`, `lore-corpus-cleanup`, `lore-stopwords`,
-    `lore-query-expansion`, `lore-semantic-evaluation`.
+    `lore-query-expansion`, `lore-semantic-evaluation`, `lore-ranking-quality`.
 13. Расширение запроса перед BM25: `QueryExpander` и `LiteLLMQueryExpander`
     (`rag/lore/expansion.py`) получают 5–10 ключевых слов от той же LLM через
-    `LLMProvider`. Исходный запрос сохраняется в строке поиска, правило «имена
-    без содержания» проверяется по исходному запросу, при сбое модели поиск
-    идёт по исходному запросу. Включается `RAG_QUERY_EXPANSION_ENABLED`
-    (по умолчанию `false`); замер на golden: `Recall@5 0.483 → 0.533`,
-    `MRR@5 0.713 → 0.692`. Embeddings и `pgvector` не внедрены: замер дал
+    `LLMProvider`. Режим `RAG_QUERY_EXPANSION_MODE=replace` (по умолчанию)
+    ищет только по ключевым словам, `append` добавляет их к вопросу; правило
+    «имена без содержания» проверяется по исходному запросу, при сбое модели
+    поиск идёт по исходному запросу, результат кэшируется
+    (`CachedQueryExpander`). Включается `RAG_QUERY_EXPANSION_ENABLED`
+    (по умолчанию `false`); замер на golden: `Context Recall 0.367 → 0.417`,
+    `Any-Relevant 0.750 → 0.850`. Embeddings и `pgvector` не внедрены: замер дал
     прирост в пределах шума (`lore-semantic-evaluation`).
 14. `lookup_knowledge` остаётся точным фактическим инструментом, но принимает
     необязательный `fields` (`speech`, `traits`, `relationships`), чтобы

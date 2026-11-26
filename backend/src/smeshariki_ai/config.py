@@ -121,6 +121,11 @@ def load_config(environ: Mapping[str, str] | None = None) -> Config:
     rag_values: dict[str, Any] = {}
     for environment_name, field_name in (
         ("RAG_QUERY_EXPANSION_ENABLED", "query_expansion_enabled"),
+        ("RAG_QUERY_EXPANSION_MODE", "query_expansion_mode"),
+        ("RAG_LORE_RETRIEVAL_K", "lore_retrieval_k"),
+        ("RAG_LORE_MAX_PASSAGES", "lore_max_passages"),
+        ("RAG_LORE_MAX_CHARS", "lore_max_chars"),
+        ("RAG_LORE_MIN_SCORE", "lore_min_score"),
     ):
         if environment_name in source and source[environment_name].strip():
             rag_values[field_name] = source[environment_name]

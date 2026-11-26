@@ -90,6 +90,8 @@ class BenchmarkQuestionResult(LoreModel):
     retrieved_documents: tuple[str, ...] = ()
     recall: float | None = None
     reciprocal_rank: float | None = None
+    document_recall: float | None = None
+    document_reciprocal_rank: float | None = None
     answer: str = ""
     correct: bool | None = None
     context_status: Literal["found", "empty"] | None = None
@@ -105,6 +107,8 @@ class BenchmarkReport(LoreModel):
     trap_count: int = Field(ge=0)
     recall_at_k: float | None = None
     mrr: float | None = None
+    document_recall_at_k: float | None = None
+    document_mrr: float | None = None
     accuracy: float | None = None
     correct_rejection_rate: float | None = None
     context_recall: float | None = None
@@ -179,10 +183,18 @@ class BenchmarkRunner:
             result = await search.search(LoreQuery(text=search_text, top_k=top_k))
             raw_hits = result.hits[: self._k]
             retrieved = tuple(dict.fromkeys(hit.document_id for hit in raw_hits))
+            # The agent sees at most one passage per document, so the document
+            # ranking deduplicates before the slice.
+            document_order = tuple(
+                dict.fromkeys(hit.document_id for hit in result.hits)
+            )[: self._k]
             relevant = set(question.relevant_documents)
             found = relevant & set(retrieved)
             recall = len(found) / len(relevant) if relevant else None
             reciprocal_rank = _reciprocal_rank(retrieved, relevant)
+            document_found = relevant & set(document_order)
+            document_recall = len(document_found) / len(relevant) if relevant else None
+            document_rr = _reciprocal_rank(document_order, relevant)
             context_status: Literal["found", "empty"] | None = None
             context_documents: tuple[str, ...] = ()
             context_relevant: int | None = None
@@ -213,6 +225,8 @@ class BenchmarkRunner:
                     retrieved_documents=retrieved,
                     recall=recall,
                     reciprocal_rank=reciprocal_rank,
+                    document_recall=document_recall,
+                    document_reciprocal_rank=document_rr,
                     answer=answer,
                     correct=correct,
                     context_status=context_status,
@@ -232,6 +246,8 @@ class BenchmarkRunner:
             trap_count=len(traps),
             recall_at_k=_mean(item.recall for item in normal),
             mrr=_mean(item.reciprocal_rank for item in normal),
+            document_recall_at_k=_mean(item.document_recall for item in normal),
+            document_mrr=_mean(item.document_reciprocal_rank for item in normal),
             accuracy=_mean(item.correct for item in normal),
             correct_rejection_rate=_mean(item.correct for item in traps),
             context_recall=(

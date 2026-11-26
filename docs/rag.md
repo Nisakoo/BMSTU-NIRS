@@ -290,8 +290,11 @@ flowchart LR
   `make lore-load`.
 - Запрос перед поиском можно расширить ключевыми словами LLM
   (`QueryExpander` и `LiteLLMQueryExpander` в `rag/lore/expansion.py`); флаг
-  `RAG_QUERY_EXPANSION_ENABLED`, по умолчанию выключен. При сбое модели поиск
-  идёт по исходному запросу.
+  `RAG_QUERY_EXPANSION_ENABLED`, по умолчанию выключен. Режим
+  `RAG_QUERY_EXPANSION_MODE`: `replace` (по умолчанию) ищет только по
+  ключевым словам, `append` добавляет их к вопросу. При сбое модели поиск идёт
+  по исходному запросу; результат кэшируется. Параметры окна и бюджета
+  контекста задаются `RAG_LORE_*`.
 - Команды: `lore-check`, `lore-clean`, `lore-load`, `lore-search`,
   `lore-benchmark` и соответствующие Make-цели. `lore-clean` удаляет из
   документов технический мусор экспорта (ссылки на видео) и не трогает

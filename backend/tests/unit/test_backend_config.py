@@ -146,6 +146,36 @@ def test_query_expansion_flag_is_read_from_the_environment() -> None:
     assert config.rag.query_expansion_enabled is True
 
 
+def test_lore_context_settings_have_defaults() -> None:
+    config = load_config({**BASE_ENV, "LLM_MODEL": "test/model"})
+
+    assert config.rag.lore_retrieval_k == 10
+    assert config.rag.lore_max_passages == 3
+    assert config.rag.lore_max_chars == 1600
+    assert config.rag.lore_min_score == 2.0
+    assert config.rag.query_expansion_mode == "replace"
+
+
+def test_lore_context_settings_are_read_from_the_environment() -> None:
+    config = load_config(
+        {
+            **BASE_ENV,
+            "LLM_MODEL": "test/model",
+            "RAG_LORE_RETRIEVAL_K": "7",
+            "RAG_LORE_MAX_PASSAGES": "2",
+            "RAG_LORE_MAX_CHARS": "900",
+            "RAG_LORE_MIN_SCORE": "0.5",
+            "RAG_QUERY_EXPANSION_MODE": "append",
+        }
+    )
+
+    assert config.rag.lore_retrieval_k == 7
+    assert config.rag.lore_max_passages == 2
+    assert config.rag.lore_max_chars == 900
+    assert config.rag.lore_min_score == 0.5
+    assert config.rag.query_expansion_mode == "append"
+
+
 @pytest.mark.parametrize(
     "change",
     [

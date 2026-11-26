@@ -358,6 +358,26 @@ async def test_expander_is_used_and_can_raise_recall(tmp_path: Path) -> None:
     assert expanded.recall_at_k == 1.0
 
 
+async def test_document_metrics_deduplicate_before_the_slice(tmp_path: Path) -> None:
+    package = tmp_path / "lore"
+    write_expansion_package(package)
+    (tmp_path / "questions.yaml").write_text(EXPANSION_QUESTIONS, encoding="utf-8")
+    questions = read_benchmark_questions(tmp_path / "questions.yaml")
+    answers = {"q01": "Блюдо из морковки.", "t01": "В документах нет информации."}
+    expander = FixedExpander(("морковка",))
+
+    report = await BenchmarkRunner(
+        MorphAnalyzer(), StaticAnswerer(answers), k=1, expander=expander
+    ).run(package, questions)
+
+    assert report.document_recall_at_k is not None
+    assert report.document_mrr is not None
+    # With k=1 the chunk metric can only see one chunk, while the document
+    # metric sees the first distinct document.
+    assert report.document_recall_at_k >= report.recall_at_k
+    assert report.document_mrr >= report.mrr
+
+
 async def test_expander_returning_nothing_keeps_the_metrics(
     tmp_path: Path,
 ) -> None:

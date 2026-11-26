@@ -182,6 +182,25 @@ async def test_expansion_does_not_make_a_name_only_query_meaningful() -> None:
     assert result.output["status"] == "empty"
 
 
+async def test_expansion_replace_mode_searches_by_keywords_only() -> None:
+    index = InMemoryBm25Index()
+    await index.replace((entry("a", "Футбол", "Герои играют в футбол."),))
+    expander = FixedExpander(("футбол",))
+    tool = SearchLoreTool(
+        SearchLore(index, ANALYZER),
+        LoreContextBuilder(min_score=0.0),
+        expander,
+        "replace",
+    )
+
+    result = await ToolRegistry((tool,)).execute(
+        call({"query": "совсем другой вопрос"})
+    )
+
+    assert result.error is None
+    assert result.output["status"] == "found"
+
+
 async def test_no_expander_keeps_the_previous_behaviour() -> None:
     index = InMemoryBm25Index()
     await index.replace(

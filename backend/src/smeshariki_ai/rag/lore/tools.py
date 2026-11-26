@@ -24,6 +24,7 @@ UNAVAILABLE_MESSAGE = (
 )
 
 LoreMode = Literal["any", "style", "plot", "facts"]
+ExpansionMode = Literal["append", "replace"]
 _MODE_TAGS: dict[str, tuple[str, ...]] = {
     "any": (),
     "style": ("style", "dialogue"),
@@ -63,10 +64,12 @@ class SearchLoreTool(Tool):
         search: SearchLore,
         context: LoreContextBuilder | None = None,
         expander: QueryExpander | None = None,
+        expansion_mode: ExpansionMode = "replace",
     ) -> None:
         self._search = search
         self._context = context or LoreContextBuilder()
         self._expander = expander
+        self._expansion_mode = expansion_mode
 
     async def execute(self, arguments: BaseModel) -> dict[str, Any]:
         assert isinstance(arguments, SearchLoreArguments)
@@ -77,12 +80,15 @@ class SearchLoreTool(Tool):
             if self._expander is None
             else await self._expander.expand(arguments.query)
         )
-        # The original query is always kept: expansion only adds signal.
-        search_text = (
-            arguments.query
-            if not expanded
-            else f"{arguments.query} {' '.join(expanded)}"
-        )
+        # The original query is kept by default: expansion only adds signal.
+        # ``replace`` searches by the keywords alone, which ranks the first
+        # relevant document higher on the golden set.
+        if not expanded:
+            search_text = arguments.query
+        elif self._expansion_mode == "replace":
+            search_text = " ".join(expanded)
+        else:
+            search_text = f"{arguments.query} {' '.join(expanded)}"
         # The "names only" rule looks at the original query, so an expansion
         # cannot turn a bare character name into a story premise.
         original_terms = self._search.analyze(arguments.query)

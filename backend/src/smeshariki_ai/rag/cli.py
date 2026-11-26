@@ -168,6 +168,7 @@ def main(
                 arguments.answers,
                 arguments.context,
                 arguments.expand,
+                arguments.expand_cache,
             )
         )
         _write_lore_benchmark(stdout, arguments.format, report)
@@ -282,6 +283,7 @@ async def _lore_benchmark(
     answers_path: Path | None,
     context: bool,
     expand: bool,
+    expand_cache_path: Path | None = None,
 ) -> BenchmarkReport | None:
     try:
         questions = read_benchmark_questions(questions_path)
@@ -314,7 +316,20 @@ async def _lore_benchmark(
                 answerer = LiteLLMAnswerer(provider)
 
         expander = None
-        if expand and provider is not None:
+        if expand_cache_path is not None:
+            from smeshariki_ai.rag.lore.expansion import StaticQueryExpander
+
+            try:
+                cached = json.loads(expand_cache_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                return None
+            if not isinstance(cached, dict) or not all(
+                isinstance(key, str) and isinstance(value, str)
+                for key, value in cached.items()
+            ):
+                return None
+            expander = StaticQueryExpander(cached)
+        elif expand and provider is not None:
             from smeshariki_ai.rag.lore.expansion import LiteLLMQueryExpander
 
             expander = LiteLLMQueryExpander(provider)
@@ -397,6 +412,11 @@ def _parser() -> argparse.ArgumentParser:
         "--expand",
         action="store_true",
         help="расширить вопросы ключевыми словами через LLM перед поиском",
+    )
+    lore_benchmark.add_argument(
+        "--expand-cache",
+        type=Path,
+        help="JSON с готовыми расширениями по тексту вопроса (воспроизводимый прогон)",
     )
     lore_benchmark.add_argument("--format", choices=("text", "json"), default="text")
 
@@ -680,7 +700,9 @@ def _write_lore_benchmark(
         f"k={report.k}.\n"
     )
     stdout.write(f"Recall@{report.k}: {_metric(report.recall_at_k)}\n")
+    stdout.write(f"Doc Recall@{report.k}: {_metric(report.document_recall_at_k)}\n")
     stdout.write(f"MRR@{report.k}: {_metric(report.mrr)}\n")
+    stdout.write(f"Doc MRR@{report.k}: {_metric(report.document_mrr)}\n")
     stdout.write(f"Accuracy: {_metric(report.accuracy)}\n")
     stdout.write(f"Correct Rejection Rate: {_metric(report.correct_rejection_rate)}\n")
     if report.context_recall is not None:

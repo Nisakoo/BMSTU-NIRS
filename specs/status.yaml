@@ -205,3 +205,5 @@ specs:
       status: done
     - name: lore-semantic-evaluation
       status: done
+    - name: lore-ranking-quality
+      status: done

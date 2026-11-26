@@ -6,6 +6,8 @@ import logging
 import re
 import time
 from abc import ABC, abstractmethod
+from collections import OrderedDict
+from collections.abc import Mapping
 
 from smeshariki_ai.agent import (
     LLMProvider,
@@ -110,9 +112,49 @@ class LiteLLMQueryExpander(QueryExpander):
         )
 
 
+class StaticQueryExpander(QueryExpander):
+    """Fixed expansions keyed by the exact query; used for reproducible runs."""
+
+    def __init__(self, expansions: Mapping[str, str]) -> None:
+        self._expansions = dict(expansions)
+
+    async def expand(self, query: str) -> tuple[str, ...]:
+        text = self._expansions.get(query)
+        return () if text is None else parse_expansion(text)
+
+
+class CachedQueryExpander(QueryExpander):
+    """Bounded in-memory cache in front of another expander.
+
+    Expansion costs one LLM call and is stable for the same query, so a small
+    bounded cache removes most repeated calls without unbounded growth.
+    """
+
+    def __init__(self, inner: QueryExpander, *, max_entries: int = 256) -> None:
+        if max_entries <= 0:
+            raise ValueError("max_entries must be positive")
+        self._inner = inner
+        self._max_entries = max_entries
+        self._cache: OrderedDict[str, tuple[str, ...]] = OrderedDict()
+
+    async def expand(self, query: str) -> tuple[str, ...]:
+        key = " ".join(query.casefold().split())
+        cached = self._cache.get(key)
+        if cached is not None:
+            self._cache.move_to_end(key)
+            return cached
+        terms = await self._inner.expand(query)
+        self._cache[key] = terms
+        if len(self._cache) > self._max_entries:
+            self._cache.popitem(last=False)
+        return terms
+
+
 __all__ = [
+    "CachedQueryExpander",
     "EXPANSION_PROMPT",
     "LiteLLMQueryExpander",
     "QueryExpander",
+    "StaticQueryExpander",
     "parse_expansion",
 ]
