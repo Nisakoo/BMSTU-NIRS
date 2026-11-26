@@ -42,12 +42,15 @@ def entry(
     )
 
 
-def registry(index: LoreIndex) -> ToolRegistry:
+def registry(
+    index: LoreIndex,
+    context: LoreContextBuilder | None = None,
+) -> ToolRegistry:
     return ToolRegistry(
         (
             SearchLoreTool(
                 SearchLore(index, ANALYZER),
-                LoreContextBuilder(),
+                context or LoreContextBuilder(),
             ),
         )
     )
@@ -97,7 +100,9 @@ async def test_found_passages_are_compact_json() -> None:
         )
     )
 
-    result = await registry(index).execute(call({"query": "Крош Ёжик поссорились"}))
+    result = await registry(index, LoreContextBuilder(min_score=0.0)).execute(
+        call({"query": "Крош Ёжик поссорились"})
+    )
 
     assert result.error is None
     assert result.output["status"] == "found"

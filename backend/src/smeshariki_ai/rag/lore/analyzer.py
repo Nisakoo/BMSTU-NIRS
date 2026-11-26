@@ -2,7 +2,8 @@
 
 The analyzer is a port: the index and use cases do not depend on a particular
 morphology library. ``SimpleAnalyzer`` is deterministic and dependency-free;
-``MorphAnalyzer`` adds Russian lemmatization through ``pymorphy3``.
+``MorphAnalyzer`` adds Russian lemmatization through ``pymorphy3``. Both drop
+stop words, so a document and a query are filtered the same way.
 """
 
 from __future__ import annotations
@@ -12,6 +13,8 @@ import unicodedata
 from abc import ABC, abstractmethod
 
 import pymorphy3
+
+from smeshariki_ai.rag.lore.stopwords import drop_stop_words
 
 _TOKEN = re.compile(r"[a-zа-я0-9]+(?:-[a-zа-я0-9]+)*")
 
@@ -37,7 +40,7 @@ class SimpleAnalyzer(TextAnalyzer):
     """Lowercase word tokens without morphology; useful for tests and baselines."""
 
     def terms(self, text: str) -> tuple[str, ...]:
-        return _tokens(text)
+        return drop_stop_words(_tokens(text))
 
 
 class MorphAnalyzer(TextAnalyzer):
@@ -52,7 +55,7 @@ class MorphAnalyzer(TextAnalyzer):
         self._morph = pymorphy3.MorphAnalyzer()
 
     def terms(self, text: str) -> tuple[str, ...]:
-        return tuple(self._normal_form(token) for token in _tokens(text))
+        return drop_stop_words(self._normal_form(token) for token in _tokens(text))
 
     def _normal_form(self, token: str) -> str:
         if "-" in token:

@@ -9,6 +9,7 @@ from smeshariki_ai.rag.lore.models import (
     LoreModel,
     LoreSearchResult,
 )
+from smeshariki_ai.rag.lore.stopwords import STOP_WORDS
 
 ContextStatus = Literal["found", "empty"]
 
@@ -33,81 +34,9 @@ CHARACTER_NAME_TERMS = frozenset(
         "совунья",
     }
 )
-# Function words never make a query meaningful on their own.
-NON_CONTENT_TERMS = frozenset(
-    {
-        "а",
-        "без",
-        "бы",
-        "был",
-        "была",
-        "были",
-        "было",
-        "быть",
-        "в",
-        "во",
-        "вот",
-        "все",
-        "всё",
-        "вы",
-        "где",
-        "да",
-        "для",
-        "до",
-        "его",
-        "ее",
-        "её",
-        "ей",
-        "ему",
-        "если",
-        "есть",
-        "же",
-        "за",
-        "и",
-        "из",
-        "или",
-        "им",
-        "их",
-        "к",
-        "как",
-        "ко",
-        "когда",
-        "кто",
-        "ли",
-        "мне",
-        "мы",
-        "на",
-        "над",
-        "не",
-        "него",
-        "нее",
-        "неё",
-        "нет",
-        "ни",
-        "но",
-        "ну",
-        "о",
-        "об",
-        "от",
-        "по",
-        "под",
-        "при",
-        "про",
-        "с",
-        "со",
-        "так",
-        "там",
-        "то",
-        "тоже",
-        "тут",
-        "у",
-        "уже",
-        "что",
-        "чтобы",
-        "это",
-        "я",
-    }
-)
+# Function words never make a query meaningful on their own. The list lives in
+# ``stopwords`` so the analyzer and the context rule share one source.
+NON_CONTENT_TERMS = STOP_WORDS
 
 
 class LorePassage(LoreModel):

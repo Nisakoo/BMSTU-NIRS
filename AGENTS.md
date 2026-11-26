@@ -497,16 +497,19 @@
     вопросы через путь `search_lore`: пассажи выбирает общая с инструментом
     функция `LoreContextBuilder.select`, отчёт получает `context_recall`,
     `context_any_relevant`, `context_found_rate` и `trap_passage_rate`;
-    контрольный прогон на golden: `Context Recall 0.283`,
+    контрольный прогон на golden: `Context Recall 0.300`,
     `Trap Passage Rate 1.000`. Команда `lore-clean` (dry-run по умолчанию,
     `--apply` пишет и делает резервную копию) детерминированно удаляет из
     документов ссылки на видео и не трогает стилистику, время в диалоге и
-    дубли строк. Синтетический набор лежит в тестах, реальный —
-    в игнорируемом `data/lore-benchmark/`. Честный golden set — в
+    дубли строк. Оба анализатора удаляют стоп-слова (`rag/lore/stopwords.py`:
+    служебные части речи и лёгкие глаголы; имена персонажей и содержательные
+    слова сохраняются), поэтому после выкладки production-индекс
+    перезагружается `make lore-load`. Синтетический набор лежит в тестах,
+    реальный — в игнорируемом `data/lore-benchmark/`. Честный golden set — в
     `data/lore-golden/`: полный корпус 84 документа, 20 обычных вопросов и
-    10 ловушек; контрольный прогон: `Recall@5 0.450`, `MRR@5 0.637`.
+    10 ловушек; контрольный прогон: `Recall@5 0.483`, `MRR@5 0.713`.
     Спецификации: `lore-benchmark`, `rag-real-corpus`, `lore-golden-set`,
-    `lore-tool-benchmark`, `lore-corpus-cleanup`.
+    `lore-tool-benchmark`, `lore-corpus-cleanup`, `lore-stopwords`.
 13. `lookup_knowledge` остаётся точным фактическим инструментом, но принимает
     необязательный `fields` (`speech`, `traits`, `relationships`), чтобы
     сказка запрашивала факт под сцену, а не всю карточку героя. Спецификация:

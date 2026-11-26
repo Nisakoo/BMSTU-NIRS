@@ -17,10 +17,15 @@ def test_simple_analyzer_keeps_words_and_hyphenated_names() -> None:
     analyzer = SimpleAnalyzer()
     assert analyzer.terms("Кар-Карыч и Пин-механик, ёлки!") == (
         "кар-карыч",
-        "и",
         "пин-механик",
         "елки",
     )
+
+
+def test_analyzers_drop_stop_words() -> None:
+    assert "и" not in SimpleAnalyzer().terms("Крош и Ёжик")
+    assert "и" not in MorphAnalyzer().terms("Крош и Ёжик")
+    assert MorphAnalyzer().terms("что это было") == ()
 
 
 def test_morph_analyzer_lemmatizes_russian_forms() -> None:
@@ -31,7 +36,7 @@ def test_morph_analyzer_lemmatizes_russian_forms() -> None:
 
 def test_morph_analyzer_keeps_names_and_hyphenated_terms() -> None:
     analyzer = MorphAnalyzer()
-    assert analyzer.terms("Крош и Ёжик") == ("крош", "и", "ежик")
+    assert analyzer.terms("Крош и Ёжик") == ("крош", "ежик")
     assert analyzer.terms("Кар-Карыч") == ("кар-карыч",)
 
 

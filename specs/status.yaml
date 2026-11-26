@@ -199,3 +199,5 @@ specs:
       status: done
     - name: lore-corpus-cleanup
       status: done
+    - name: lore-stopwords
+      status: done
