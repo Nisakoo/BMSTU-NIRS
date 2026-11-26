@@ -20,6 +20,7 @@ from smeshariki_ai.rag.lore.ports import (
     LoreIndex,
     LoreStoreUnavailableError,
 )
+from smeshariki_ai.rag.lore.rerank import Ranker
 from smeshariki_ai.rag.lore.services import SearchLore
 from smeshariki_ai.rag.lore.tools import SearchLoreTool
 
@@ -199,6 +200,41 @@ async def test_expansion_replace_mode_searches_by_keywords_only() -> None:
 
     assert result.error is None
     assert result.output["status"] == "found"
+
+
+class ReversingRanker(Ranker):
+    """Puts the lowest-ranked candidate first: visible in the passages."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def rerank(self, query, hits, *, limit):
+        self.calls += 1
+        return tuple(reversed(tuple(hits)[:limit]))
+
+
+async def test_ranker_reorders_the_context() -> None:
+    index = InMemoryBm25Index()
+    await index.replace(
+        (
+            entry("best", "Лучший", "футбол футбол футбол мяч"),
+            entry("worse", "Хуже", "футбол мяч"),
+        )
+    )
+    ranker = ReversingRanker()
+    tool = SearchLoreTool(
+        SearchLore(index, ANALYZER),
+        LoreContextBuilder(min_score=0.0),
+        None,
+        "replace",
+        ranker,
+    )
+
+    result = await ToolRegistry((tool,)).execute(call({"query": "футбол"}))
+
+    assert ranker.calls == 1
+    titles = [passage["title"] for passage in result.output["passages"]]
+    assert titles[0] == "Хуже"
 
 
 async def test_no_expander_keeps_the_previous_behaviour() -> None:

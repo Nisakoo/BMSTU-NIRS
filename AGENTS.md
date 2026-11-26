@@ -553,6 +553,13 @@
     в игнорируемом `data/knowledge-golden/questions.yaml`; контрольный прогон:
     `accuracy 0.986`, `exact_match_rate 1.000`, `suggestion_rate 0.875`,
     `false_positive_rate 0.000`. Спецификация: `canon-lookup-benchmark`.
+18. Реранкинг кандидатов лора: порт `Ranker` и `LLMReranker`
+    (`rag/lore/rerank.py`) переупорядочивают кандидатов до `LoreContextBuilder`;
+    перед реранком кандидаты дедуплицируются по документу, при сбое модели
+    сохраняется исходный порядок. Флаг `RAG_LORE_RERANK_ENABLED` (по умолчанию
+    `false`). Замер на golden: `MRR@5 0.713 → 0.810`, `Doc MRR@5 0.722 → 0.810`,
+    но `Context Recall` не меняется (`0.367`), поэтому функция включена только
+    как opt-in. Спецификация: `lore-llm-rerank`.
 
 ## Реализованная озвучка сказок
 

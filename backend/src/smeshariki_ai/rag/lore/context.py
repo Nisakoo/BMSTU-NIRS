@@ -108,8 +108,10 @@ class LoreContextBuilder:
                 break
             if hit.document_id in seen_documents:
                 continue
+            # A reranker returns a non-monotonic order, so a weak candidate
+            # must not hide the strong ones that follow it.
             if hit.score < self._min_score:
-                break
+                continue
 
             remaining = self._max_chars - used
             if remaining <= 0:

@@ -20,6 +20,7 @@ from smeshariki_ai.rag.lore.models import (
     NonEmptyText,
     Slug,
 )
+from smeshariki_ai.rag.lore.rerank import Ranker, dedupe_documents
 from smeshariki_ai.rag.lore.services import LoadLore, SearchLore
 from smeshariki_ai.rag.yaml_reader import YamlReadError, read_yaml_file
 
@@ -146,6 +147,7 @@ class BenchmarkRunner:
         k: int = 5,
         context: LoreContextBuilder | None = None,
         expander: QueryExpander | None = None,
+        ranker: Ranker | None = None,
     ) -> None:
         if k <= 0:
             raise ValueError("k must be positive")
@@ -154,6 +156,7 @@ class BenchmarkRunner:
         self._k = k
         self._context = context
         self._expander = expander
+        self._ranker = ranker
 
     async def run(
         self,
@@ -181,13 +184,23 @@ class BenchmarkRunner:
                 if extra:
                     search_text = f"{question.text} {' '.join(extra)}"
             result = await search.search(LoreQuery(text=search_text, top_k=top_k))
-            raw_hits = result.hits[: self._k]
+            hits = result.hits
+            if self._ranker is not None and hits:
+                candidates = dedupe_documents(hits, limit=top_k)
+                hits = tuple(
+                    await self._ranker.rerank(
+                        search_text,
+                        candidates,
+                        limit=len(candidates),
+                    )
+                )
+            raw_hits = hits[: self._k]
             retrieved = tuple(dict.fromkeys(hit.document_id for hit in raw_hits))
             # The agent sees at most one passage per document, so the document
             # ranking deduplicates before the slice.
-            document_order = tuple(
-                dict.fromkeys(hit.document_id for hit in result.hits)
-            )[: self._k]
+            document_order = tuple(dict.fromkeys(hit.document_id for hit in hits))[
+                : self._k
+            ]
             relevant = set(question.relevant_documents)
             found = relevant & set(retrieved)
             recall = len(found) / len(relevant) if relevant else None

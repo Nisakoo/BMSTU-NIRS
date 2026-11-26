@@ -209,3 +209,5 @@ specs:
       status: done
     - name: canon-lookup-benchmark
       status: done
+    - name: lore-llm-rerank
+      status: done

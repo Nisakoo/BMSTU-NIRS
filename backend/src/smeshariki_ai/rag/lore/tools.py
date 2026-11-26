@@ -12,8 +12,9 @@ from smeshariki_ai.agent.tools import Tool
 from smeshariki_ai.observability import log_event, utc_now
 from smeshariki_ai.rag.lore.context import LoreContextBuilder
 from smeshariki_ai.rag.lore.expansion import QueryExpander
-from smeshariki_ai.rag.lore.models import LoreQuery
+from smeshariki_ai.rag.lore.models import LoreQuery, LoreSearchResult
 from smeshariki_ai.rag.lore.ports import LoreStoreError
+from smeshariki_ai.rag.lore.rerank import Ranker, dedupe_documents
 from smeshariki_ai.rag.lore.services import SearchLore
 
 logger = logging.getLogger(__name__)
@@ -65,11 +66,13 @@ class SearchLoreTool(Tool):
         context: LoreContextBuilder | None = None,
         expander: QueryExpander | None = None,
         expansion_mode: ExpansionMode = "replace",
+        ranker: Ranker | None = None,
     ) -> None:
         self._search = search
         self._context = context or LoreContextBuilder()
         self._expander = expander
         self._expansion_mode = expansion_mode
+        self._ranker = ranker
 
     async def execute(self, arguments: BaseModel) -> dict[str, Any]:
         assert isinstance(arguments, SearchLoreArguments)
@@ -120,6 +123,19 @@ class SearchLoreTool(Tool):
                 "passages": [],
                 "message": UNAVAILABLE_MESSAGE,
             }
+
+        if self._ranker is not None and result.hits:
+            candidates = dedupe_documents(result.hits, limit=self._context.retrieval_k)
+            reranked = await self._ranker.rerank(
+                search_text,
+                candidates,
+                limit=len(candidates),
+            )
+            result = LoreSearchResult(
+                hits=tuple(reranked),
+                total=result.total,
+                version=result.version,
+            )
 
         context = self._context.build(result, query_terms=original_terms)
         log_event(

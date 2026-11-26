@@ -180,6 +180,8 @@ def main(
                 arguments.context,
                 arguments.expand,
                 arguments.expand_cache,
+                arguments.rerank,
+                arguments.retrieval_k,
             )
         )
         _write_lore_benchmark(stdout, arguments.format, report)
@@ -295,6 +297,8 @@ async def _lore_benchmark(
     context: bool,
     expand: bool,
     expand_cache_path: Path | None = None,
+    rerank: bool = False,
+    retrieval_k: int = 10,
 ) -> BenchmarkReport | None:
     try:
         questions = read_benchmark_questions(questions_path)
@@ -312,7 +316,7 @@ async def _lore_benchmark(
             answerer = StaticAnswerer(raw)
 
         provider = None
-        if answerer is None or expand:
+        if answerer is None or expand or rerank:
             from smeshariki_ai.agent import LiteLLMProvider
             from smeshariki_ai.config import load_config
 
@@ -345,12 +349,19 @@ async def _lore_benchmark(
 
             expander = LiteLLMQueryExpander(provider)
 
+        ranker = None
+        if rerank and provider is not None:
+            from smeshariki_ai.rag.lore.rerank import LLMReranker
+
+            ranker = LLMReranker(provider)
+
         return await BenchmarkRunner(
             MorphAnalyzer(),
             answerer,
             k=k,
-            context=LoreContextBuilder() if context else None,
+            context=LoreContextBuilder(retrieval_k=retrieval_k) if context else None,
             expander=expander,
+            ranker=ranker,
         ).run(package, questions)
     except (BenchmarkError, ConfigurationError):
         return None
@@ -456,6 +467,17 @@ def _parser() -> argparse.ArgumentParser:
         "--expand-cache",
         type=Path,
         help="JSON с готовыми расширениями по тексту вопроса (воспроизводимый прогон)",
+    )
+    lore_benchmark.add_argument(
+        "--rerank",
+        action="store_true",
+        help="переранжировать кандидатов через LLM перед сборкой контекста",
+    )
+    lore_benchmark.add_argument(
+        "--retrieval-k",
+        type=_positive_int,
+        default=10,
+        help="окно кандидатов для контекста (по умолчанию 10)",
     )
     lore_benchmark.add_argument("--format", choices=("text", "json"), default="text")
 

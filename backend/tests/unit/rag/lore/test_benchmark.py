@@ -21,6 +21,7 @@ from smeshariki_ai.rag.lore.context import LoreContextBuilder
 from smeshariki_ai.rag.lore.expansion import QueryExpander
 from smeshariki_ai.rag.lore.models import LoreHit
 from smeshariki_ai.rag.lore.package import check_package
+from smeshariki_ai.rag.lore.rerank import Ranker
 
 FIXTURE = Path(__file__).parents[3] / "fixtures" / "lore_benchmark"
 
@@ -376,6 +377,33 @@ async def test_document_metrics_deduplicate_before_the_slice(tmp_path: Path) -> 
     # metric sees the first distinct document.
     assert report.document_recall_at_k >= report.recall_at_k
     assert report.document_mrr >= report.mrr
+
+
+async def test_ranker_is_applied_before_the_context(tmp_path: Path) -> None:
+    package = tmp_path / "lore"
+    write_mini_package(package)
+    questions = mini_questions(tmp_path)
+
+    class ReversingRanker(Ranker):
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def rerank(self, query, hits, *, limit):
+            self.calls += 1
+            return tuple(reversed(tuple(hits)[:limit]))
+
+    ranker = ReversingRanker()
+    report = await BenchmarkRunner(
+        MorphAnalyzer(),
+        StaticAnswerer(MINI_ANSWERS),
+        k=5,
+        context=LoreContextBuilder(min_score=0.0),
+        ranker=ranker,
+    ).run(package, questions)
+
+    assert ranker.calls >= 1
+    q01 = next(item for item in report.results if item.question_id == "q01")
+    assert q01.context_documents
 
 
 async def test_expander_returning_nothing_keeps_the_metrics(

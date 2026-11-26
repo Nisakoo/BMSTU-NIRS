@@ -30,6 +30,7 @@ from smeshariki_ai.rag.lore.expansion import CachedQueryExpander, LiteLLMQueryEx
 from smeshariki_ai.rag.lore.index import InMemoryBm25Index
 from smeshariki_ai.rag.lore.ports import LoreIndex
 from smeshariki_ai.rag.lore.postgres import PostgresBm25Index
+from smeshariki_ai.rag.lore.rerank import LLMReranker
 from smeshariki_ai.rag.lore.services import SearchLore
 from smeshariki_ai.rag.lore.tools import SearchLoreTool
 from smeshariki_ai.rag.memory import InMemoryKnowledgeStore
@@ -75,6 +76,7 @@ def build_agent_service(
         max_chars=config.rag.lore_max_chars,
         min_score=config.rag.lore_min_score,
     )
+    ranker = LLMReranker(provider) if config.rag.lore_rerank_enabled else None
     tool_registry = ToolRegistry(
         (
             LookupKnowledgeTool(knowledge),
@@ -84,6 +86,7 @@ def build_agent_service(
                 lore_context,
                 expander,
                 config.rag.query_expansion_mode,
+                ranker,
             ),
         )
     )
