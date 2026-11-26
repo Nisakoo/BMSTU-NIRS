@@ -289,7 +289,10 @@ Production bootstrap регистрирует `search_lore` рядом с `looku
 Benchmark проверяет поиск и ответы на синтетическом наборе из **30 документов**:
 **10 обычных вопросов** (у каждого не менее трёх релевантных документов) и
 **5 вопросов-ловушек** без ответа в корпусе. Набор лежит в
-[`backend/tests/fixtures/lore_benchmark/`](../backend/tests/fixtures/lore_benchmark/).
+[`backend/tests/fixtures/lore_benchmark/`](../backend/tests/fixtures/lore_benchmark/)
+и закоммичен, поэтому проверка воспроизводится на свежем клоне одной командой
+`make benchmark`; сводка чисел и разбор ошибок — на странице
+[бенчмарка](./benchmark.md).
 
 ```text
 lore_benchmark/

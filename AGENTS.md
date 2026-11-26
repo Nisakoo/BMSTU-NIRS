@@ -517,6 +517,10 @@
     Спецификации: `lore-benchmark`, `rag-real-corpus`, `lore-golden-set`,
     `lore-tool-benchmark`, `lore-corpus-cleanup`, `lore-stopwords`,
     `lore-query-expansion`, `lore-semantic-evaluation`, `lore-ranking-quality`.
+    Публичная проверка воспроизводится на закоммиченном наборе
+    `backend/tests/fixtures/lore_benchmark` командой `make benchmark` (30
+    документов, 10 вопросов, 5 ловушек, детерминированно, без БД и LLM);
+    результаты прогонов и разбор ошибок — `docs/benchmark.md`.
 13. Расширение запроса перед BM25: `QueryExpander` и `LiteLLMQueryExpander`
     (`rag/lore/expansion.py`) получают 5–10 ключевых слов от той же LLM через
     `LLMProvider`. Режим `RAG_QUERY_EXPANSION_MODE=replace` (по умолчанию)

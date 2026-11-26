@@ -24,6 +24,7 @@ help:
 	@echo "  make data-decrypt [FORCE=1] Restore data/ from encrypted/data.enc (asks for the passphrase)"
 	@echo "  make frontend Run the Vite frontend development server"
 	@echo "  make test    Run all configured project tests"
+	@echo "  make benchmark Run the committed 30-document BM25 benchmark (no DB, no LLM)"
 	@echo "  make test-integration [PYTEST_ARGS=...] Run backend tests against disposable PostgreSQL and Redis"
 	@echo "  make lint    Check backend code with Ruff"
 	@echo "  make format  Fix and format backend code with Ruff"
@@ -165,6 +166,17 @@ data-encrypt:
 
 data-decrypt:
 	@$(DATA_CRYPT) decrypt $(if $(filter 1,$(FORCE)),--force,)
+
+.PHONY: benchmark
+
+BENCHMARK_DIR := backend/tests/fixtures/lore_benchmark
+
+benchmark:
+	@uv run --project backend --locked python -m smeshariki_ai.rag lore-benchmark \
+		$(BENCHMARK_DIR)/lore \
+		--questions $(BENCHMARK_DIR)/questions.yaml \
+		--answers $(BENCHMARK_DIR)/answers.json \
+		--context --k "$(or $(K),5)"
 
 .PHONY: lore-check
 
