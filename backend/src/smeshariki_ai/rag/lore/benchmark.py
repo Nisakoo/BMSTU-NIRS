@@ -9,7 +9,11 @@ from typing import Literal, Protocol
 from pydantic import Field, model_validator
 
 from smeshariki_ai.rag.lore.analyzer import TextAnalyzer, normalize_text
-from smeshariki_ai.rag.lore.context import LoreContextBuilder
+from smeshariki_ai.rag.lore.context import (
+    LoreContext,
+    LoreContextBuilder,
+    LorePassage,
+)
 from smeshariki_ai.rag.lore.expansion import QueryExpander
 from smeshariki_ai.rag.lore.index import InMemoryBm25Index
 from smeshariki_ai.rag.lore.models import (
@@ -80,6 +84,7 @@ class Answerer(Protocol):
         self,
         question: BenchmarkQuestion,
         hits: Sequence[LoreHit],
+        context: LoreContext | None = None,
     ) -> str: ...
 
 
@@ -129,6 +134,7 @@ class StaticAnswerer:
         self,
         question: BenchmarkQuestion,
         hits: Sequence[LoreHit],
+        context: LoreContext | None = None,
     ) -> str:
         try:
             return self._answers[question.id]
@@ -211,6 +217,7 @@ class BenchmarkRunner:
             context_status: Literal["found", "empty"] | None = None
             context_documents: tuple[str, ...] = ()
             context_relevant: int | None = None
+            lore_context: LoreContext | None = None
             if self._context is not None:
                 builder_result = LoreSearchResult(
                     hits=result.hits[: self._context.retrieval_k],
@@ -227,7 +234,20 @@ class BenchmarkRunner:
                 context_status = "found" if selected else "empty"
                 if question.kind == "normal":
                     context_relevant = len(set(context_documents) & relevant)
-            answer = await self._answerer.answer(question, raw_hits)
+                lore_context = LoreContext(
+                    status=context_status,
+                    passages=tuple(
+                        LorePassage(
+                            title=hit.title,
+                            source=hit.source,
+                            text=text,
+                        )
+                        for hit, text in selected
+                    ),
+                )
+            # The answerer receives the same compact context the agent gets;
+            # raw chunks remain only for the retrieval metrics above.
+            answer = await self._answerer.answer(question, raw_hits, lore_context)
             correct = _is_correct(question, answer)
             results.append(
                 BenchmarkQuestionResult(

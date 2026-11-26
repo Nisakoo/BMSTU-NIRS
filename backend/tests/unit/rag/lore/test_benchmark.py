@@ -17,7 +17,7 @@ from smeshariki_ai.rag.lore.benchmark import (
     read_benchmark_questions,
 )
 from smeshariki_ai.rag.lore.benchmark_llm import LiteLLMAnswerer
-from smeshariki_ai.rag.lore.context import LoreContextBuilder
+from smeshariki_ai.rag.lore.context import LoreContext, LoreContextBuilder, LorePassage
 from smeshariki_ai.rag.lore.expansion import QueryExpander
 from smeshariki_ai.rag.lore.models import LoreHit
 from smeshariki_ai.rag.lore.package import check_package
@@ -123,6 +123,50 @@ async def test_llm_answerer_uses_the_retrieved_passages() -> None:
     assert answer == "Ответ по фрагменту [d01]."
     assert "[d01]" in provider.messages[1].content
     assert "Нужный текст." in provider.messages[1].content
+
+
+async def test_llm_answerer_prefers_the_built_context() -> None:
+    provider = ScriptedProvider("Ответ.")
+    answerer = LiteLLMAnswerer(provider)
+    question = BenchmarkQuestion(
+        id="q01",
+        text="Во что играют герои?",
+        kind="normal",
+        relevant_documents=("d01", "d02", "d03"),
+        reference_answer="В футбол.",
+        required_facts=("футбол",),
+    )
+    context = LoreContext(
+        status="found",
+        passages=(LorePassage(title="Футбол", source=None, text="Играют в футбол."),),
+    )
+
+    await answerer.answer(question, (hit("d01", "Сырой чанк."),), context)
+
+    prompt = provider.messages[1].content
+    assert "[Футбол] Играют в футбол." in prompt
+    assert "Сырой чанк." not in prompt
+
+
+async def test_llm_answerer_falls_back_when_the_context_is_empty() -> None:
+    provider = ScriptedProvider("Ответ.")
+    answerer = LiteLLMAnswerer(provider)
+    question = BenchmarkQuestion(
+        id="q01",
+        text="Что в документе?",
+        kind="normal",
+        relevant_documents=("d01", "d02", "d03"),
+        reference_answer="Ответ.",
+        required_facts=("Ответ",),
+    )
+
+    await answerer.answer(
+        question,
+        (hit("d01", "Сырой чанк."),),
+        LoreContext(status="empty"),
+    )
+
+    assert "[d01]" in provider.messages[1].content
 
 
 def test_question_shape_is_validated(tmp_path: Path) -> None:

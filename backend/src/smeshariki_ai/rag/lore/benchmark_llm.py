@@ -13,13 +13,15 @@ from smeshariki_ai.agent import (
     MessageRole,
 )
 from smeshariki_ai.rag.lore.benchmark import BenchmarkError, BenchmarkQuestion
+from smeshariki_ai.rag.lore.context import LoreContext
 from smeshariki_ai.rag.lore.models import LoreHit
 
 SYSTEM_PROMPT = (
-    "Отвечай на вопрос только по переданным фрагментам. Не используй внешние "
-    "знания и не придумывай факты. Если во фрагментах нет ответа, ответь ровно: "
-    "«В документах нет этой информации». Указывай источник в квадратных "
-    "скобках, например [d01]."
+    "Ответь на вопрос, используя только переданные фрагменты. Перечисли все "
+    "факты из фрагментов, которые относятся к вопросу, даже если они короткие. "
+    "Не используй внешние знания и не добавляй того, чего нет в тексте. Если "
+    "фрагменты не содержат ответа, ответь ровно: «В документах нет этой "
+    "информации»."
 )
 
 
@@ -33,13 +35,21 @@ class LiteLLMAnswerer:
         self,
         question: BenchmarkQuestion,
         hits: Sequence[LoreHit],
+        context: LoreContext | None = None,
     ) -> str:
-        context = "\n".join(f"[{hit.document_id}] {hit.text}" for hit in hits)
+        # The built context is what the agent would read: no chunk ids, at most
+        # a few passages. Raw hits stay as a fallback for callers without one.
+        if context is not None and context.passages:
+            body = "\n".join(
+                f"[{passage.title}] {passage.text}" for passage in context.passages
+            )
+        else:
+            body = "\n".join(f"[{hit.document_id}] {hit.text}" for hit in hits)
         messages = (
             Message(role=MessageRole.SYSTEM, content=SYSTEM_PROMPT),
             Message(
                 role=MessageRole.USER,
-                content=f"Вопрос: {question.text}\n\nФрагменты:\n{context}",
+                content=f"Вопрос: {question.text}\n\nФрагменты:\n{body}",
             ),
         )
         response: LLMResponse | None = None
