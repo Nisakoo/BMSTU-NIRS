@@ -46,3 +46,6 @@ Thumbs.db
 # Downloaded model weights must never be committed.
 /docker/models/**/*.pt
 /docker/models/**/*.onnx
+# Course materials kept locally; the repository stays without them.
+/НИРС.pdf
+/Занятие_3_RAG_BM25.pdf
