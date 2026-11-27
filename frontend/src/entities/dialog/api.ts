@@ -1,6 +1,8 @@
+import type { DialogSummary, DialogMessage, DialogEventType, ReportNewsItem } from "./model";
+
 const EVENT_SOURCE_CLOSED = 2;
 
-const EVENT_TYPES = [
+const EVENT_TYPES: DialogEventType[] = [
   "ready",
   "message_start",
   "message_delta",
@@ -8,26 +10,39 @@ const EVENT_TYPES = [
   "message_error",
 ];
 
-const MESSAGE_ROLES = new Set(["user", "assistant"]);
-// What the user may know about a report on an answer.
-const REPORT_STATES = new Set(["sent", "reviewed"]);
-const MIN_SCORE = 1;
-const MAX_SCORE = 5;
-
-function isScore(value) {
-  return Number.isInteger(value) && value >= MIN_SCORE && value <= MAX_SCORE;
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
-function isTitle(value) {
+function isInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value);
+}
+
+function isScore(value: unknown): value is number {
+  return isInteger(value) && value >= 1 && value <= 5;
+}
+
+function isTitle(value: unknown): value is string | null {
   return value === null || typeof value === "string";
 }
 
-function isReport(value) {
-  return value === undefined || value === null || REPORT_STATES.has(value);
+function isReport(value: unknown): value is DialogMessage["report"] | undefined {
+  return value === undefined || value === null || value === "sent" || value === "reviewed";
+}
+
+function isVoiceList(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every(voice => typeof voice === "string");
+}
+
+export function audioUrl(dialogId: string, messageId: number | string, voice: string | null = null) {
+  const base = `/api/v1/dialogs/${encodeURIComponent(dialogId)}/messages/${encodeURIComponent(messageId)}/audio`;
+  return voice === null ? base : `${base}?voice=${encodeURIComponent(voice)}`;
 }
 
 export class AgentApiError extends Error {
-  constructor(code) {
+  readonly code: string;
+
+  constructor(code: string) {
     super(code);
     this.name = "AgentApiError";
     this.code = code;
@@ -35,6 +50,9 @@ export class AgentApiError extends Error {
 }
 
 export class AgentApi {
+  private readonly fetchImpl: typeof fetch;
+  private readonly EventSourceImpl: typeof EventSource;
+
   constructor({
     fetchImpl = globalThis.fetch,
     EventSourceImpl = globalThis.EventSource,
@@ -49,7 +67,7 @@ export class AgentApi {
     this.EventSourceImpl = EventSourceImpl;
   }
 
-  async createDialog() {
+  async createDialog(): Promise<string> {
     let response;
     try {
       response = await this.fetchImpl("/api/v1/dialogs", { method: "POST" });
@@ -63,19 +81,19 @@ export class AgentApi {
       throw new AgentApiError("create_failed");
     }
 
-    let body;
+    let body: unknown;
     try {
       body = await response.json();
     } catch {
       throw new AgentApiError("invalid_dialog");
     }
-    if (typeof body?.dialog_id !== "string" || !body.dialog_id) {
+    if (!isObject(body) || typeof body.dialog_id !== "string" || !body.dialog_id) {
       throw new AgentApiError("invalid_dialog");
     }
     return body.dialog_id;
   }
 
-  async submitMessage(dialogId, request, { readingMinutes = null } = {}) {
+  async submitMessage(dialogId: string, request: string, { readingMinutes = null }: { readingMinutes?: number | null } = {}) {
     const body = readingMinutes === null
       ? { request }
       : { request, reading_minutes: readingMinutes };
@@ -100,11 +118,11 @@ export class AgentApi {
     }
   }
 
-  async listDialogs() {
+  async listDialogs(): Promise<DialogSummary[]> {
     const body = await this.#readJson("/api/v1/dialogs", { notFound: false });
-    if (!Array.isArray(body?.dialogs)) throw new AgentApiError("invalid_response");
-    return body.dialogs.map(item => {
-      if (typeof item?.dialog_id !== "string" || !item.dialog_id
+    if (!isObject(body) || !Array.isArray(body.dialogs)) throw new AgentApiError("invalid_response");
+    return body.dialogs.map((item: unknown) => {
+      if (!isObject(item) || typeof item.dialog_id !== "string" || !item.dialog_id
         || !isTitle(item.title) || typeof item.updated_at !== "string") {
         throw new AgentApiError("invalid_response");
       }
@@ -112,25 +130,23 @@ export class AgentApi {
     });
   }
 
-  async getMessages(dialogId) {
+  async getMessages(dialogId: string): Promise<{ title: string | null; messages: DialogMessage[] }> {
     const body = await this.#readJson(
       `/api/v1/dialogs/${encodeURIComponent(dialogId)}/messages`,
       { notFound: true },
     );
-    if (!isTitle(body?.title) || !Array.isArray(body.messages)) {
+    if (!isObject(body) || !isTitle(body.title) || !Array.isArray(body.messages)) {
       throw new AgentApiError("invalid_response");
     }
     return {
       title: body.title,
-      messages: body.messages.map(item => {
-        if (!Number.isInteger(item?.id) || !MESSAGE_ROLES.has(item.role)
+      messages: body.messages.map((item: unknown) => {
+        if (!isObject(item) || !isInteger(item.id) || (item.role !== "user" && item.role !== "assistant")
           || typeof item.content !== "string"
           || !(item.feedback === null || isScore(item.feedback))
           || !(item.reported === undefined || typeof item.reported === "boolean")
           || !isReport(item.report)
-          || !(item.audio_voices === undefined || Array.isArray(item.audio_voices))
-          || (Array.isArray(item.audio_voices)
-            && !item.audio_voices.every(voice => typeof voice === "string"))) {
+          || !(item.audio_voices === undefined || isVoiceList(item.audio_voices))) {
           throw new AgentApiError("invalid_response");
         }
         return {
@@ -145,7 +161,7 @@ export class AgentApi {
     };
   }
 
-  async deleteDialog(dialogId) {
+  async deleteDialog(dialogId: string) {
     let response;
     try {
       response = await this.fetchImpl(`/api/v1/dialogs/${encodeURIComponent(dialogId)}`, { method: "DELETE" });
@@ -157,7 +173,7 @@ export class AgentApi {
     if (response.status !== 204) throw new AgentApiError("delete_failed");
   }
 
-  async setFeedback(dialogId, messageId, score) {
+  async setFeedback(dialogId: string, messageId: number, score: number) {
     await this.#sendFeedback(dialogId, messageId, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -165,15 +181,15 @@ export class AgentApi {
     });
   }
 
-  async clearFeedback(dialogId, messageId) {
+  async clearFeedback(dialogId: string, messageId: number) {
     await this.#sendFeedback(dialogId, messageId, { method: "DELETE" });
   }
 
-  async getReportNews() {
+  async getReportNews(): Promise<ReportNewsItem[]> {
     const body = await this.#readJson("/api/v1/reports/news", { notFound: false });
-    if (!Array.isArray(body?.news)) throw new AgentApiError("invalid_response");
-    return body.news.map(item => {
-      if (!Number.isInteger(item?.report_id)
+    if (!isObject(body) || !Array.isArray(body.news)) throw new AgentApiError("invalid_response");
+    return body.news.map((item: unknown) => {
+      if (!isObject(item) || !isInteger(item.report_id)
         || !(item.dialog_id === null || typeof item.dialog_id === "string")
         || !isTitle(item.dialog_title)) {
         throw new AgentApiError("invalid_response");
@@ -182,7 +198,7 @@ export class AgentApi {
     });
   }
 
-  async startAudio(dialogId, messageId, voice = null) {
+  async startAudio(dialogId: string, messageId: number | string, voice: string | null = null) {
     const init = voice === null
       ? { method: "POST" }
       : {
@@ -192,7 +208,7 @@ export class AgentApi {
         };
     let response;
     try {
-      response = await this.fetchImpl(this.#audioUrl(dialogId, messageId), init);
+      response = await this.fetchImpl(audioUrl(dialogId, messageId), init);
     } catch {
       throw new AgentApiError("audio_failed");
     }
@@ -203,22 +219,22 @@ export class AgentApi {
     if (response.status !== 200 && response.status !== 202) {
       throw new AgentApiError("audio_failed");
     }
-    let body;
+    let body: unknown;
     try {
       body = await response.json();
     } catch {
       throw new AgentApiError("invalid_response");
     }
-    if (body?.status !== "pending" && body?.status !== "ready") {
+    if (!isObject(body) || (body.status !== "pending" && body.status !== "ready")) {
       throw new AgentApiError("invalid_response");
     }
     return body.status;
   }
 
-  async getAudio(dialogId, messageId, voice = null) {
+  async getAudio(dialogId: string, messageId: number | string, voice: string | null = null): Promise<{ status: "pending" } | { status: "ready"; blob: Blob }> {
     let response;
     try {
-      response = await this.fetchImpl(this.#audioUrl(dialogId, messageId, voice));
+      response = await this.fetchImpl(audioUrl(dialogId, messageId, voice));
     } catch {
       throw new AgentApiError("audio_failed");
     }
@@ -237,8 +253,8 @@ export class AgentApi {
     }
   }
 
-  async downloadAudio(dialogId, messageId, voice = null) {
-    const url = this.#audioUrl(dialogId, messageId, voice);
+  async downloadAudio(dialogId: string, messageId: number | string, voice: string | null = null) {
+    const url = audioUrl(dialogId, messageId, voice);
     const separator = voice === null ? "?" : "&";
     let response;
     try {
@@ -260,7 +276,7 @@ export class AgentApi {
     }
   }
 
-  async markReportNewsSeen(reportIds) {
+  async markReportNewsSeen(reportIds: number[]) {
     let response;
     try {
       response = await this.fetchImpl("/api/v1/reports/news/seen", {
@@ -276,7 +292,7 @@ export class AgentApi {
   }
 
   // An answer reported before (409) is just as reported: the first report stays.
-  async reportMessage(dialogId, messageId, reason, comment) {
+  async reportMessage(dialogId: string, messageId: number, reason: string, comment: string) {
     const body = comment ? { reason, comment } : { reason };
     let response;
     try {
@@ -296,12 +312,7 @@ export class AgentApi {
     if (response.status !== 201 && response.status !== 409) throw new AgentApiError("report_failed");
   }
 
-  #audioUrl(dialogId, messageId, voice = null) {
-    const base = `/api/v1/dialogs/${encodeURIComponent(dialogId)}/messages/${encodeURIComponent(messageId)}/audio`;
-    return voice === null ? base : `${base}?voice=${encodeURIComponent(voice)}`;
-  }
-
-  async #sendFeedback(dialogId, messageId, init) {
+  async #sendFeedback(dialogId: string, messageId: number, init: RequestInit) {
     let response;
     try {
       response = await this.fetchImpl(
@@ -316,7 +327,7 @@ export class AgentApi {
     if (response.status !== 204) throw new AgentApiError("feedback_failed");
   }
 
-  async #readJson(url, { notFound }) {
+  async #readJson(url: string, { notFound }: { notFound: boolean }): Promise<unknown> {
     let response;
     try {
       response = await this.fetchImpl(url);
@@ -334,15 +345,19 @@ export class AgentApi {
   }
 
   connectEvents(
-    dialogId,
-    { onEvent, onInvalidEvent, onConnectionError } = {},
+    dialogId: string,
+    { onEvent, onInvalidEvent, onConnectionError }: {
+      onEvent?: (type: DialogEventType, data: unknown) => void;
+      onInvalidEvent?: (type: DialogEventType) => void;
+      onConnectionError?: () => void;
+    } = {},
   ) {
     const source = new this.EventSourceImpl(
       `/api/v1/dialogs/${encodeURIComponent(dialogId)}/events`,
     );
 
     for (const type of EVENT_TYPES) {
-      source.addEventListener(type, event => {
+      source.addEventListener(type, (event: MessageEvent<string>) => {
         let data;
         try {
           data = JSON.parse(event.data);

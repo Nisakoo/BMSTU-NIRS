@@ -152,7 +152,8 @@ Redis. Роль проверяется зависимостью `current_admin` 
 
 ```mermaid
 flowchart LR
-    Page[admin.js] --> Client[AdminApi / admin-api.js]
+    Page[Svelte /admin/] --> Model[Модель панели]
+    Model --> Client[AdminApi]
     Client -->|GET /api/v1/admin/stats| Router[api/admin.py]
     Router --> Guard[current_admin]
     Router --> Service[AdminStatsService]
@@ -174,7 +175,7 @@ flowchart LR
   `smeshariki_ai.admin`, `PostgresReportStore` в `db/reports.py`; bootstrap
   передаёт сервис в `create_app(admin_reports=...)`, без него ручки жалоб
   отвечают `503`. Frontend: `AdminApi.listReports(filter)`,
-  `AdminApi.setReportStatus(id, status)` и `mountReports` в `admin.js`.
+  `AdminApi.setReportStatus(id, status)` и раздел жалоб в [панели](../frontend/src/pages/admin/).
 - Frontend: `AdminApi.stats(period)` переводит ответы в коды `unauthorized`,
   `forbidden`, `unavailable`, `invalid_response`. Панель загружает статистику
   после проверки роли и при смене периода, блокируя кнопки периода на время

@@ -210,7 +210,7 @@ button,textarea{font:inherit}
 }
 .sai-logout svg{width:17px;height:17px;flex:0 0 auto}
 .sai-logout:hover,.sai-history-retry:hover{color:#fff;border-color:#3d6a8d}
-.sai-backdrop{display:none}
+.sai-backdrop{display:none;border:0;padding:0}
 
 /* «Настройки» над чертой строки пользователя, как ссылка в панель */
 .sai-settings-button{
@@ -838,7 +838,6 @@ button,textarea{font:inherit}
   background:rgba(98,208,255,.12);
 }
 .sai-voice-button:disabled,.sai-voice-refresh:disabled{cursor:progress;opacity:.6}
-.sai-voice-download{display:none}
 .sai-voice-state{
   min-height:16px;color:var(--sai-muted);
   font:600 11.5px Inter,system-ui,sans-serif;

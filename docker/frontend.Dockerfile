@@ -5,7 +5,7 @@ WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci --prefer-offline --no-audit --no-fund
 
-COPY frontend/vite.config.js ./
+COPY frontend/vite.config.js frontend/tsconfig.json ./
 COPY frontend/src ./src
 RUN npm run build
 

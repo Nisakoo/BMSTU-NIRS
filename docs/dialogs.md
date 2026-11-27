@@ -28,9 +28,9 @@ FastAPI-маршруты только валидируют HTTP-ввод и пр
   запросов и ответов;
 - [`api/agent_test.html`](../backend/src/smeshariki_ai/api/agent_test.html) —
   самодостаточный тестовый интерфейс;
-- [`frontend/src/agent-api.js`](../frontend/src/agent-api.js) — браузерный
+- [`frontend/src/entities/dialog/api.ts`](../frontend/src/entities/dialog/api.ts) — браузерный
   HTTP/SSE-клиент dialog API;
-- [`frontend/src/script.js`](../frontend/src/script.js) — состояния формы,
+- [`frontend/src/pages/chat/`](../frontend/src/pages/chat/) — состояния формы,
   порядок сообщений и отображение потокового ответа;
 - [`frontend/vite.config.js`](../frontend/vite.config.js) — локальный same-
   origin dev proxy пути `/api`;
@@ -311,7 +311,7 @@ frontend оставляет форму заблокированной и пов�
 Одновременно допускается только один незавершённый запрос.
 
 Пользовательский текст, delta, названия историй и сообщения ошибок
-добавляются через `textContent`. `dialog_id` не сохраняется в cookie,
+выводятся как текст в шаблонах Svelte. `dialog_id` не сохраняется в cookie,
 `localStorage` или URL; полная
 перезагрузка создаёт новый диалог. Ошибка EventSource блокирует форму, пока
 браузер пытается переподключиться, но потерянные события не восстанавливаются,

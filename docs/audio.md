@@ -37,8 +37,8 @@ agent loop и не меняет текст истории. Пользовате�
   PostgreSQL-хранилище метаданных;
 - [`api/app.py`](../backend/src/smeshariki_ai/api/app.py) — HTTP-ручки;
 - [`docker/fetch-silero.sh`](../docker/fetch-silero.sh) — загрузка модели;
-- [`frontend/src/script.js`](../frontend/src/script.js) — выбор голоса,
-  компактный плеер, polling и скачивание.
+- [Страница чата](../frontend/src/pages/chat/) хранит выбор голоса.
+- [Модуль озвучки](../frontend/src/features/voiceover/) управляет плеером, опросом готовности и скачиванием MP3.
 
 ## Поток
 

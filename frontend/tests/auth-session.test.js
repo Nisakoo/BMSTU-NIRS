@@ -1,9 +1,9 @@
 import "./no-web-locks.js";
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 
-import { AuthApiError } from "../src/auth-api.js";
 import {
+  AuthApiError,
   ADMIN_PATH,
   CHAT_PATH,
   LOGIN_PATH,
@@ -11,7 +11,7 @@ import {
   checkSession,
   homeFor,
   refreshSession,
-} from "../src/auth-session.js";
+} from "../src/entities/session/index.ts";
 
 const USER = { id: "user-1", login: "krosh", role: "user" };
 const ADMIN = { id: "admin-1", login: "sovunya", role: "admin" };

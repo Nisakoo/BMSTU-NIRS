@@ -1,84 +1,9 @@
-import "./no-web-locks.js";
-import assert from "node:assert/strict";
-import test from "node:test";
-
-import { AuthApiError } from "../src/auth-api.js";
-import { mountLogin } from "../src/login/login.js";
-
-class FakeElement {
-  constructor(id) {
-    this.id = id;
-    this.value = "";
-    this.hidden = false;
-    this.disabled = false;
-    this.textContent = "";
-    this.dataset = {};
-    this.attributes = new Map();
-    this.listeners = new Map();
-    this.focused = false;
-  }
-
-  addEventListener(type, listener) {
-    this.listeners.set(type, listener);
-  }
-
-  dispatch(type) {
-    return this.listeners.get(type)?.({ preventDefault() {} });
-  }
-
-  click() {
-    return this.dispatch("click");
-  }
-
-  setAttribute(name, value) {
-    this.attributes.set(name, String(value));
-  }
-
-  getAttribute(name) {
-    return this.attributes.get(name) ?? null;
-  }
-
-  removeAttribute(name) {
-    this.attributes.delete(name);
-  }
-
-  focus() {
-    this.focused = true;
-  }
-
-  set innerHTML(_value) {
-    throw new Error("dynamic innerHTML is forbidden");
-  }
-}
-
-const IDS = [
-  "authForm",
-  "authTabLogin",
-  "authTabRegister",
-  "authSubtitle",
-  "authLogin",
-  "authLoginError",
-  "authPassword",
-  "authPasswordError",
-  "authConfirmField",
-  "authConfirm",
-  "authConfirmError",
-  "authMessage",
-  "authSubmit",
-];
-
-function createDocument() {
-  const elements = Object.fromEntries(IDS.map(id => [id, new FakeElement(id)]));
-  elements.authTabLogin.dataset.mode = "login";
-  elements.authTabRegister.dataset.mode = "register";
-  elements.authConfirmField.hidden = true;
-  return {
-    elements,
-    querySelector(selector) {
-      return elements[selector.replace(/^#/, "")] ?? null;
-    },
-  };
-}
+// @vitest-environment jsdom
+import assert from 'node:assert/strict';
+import { afterEach, test, vi } from 'vitest';
+import { flushSync, mount as mountComponent, unmount } from 'svelte';
+import { AuthApiError } from '../src/entities/session/index.ts';
+import { createLogin, LoginPage } from '../src/pages/login/index.ts';
 
 const USER = { id: "user-1", login: "krosh", role: "user" };
 const ADMIN = { id: "admin-1", login: "sovunya", role: "admin" };
@@ -99,13 +24,27 @@ function fakeApi({
   };
 }
 
+const pages = [];
+afterEach(async () => {
+  for (const page of pages.splice(0)) await unmount(page);
+  document.body.replaceChildren();
+  vi.unstubAllGlobals();
+});
+
+function settled() {
+  return new Promise(resolve => setTimeout(resolve, 0));
+}
+
 async function mount(apiOptions) {
-  const documentRef = createDocument();
   const api = fakeApi(apiOptions);
   const navigations = [];
-  const page = mountLogin(documentRef, { api, navigate: url => navigations.push(url) });
-  await page.ready;
-  return { ...documentRef, api, navigations };
+  const target = document.createElement('div');
+  document.body.append(target);
+  pages.push(mountComponent(LoginPage, { target, props: { model: createLogin(api, url => navigations.push(url)) } }));
+  flushSync();
+  await settled();
+  const elements = Object.fromEntries(Array.from(target.querySelectorAll('[id]'), el => [el.id, el]));
+  return { elements, api, navigations };
 }
 
 function fill(elements, { login = "krosh", password = "carrot123", confirm } = {}) {
@@ -115,7 +54,9 @@ function fill(elements, { login = "krosh", password = "carrot123", confirm } = {
 }
 
 function submit(elements) {
-  return elements.authForm.dispatch("submit");
+  elements.authForm.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  flushSync();
+  return settled();
 }
 
 test("page starts in login mode and stays for a guest", async () => {
@@ -162,14 +103,14 @@ test("an unavailable backend keeps the form usable", async () => {
 test("tabs switch between login and registration", async () => {
   const { elements } = await mount();
 
-  elements.authTabRegister.click();
+  flushSync(() => elements.authTabRegister.click());
   assert.equal(elements.authTabRegister.getAttribute("aria-selected"), "true");
   assert.equal(elements.authTabLogin.getAttribute("aria-selected"), "false");
   assert.equal(elements.authConfirmField.hidden, false);
   assert.equal(elements.authSubmit.textContent, "Зарегистрироваться");
   assert.equal(elements.authPassword.getAttribute("autocomplete"), "new-password");
 
-  elements.authTabLogin.click();
+  flushSync(() => elements.authTabLogin.click());
   assert.equal(elements.authConfirmField.hidden, true);
   assert.equal(elements.authSubmit.textContent, "Войти");
   assert.equal(elements.authPassword.getAttribute("autocomplete"), "current-password");
@@ -185,7 +126,7 @@ test("invalid fields are reported without a request", async () => {
   assert.match(elements.authLoginError.textContent, /от 3 до 32/i);
   assert.match(elements.authPasswordError.textContent, /от 8 до 128/);
   assert.equal(elements.authLogin.getAttribute("aria-invalid"), "true");
-  assert.equal(elements.authLogin.focused, true);
+  assert.equal(document.activeElement, elements.authLogin);
 
   fill(elements, { login: "крош", password: "carrot123" });
   await submit(elements);
@@ -197,7 +138,7 @@ test("invalid fields are reported without a request", async () => {
 test("registration requires a matching confirmation", async () => {
   const { elements, api } = await mount();
 
-  elements.authTabRegister.click();
+  flushSync(() => elements.authTabRegister.click());
   fill(elements, { confirm: "carrot124" });
   await submit(elements);
 
@@ -218,7 +159,7 @@ test("successful login redirects to the chat", async () => {
 test("successful registration logs in and redirects to the chat", async () => {
   const { elements, api, navigations } = await mount();
 
-  elements.authTabRegister.click();
+  flushSync(() => elements.authTabRegister.click());
   fill(elements, { confirm: "carrot123" });
   await submit(elements);
 
@@ -251,7 +192,7 @@ test("API errors show a message, keep the login and clear passwords", async () =
     const { elements, navigations } = await mount({
       [method]: () => Promise.reject(new AuthApiError(code)),
     });
-    if (method === "register") elements.authTabRegister.click();
+    if (method === "register") flushSync(() => elements.authTabRegister.click());
     fill(elements, { confirm: "carrot123" });
     await submit(elements);
 
@@ -279,7 +220,7 @@ test("the form is locked while a request is pending", async () => {
   assert.equal(elements.authForm.getAttribute("aria-busy"), "true");
 
   await submit(elements);
-  elements.authTabRegister.click();
+  flushSync(() => elements.authTabRegister.click());
   assert.equal(api.calls.filter(([name]) => name === "login").length, 1);
   assert.equal(elements.authConfirmField.hidden, true);
 
@@ -290,16 +231,23 @@ test("the form is locked while a request is pending", async () => {
 test("passwords never reach browser storage", async () => {
   const touched = [];
   const storage = new Proxy({}, { get: (_target, key) => touched.push(key) });
-  globalThis.localStorage = storage;
-  globalThis.sessionStorage = storage;
-  try {
-    const { elements } = await mount();
-    elements.authTabRegister.click();
-    fill(elements, { confirm: "carrot123" });
-    await submit(elements);
-    assert.deepEqual(touched, []);
-  } finally {
-    delete globalThis.localStorage;
-    delete globalThis.sessionStorage;
-  }
+  vi.stubGlobal('localStorage', storage);
+  vi.stubGlobal('sessionStorage', storage);
+  const { elements } = await mount();
+  flushSync(() => elements.authTabRegister.click());
+  fill(elements, { confirm: "carrot123" });
+  await submit(elements);
+  assert.deepEqual(touched, []);
+});
+
+test('an older session check cannot replace a successful manual sign-in', async () => {
+  let finishCheck;
+  const { elements, navigations } = await mount({
+    me: () => new Promise(resolve => { finishCheck = resolve; }),
+  });
+  fill(elements);
+  await submit(elements);
+  finishCheck(ADMIN);
+  await settled();
+  assert.deepEqual(navigations, ['/']);
 });
