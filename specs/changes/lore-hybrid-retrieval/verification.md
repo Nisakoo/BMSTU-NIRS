@@ -32,9 +32,14 @@
   BM25 (`test_search_degrades_to_bm25_when_dense_fails`).
 - Миграция `0017` создаёт `vector` и `rag_lore_embeddings`; `lore-load` с
   включённым `RAG_HYBRID_ENABLED` пишет векторы.
-- Замер на контрольном наборе: `Recall@5 0.733 → 0.900`, `Context Recall
-  0.867 → 0.900`, MRR `0.900`. На golden set гибрид немного хуже
-  (`Context Recall 0.583 → 0.550`), поэтому режим выключен по умолчанию.
+- Замер на контрольном наборе: чанковый `Recall@5 0.733 → 0.867`; документный
+  `Doc Recall@5 0.867`, `Context Recall 0.867` и `MRR 0.900` не меняются.
+  На golden set гибрид немного хуже (`Context Recall 0.583 → 0.550`,
+  `MRR 0.713 → 0.692`), поэтому режим выключен по умолчанию.
+- Первый замер давал `0.900` по всем метрикам: это оказался артефакт бага,
+  при котором запрос кодировался с двойным префиксом `passage: query: ...`.
+  Баг исправлен, добавлен тест на префиксы (`query: ` для запроса,
+  `passage: ` для документов), после чего числа пересняты.
 - Тесты: `test_embeddings.py` (порт, fake, слияние, откат),
   `test_lore_postgres.py::test_postgres_dense_index_returns_persisted_vectors`.
 

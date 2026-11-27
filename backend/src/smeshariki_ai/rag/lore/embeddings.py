@@ -105,10 +105,12 @@ class LocalEmbeddingProvider:
                     "the embedding model could not be loaded"
                 ) from error
 
-    def _encode(self, texts: tuple[str, ...]) -> tuple[tuple[float, ...], ...]:
+    def _encode(
+        self, texts: tuple[str, ...], prefix: str = "passage: "
+    ) -> tuple[tuple[float, ...], ...]:
         import torch
 
-        prepared = [f"passage: {text}" for text in texts]
+        prepared = [f"{prefix}{text}" for text in texts]
         tokenized = self._tokenizer(
             prepared,
             padding=True,
@@ -125,18 +127,10 @@ class LocalEmbeddingProvider:
         return tuple(tuple(float(value) for value in row) for row in normalised)
 
     async def embed_query(self, text: str) -> tuple[float, ...]:
-        """Embed a query with the e5 ``query:`` prefix."""
+        """Embed a query with the e5 ``query:`` prefix, not ``passage:``."""
 
         await self._ensure_model()
-        return (
-            await asyncio.to_thread(
-                self._encode_one,
-                f"query: {text}",
-            )
-        )[0]
-
-    def _encode_one(self, text: str) -> tuple[tuple[float, ...], ...]:
-        return self._encode((text,))
+        return (await asyncio.to_thread(self._encode, (text,), "query: "))[0]
 
 
 def cosine(left: Sequence[float], right: Sequence[float]) -> float:

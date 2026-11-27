@@ -581,9 +581,10 @@
     расширение `vector` и таблицу `rag_lore_embeddings`, образ PostgreSQL —
     `pgvector/pgvector:pg17`, кэш модели монтируется в backend
     (`HF_HOME=/models/hf`). Флаг `RAG_HYBRID_ENABLED` (по умолчанию `false`):
-    на контрольном наборе курса `Recall@5 0.733 → 0.900` и `Context Recall
-    0.867 → 0.900`, на golden set контекст немного хуже (`0.583 → 0.550`),
-    поэтому режим opt-in. Бенчмарк: `--hybrid` и `--hybrid-weight`.
+    на контрольном наборе курса чанковый `Recall@5` растёт `0.733 → 0.867`,
+    но документный уровень и `Context Recall` остаются `0.867`, а на golden
+    set гибрид немного хуже (`Context Recall 0.583 → 0.550`), поэтому режим
+    opt-in. Бенчмарк: `--hybrid` и `--hybrid-weight`.
     Спецификация: `lore-hybrid-retrieval`.
 
 ## Реализованная озвучка сказок

@@ -87,6 +87,28 @@ def test_fake_embeddings_reject_invalid_dimension() -> None:
         FakeEmbeddingProvider(dimension=0)
 
 
+async def test_local_query_embedding_uses_the_query_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = LocalEmbeddingProvider()
+    calls: list[str] = []
+
+    async def ensured() -> None:
+        return None
+
+    def encode(texts, prefix="passage: "):
+        calls.append(prefix)
+        return tuple((0.0, 1.0) for _ in texts)
+
+    monkeypatch.setattr(provider, "_ensure_model", ensured)
+    monkeypatch.setattr(provider, "_encode", encode)
+
+    await provider.embed_query("Крош")
+    await provider.embed(("Крош",))
+
+    assert calls == ["query: ", "passage: "]
+
+
 async def test_local_embeddings_fail_cleanly_without_the_dependency(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
