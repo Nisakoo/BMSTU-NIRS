@@ -1,9 +1,9 @@
 export const VOICES = [
-  ["aidar", "Айдар", "Мужской, спокойный"],
-  ["baya", "Бая", "Женский, мягкий"],
-  ["kseniya", "Ксения", "Женский, ясный"],
-  ["xenia", "Ксения (второй тембр)", "Женский, светлый"],
-  ["eugene", "Евгений", "Мужской, размеренный"],
+  ["aidar", "Айдар"],
+  ["baya", "Бая"],
+  ["kseniya", "Ксения 1"],
+  ["xenia", "Ксения 2"],
+  ["eugene", "Евгений"],
 ] as const;
 // Slider steps of the story length: minutes sent to the agent and the label.
 export const LENGTH_STEPS = [

@@ -2011,7 +2011,7 @@ test("a late voiceover leaves the selected voice playing and available for downl
   assert.match(audio.src, /^blob:test-/);
 });
 
-test("a late POST leaves the next draft editable, blocks duplicate sends and preserves focus", async () => {
+test.each(["click", "Enter"])("%s starts a fresh focused draft immediately and blocks duplicate sends", async method => {
   const response = deferred();
   const ui = await setup(response);
   assert.equal(ui.prompt.placeholder, "Идея для сказки");
@@ -2019,21 +2019,26 @@ test("a late POST leaves the next draft editable, blocks duplicate sends and pre
   assert.equal(ui.length.getAttribute("aria-valuetext"), "Любая");
 
   input(ui.prompt, "Первая история");
-  const posting = fire(ui.form, "submit");
+  const target = method === "click" ? ui.send : ui.prompt;
+  target.focus();
+  const posting = method === "click" ? fire(target, "click") : fire(target, "keydown", { key: "Enter" });
+  assert.equal(ui.prompt.value, "");
+  assert.equal(document.activeElement, ui.prompt);
   assert.equal(ui.prompt.disabled, false);
   assert.equal(ui.send.disabled, true);
   input(ui.prompt, "Следующая идея");
   await fire(ui.prompt, "keydown", { key: "Enter" });
+  ui.lengthButton.focus();
   response.resolve({ status: 202 });
   await posting;
   await settle();
+  assert.equal(document.activeElement, ui.lengthButton);
   assert.equal(ui.prompt.value, "Следующая идея");
   assert.equal(ui.bubbles()[0].textContent, "Первая история");
 
   input(ui.prompt, "Ещё одна идея");
   await fire(ui.form, "submit");
   assert.equal(ui.requests.filter(([path]) => path.endsWith("/messages")).length, 1);
-  ui.lengthButton.focus();
   ui.source.emit("message_end");
   assert.equal(document.activeElement, ui.lengthButton);
   assert.equal(ui.prompt.value, "Ещё одна идея");
@@ -2041,6 +2046,19 @@ test("a late POST leaves the next draft editable, blocks duplicate sends and pre
   await fire(ui.prompt, "keydown", { key: "Enter" });
   assert.deepEqual(JSON.parse(ui.requests.at(-1)[1].body), { request: "Ещё одна идея" });
   assert.equal(ui.prompt.value, "");
+});
+
+test.each(["Следующая идея", ""])("a failed POST keeps the edited next draft %j", async nextDraft => {
+  const response = deferred();
+  const ui = await setup(response);
+  input(ui.prompt, "Первая история");
+  const posting = fire(ui.send, "click");
+  input(ui.prompt, "Новая идея");
+  input(ui.prompt, nextDraft);
+  response.resolve({ status: 503 });
+  await posting;
+  assert.equal(ui.prompt.value, nextDraft);
+  assert.equal(ui.send.disabled, false);
 });
 
 test("IME confirmation and Shift+Enter allow native editing without submitting", async () => {
@@ -2189,7 +2207,7 @@ test("waiting begins on submit, survives start and blank chunks, then gives way 
   assert.equal(first.getAttribute("aria-hidden"), "true");
   assert.equal(announcement.textContent, "Смешарики сочиняют историю…");
   assert.equal(first.querySelector(".sai-wait-phrase").textContent, "Красим скамейку…");
-  const [nextPhrase] = interval.mock.calls[0];
+  const [nextPhrase] = interval.mock.calls.find(([, delay]) => delay === 3000);
   nextPhrase();
   flushSync();
   assert.equal(first.querySelector(".sai-wait-phrase").textContent, "Раскладываем фантики…");

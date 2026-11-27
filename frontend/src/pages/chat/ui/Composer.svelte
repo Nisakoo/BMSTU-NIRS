@@ -47,8 +47,13 @@
     event.preventDefault();
     if (disabled || waiting || !draft.trim()) return;
     menu = null;
-    const sentRevision = revision;
-    if (await submit(draft, length[0]) && revision === sentRevision) edit("");
+    const sentDraft = draft;
+    const sentPreset = preset;
+    edit("");
+    const clearedRevision = revision;
+    prompt.focus({ preventScroll: true });
+    const accepted = await submit(sentDraft, length[0]);
+    if (!accepted && revision === clearedRevision) edit(sentDraft, sentPreset);
   }
   async function toggle(value: "length" | "voice") {
     menu = menu === value ? null : value;
@@ -89,19 +94,22 @@
         e.preventDefault();
         if (!waiting && !disabled) form.requestSubmit();
       }}></textarea>
-    <button class="sai-voice-picker" id="saiVoiceButton" type="button" aria-haspopup="listbox" aria-expanded={menu === "voice"} aria-controls="saiVoiceMenu"
-      aria-label={`Выбрать голос рассказчика, сейчас ${label}`} {disabled} bind:this={voiceButton} onclick={() => toggle("voice")}>
-      <svg class="sai-voice-symbol" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3" stroke="currentColor" stroke-width="2"/><path d="M5 11a7 7 0 0 0 14 0m-7 7v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-      <span id="saiVoiceValue">{label}</span>
-      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m7 10 5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    </button>
-    <div class="sai-voice-menu" id="saiVoiceMenu" role="listbox" aria-label="Голос рассказчика" hidden={menu !== "voice"} bind:this={voiceMenu}>
-      {#each VOICES as [id, name, hint] (id)}
-        <button type="button" class="sai-voice-option" role="option" data-voice={id} aria-selected={voice === id} class:is-selected={voice === id}
-          onclick={() => { chooseVoice(id); menu = null; voiceButton.focus(); }}>
-          <span class="sai-voice-option-label">{name}</span><span class="sai-voice-option-hint">{hint}</span>
-        </button>
-      {/each}
+    <div class="sai-voice-control">
+      <button class="sai-voice-picker" id="saiVoiceButton" type="button" aria-haspopup="listbox" aria-expanded={menu === "voice"} aria-controls="saiVoiceMenu"
+        aria-label={`Выбрать голос рассказчика, сейчас ${label}`} {disabled} bind:this={voiceButton} onclick={() => toggle("voice")}>
+        <svg class="sai-voice-symbol" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3" stroke="currentColor" stroke-width="2"/><path d="M5 11a7 7 0 0 0 14 0m-7 7v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <span id="saiVoiceValue">{label}</span>
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m7 10 5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="sai-voice-menu" id="saiVoiceMenu" role="listbox" aria-label="Голос рассказчика" hidden={menu !== "voice"} bind:this={voiceMenu}>
+        {#each VOICES as [id, name] (id)}
+          <button type="button" class="sai-voice-option" role="option" data-voice={id} aria-selected={voice === id}
+            onclick={() => { chooseVoice(id); menu = null; voiceButton.focus(); }}>
+            {name}
+            <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m3 8 3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        {/each}
+      </div>
     </div>
     <button class="sai-length-button" id="saiLengthButton" type="button" aria-haspopup="dialog" aria-expanded={menu === "length"} aria-controls="saiLengthPanel"
       aria-label={`Длина истории: ${length[1]}`} {disabled} bind:this={lengthButton} onclick={() => toggle("length")}>
@@ -110,7 +118,7 @@
     <div class="sai-length-panel" id="saiLengthPanel" role="dialog" aria-label="Длина истории" hidden={menu !== "length"} bind:this={lengthPanel}>
       <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <span class="sai-length-title">Длина истории <span id="saiLengthCurrent">({length[1].toLowerCase()})</span></span>
-      <div class="sai-length-dots" id="saiLengthDots" data-step={step}>
+      <div class="sai-length-dots" id="saiLengthDots" data-step={step} style:--progress={`${100 * step / (LENGTH_STEPS.length - 1)}%`}>
         <i></i><i></i><i></i><i></i>
         <input type="range" id="saiLength" min="0" max="3" step="1" bind:value={step} bind:this={slider} aria-label="Длина истории" aria-valuetext={length[1]} {disabled}/>
       </div>
