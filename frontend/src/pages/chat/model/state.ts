@@ -19,6 +19,7 @@ export interface ChatState {
   processing: boolean;
   switching: boolean;
   hydrating: boolean;
+  transcriptLoaded: boolean;
   notice: { text: string; kind: NoticeKind } | null;
   dialogs: Dialogs;
   history: "loading" | "loaded" | "failed";
@@ -29,7 +30,7 @@ export interface ChatState {
 export const initialState: ChatState = {
   voice: "aidar", user: null, loggingOut: false, dialogId: null, title: "Новая история",
   messages: [], greeting: false, ready: false, submitting: false, processing: false,
-  hydrating: false, switching: false, notice: null,
+  hydrating: false, transcriptLoaded: false, switching: false, notice: null,
   dialogs: [], history: "loading", deletingId: null, news: [],
 };
 
@@ -81,10 +82,10 @@ export function reduceChat(s: ChatState, a: Action): ChatState {
     case "hydrate": return { ...s, hydrating: a.pending };
     case "remote-run": return { ...s, processing: a.active };
     case "snapshot": return {
-      ...s, title: a.title ?? "Новая история", messages: a.messages, greeting: a.messages.length === 0,
+      ...s, transcriptLoaded: true, title: a.title ?? "Новая история", messages: a.messages, greeting: a.messages.length === 0,
     };
     case "story": return {
-      ...s, dialogId: a.id, title: a.title ?? "Новая история", messages: a.messages,
+      ...s, transcriptLoaded: a.id !== null, dialogId: a.id, title: a.title ?? "Новая история", messages: a.messages,
       greeting: a.messages.length === 0, hydrating: false, ready: false, processing: false, submitting: false,
     };
     case "connected": return { ...s, dialogId: a.id, switching: false, notice: null };

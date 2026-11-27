@@ -64,7 +64,7 @@
     </header>
     <News news={$store.news} dismiss={chat.dismissNews} {open} />
     {#key dialogId}
-      <Transcript {dialogId} messages={$store.messages} submitting={$store.submitting} processing={$store.processing} greeting={$store.greeting} voice={$store.voice} {actions} {reportId} onreport={id => reportId = id} />
+      <Transcript {dialogId} transcriptLoaded={$store.transcriptLoaded} messages={$store.messages} submitting={$store.submitting} processing={$store.processing} greeting={$store.greeting} voice={$store.voice} {actions} {reportId} onreport={id => reportId = id} />
     {/key}
     <div class="sai-notice" role="status" data-kind={$store.notice?.kind}>{$store.notice?.text ?? ""}</div>
     <Composer disabled={!$store.ready || !$store.user || $store.loggingOut || $store.hydrating || $store.switching || $store.deletingId !== null} waiting={$store.submitting || $store.processing} voice={$store.voice} {settings} chooseVoice={chat.chooseVoice} submit={chat.submit} />

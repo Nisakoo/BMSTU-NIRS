@@ -11,7 +11,7 @@
   let step = $state(LENGTH_STEPS.length - 1);
   let menu = $state<"length" | "voice" | null>(null);
   let length = $derived(LENGTH_STEPS[step]);
-  let label = $derived(VOICES.find(([id]) => id === voice)?.[1] ?? "Айдар");
+  let label = $derived(VOICES.find(([id]) => id === voice)?.[1] ?? VOICES[0][1]);
   let expanded = $state(false);
   let measure: HTMLTextAreaElement;
   let prompt: HTMLTextAreaElement;

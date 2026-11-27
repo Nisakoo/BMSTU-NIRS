@@ -1,9 +1,6 @@
 export const VOICES = [
   ["aidar", "Айдар"],
-  ["baya", "Бая"],
-  ["kseniya", "Ксения 1"],
-  ["xenia", "Ксения 2"],
-  ["eugene", "Евгений"],
+  ["xenia", "Ксения"],
 ] as const;
 // Slider steps of the story length: minutes sent to the agent and the label.
 export const LENGTH_STEPS = [
@@ -25,12 +22,14 @@ export const presets: Record<string, string> = {
 const voiceStorageKey = "smeshariki.voice";
 
 export function readVoice(): string {
+  const defaultVoice = VOICES[0][0];
   try {
     const voice = localStorage.getItem(voiceStorageKey);
-    return VOICES.find(([id]) => id === voice)?.[0] ?? "aidar";
-  } catch {
-    return "aidar";
-  }
+    const selected = VOICES.find(([id]) => id === voice);
+    if (selected) return selected[0];
+    if (voice !== null) localStorage.setItem(voiceStorageKey, defaultVoice);
+  } catch { /* Storage can be unavailable. */ }
+  return defaultVoice;
 }
 
 export function saveVoice(voice: string) {

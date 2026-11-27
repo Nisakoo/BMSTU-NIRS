@@ -83,6 +83,7 @@ async function setup(submitResponse, {
   createdId = "dialog-1",
   preserveSession = false,
   initSession,
+  storedVoice,
   createStatuses,
   meStatuses = [200],
   refreshStatuses = [401],
@@ -106,6 +107,7 @@ async function setup(submitResponse, {
 } = {}) {
   await cleanup();
   localStorage.clear();
+  if (storedVoice !== undefined) localStorage.setItem("smeshariki.voice", storedVoice);
   if (!preserveSession) sessionStorage.clear();
   initSession?.();
   const requests = [];
@@ -1899,28 +1901,39 @@ test("the voice picker stores the selected voice", async () => {
   fire(ui.voiceButton, "click");
   assert.equal(ui.voiceMenu.hidden, false);
   assert.equal(ui.voiceButton.getAttribute("aria-expanded"), "true");
-  assert.equal(ui.voiceMenu.children.length, 5);
-
   const options = Array.from(ui.voiceMenu.children);
-  assert.deepEqual(options.map(option => option.dataset.voice), [
-    "aidar",
-    "baya",
-    "kseniya",
-    "xenia",
-    "eugene",
+  assert.deepEqual(options.map(option => [option.dataset.voice, option.textContent.trim()]), [
+    ["aidar", "Айдар"],
+    ["xenia", "Ксения"],
   ]);
   assert.equal(options[0].getAttribute("aria-selected"), "true");
 
-  fire(options[4], "click");
-  assert.equal(ui.storage.getItem("smeshariki.voice"), "eugene");
+  fire(options[1], "click");
+  assert.equal(ui.storage.getItem("smeshariki.voice"), "xenia");
   assert.equal(ui.voiceMenu.hidden, true);
+});
+
+test.each([
+  ["aidar", "aidar", "Айдар"],
+  ["xenia", "xenia", "Ксения"],
+  ["baya", "aidar", "Айдар"],
+  ["kseniya", "aidar", "Айдар"],
+  ["eugene", "aidar", "Айдар"],
+  ["unknown", "aidar", "Айдар"],
+])("loading the chat resolves the stored voice %s to %s", async (storedVoice, expectedId, label) => {
+  const ui = await setup(deferred(), { storedVoice });
+  assert.equal(ui.voiceValue.textContent, label);
+  assert.equal(ui.voiceButton.getAttribute("aria-label"), `Выбрать голос рассказчика, сейчас ${label}`);
+  assert.equal(ui.storage.getItem("smeshariki.voice"), expectedId);
+  await fire(ui.voiceButton, "click");
+  assert.equal(ui.voiceMenu.querySelector('[aria-selected="true"]').dataset.voice, expectedId);
 });
 
 test("the chosen voice is sent with a new voiceover request", async () => {
   const response = deferred();
   const ui = await setup(response);
   fire(ui.voiceButton, "click");
-  fire(ui.voiceMenu.children[3], "click");
+  fire(ui.voiceMenu.querySelector('[data-voice="xenia"]'), "click");
 
   input(ui.prompt, "История");
   const submission = fire(ui.form, "submit");
@@ -1973,7 +1986,7 @@ test("a late voiceover leaves the selected voice playing and available for downl
     dialogs: SAVED,
     transcripts: {
       "d-2": transcript("Ракета", [
-        { id: 12, role: "assistant", content: "Однажды…", feedback: null, audio_voices: ["baya"] },
+        { id: 12, role: "assistant", content: "Однажды…", feedback: null, audio_voices: ["baya", "xenia"] },
       ]),
     },
   });
@@ -1986,18 +1999,18 @@ test("a late voiceover leaves the selected voice playing and available for downl
   await fire(action, "click");
   assert.equal(ui.timers.size, 1);
   await fire(ui.voiceButton, "click");
-  await fire(ui.voiceMenu.querySelector('[data-voice="baya"]'), "click");
+  await fire(ui.voiceMenu.querySelector('[data-voice="xenia"]'), "click");
   await fire(audio, "play");
   assert.equal(toggle.getAttribute("aria-label"), "Поставить на паузу");
   assert.equal(action.textContent, "Скачать");
   assert.equal(action.disabled, false);
   const selectedUrl = audio.src;
-  assert.match(selectedUrl, /voice=baya$/);
+  assert.match(selectedUrl, /voice=xenia$/);
   HTMLMediaElement.prototype.pause.mockClear();
   HTMLMediaElement.prototype.load.mockClear();
 
   await fire(action, "click");
-  assert.match(ui.audioDownloadRequests[0][0], /voice=baya&download=1$/);
+  assert.match(ui.audioDownloadRequests[0][0], /voice=xenia&download=1$/);
   assert.equal(await ui.runNextTimer(), true);
   assert.match(ui.audioGetRequests[0][0], /voice=aidar$/);
   assert.equal(audio.src, selectedUrl);
@@ -2113,6 +2126,51 @@ test("F5 never requests another user's selection or a malformed id", async () =>
   assert.equal(sessionStorage.getItem(sessionKey), freshId);
 });
 
+test("restoring or opening a dialog positions its rendered history once per visit", async () => {
+  const reading = deferred();
+  const selection = deferred();
+  let selectedReply = selection.promise;
+  const ui = await setup(deferred(), { initSession: () => sessionStorage.setItem(sessionKey, savedId),
+    dialogs: [{ ...SAVED[0], dialog_id: savedId }, { ...SAVED[1], dialog_id: freshId }],
+    transcripts: { [savedId]: reading.promise, [freshId]: () => selectedReply } });
+  // jsdom has no layout. Only rendered rows contribute to the simulated height.
+  vi.spyOn(HTMLDivElement.prototype, "scrollHeight", "get").mockImplementation(function () {
+    return this.querySelectorAll(".sai-row").length * 800;
+  });
+  reading.resolve(transcript("Архив", savedPair));
+  await settle();
+  assert.equal(ui.messages.scrollTop, 1600);
+
+  ui.messages.scrollTop = 128;
+  ui.source.emit("message_delta", { delta: "Продолжение" });
+  ui.source.emit("message_end", { message_id: 22 });
+  await settle();
+  ui.source.emit("ready");
+  await settle();
+  assert.equal(ui.messages.scrollTop, 128);
+
+  const originalLog = ui.messages;
+  await fire(ui.historyItems()[1], "click");
+  assert.equal(ui.messages, originalLog);
+  assert.equal(ui.messages.scrollTop, 128);
+  selection.resolve({ status: 503 });
+  await settle();
+  assert.equal(ui.messages, originalLog);
+  assert.equal(ui.messages.scrollTop, 128);
+
+  selectedReply = transcript("Другая история", savedPair);
+  await fire(ui.historyItems()[1], "click");
+  assert.notEqual(ui.messages, originalLog);
+  assert.equal(ui.messages.scrollTop, 1600);
+  FakeEventSource.instances.at(-1).emit("ready");
+  await settle();
+  ui.messages.scrollTop = 256;
+  await fire(ui.historyItems()[1], "click");
+  assert.equal(ui.messages.scrollTop, 256);
+  await fire(ui.historyItems()[0], "click");
+  assert.equal(ui.messages.scrollTop, 1600);
+});
+
 test("F5 handles a missing or foreign selection even when SSE fails before ready", async () => {
   const ui = await setup(deferred(), { autoReady: false, createdId: freshId,
     initSession: () => sessionStorage.setItem(sessionKey, savedId) });
@@ -2145,6 +2203,7 @@ test("F5 in the middle of a run loads both committed messages after the final SS
   const ui = await setup(deferred(), { initSession: () => sessionStorage.setItem(sessionKey, savedId),
     transcripts: { [savedId]: () => transcript(committed ? "Архив" : null, committed ? savedPair : []) } });
   assert.deepEqual(ui.bubbles(), []);
+  Object.defineProperty(ui.messages, "scrollHeight", { value: 2400 });
   ui.source.emit("message_delta", { delta: "пропущено начало" });
   assert.equal(ui.send.disabled, true);
   assert.deepEqual(ui.bubbles(), []);
@@ -2152,6 +2211,7 @@ test("F5 in the middle of a run loads both committed messages after the final SS
   ui.source.emit("message_end", { message_id: 22 });
   await settle();
   assert.deepEqual(ui.bubbles().map(b => b.textContent), savedPair.map(m => m.content));
+  assert.equal(ui.messages.scrollTop, 0);
   assert.equal(ui.send.disabled, false);
   assert.equal(ui.requests.length, 0);
   assert.equal(ui.historyRequests.filter(p => p === savedPath).length, 2);

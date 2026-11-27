@@ -4,15 +4,22 @@
   import StoryWaiting from "./StoryWaiting.svelte";
   import AnswerActions from "./AnswerActions.svelte";
   import type { ChatMessage, MessageActions } from "./types";
-  let { dialogId, messages, greeting, submitting, processing, voice, actions, reportId, onreport }: {
-    dialogId: string | null; messages: ChatMessage[]; greeting: boolean; submitting: boolean; processing: boolean; voice: string;
+  let { dialogId, transcriptLoaded, messages, greeting, submitting, processing, voice, actions, reportId, onreport }: {
+    dialogId: string | null; transcriptLoaded: boolean; messages: ChatMessage[]; greeting: boolean; submitting: boolean; processing: boolean; voice: string;
     actions: MessageActions; reportId: number | null; onreport: (id: number | null) => void;
   } = $props();
   let last = $derived(messages.at(-1));
   let waiting = $derived(submitting || (processing && (last?.role !== "assistant" || last.complete || !last.content.trim())));
+  let log: HTMLDivElement;
+  let positioned = false;
+  $effect(() => {
+    if (!transcriptLoaded || positioned) return;
+    positioned = true;
+    if (messages.length) log.scrollTop = log.scrollHeight;
+  });
 </script>
 <span class="sai-sr-only" role="status">{waiting ? "Смешарики сочиняют историю…" : ""}</span>
-<div class="sai-messages" id="saiMessages" role="log" aria-label="Сообщения истории" aria-live="polite" aria-busy={processing || submitting}>
+<div class="sai-messages" id="saiMessages" bind:this={log} role="log" aria-label="Сообщения истории" aria-live="polite" aria-busy={processing || submitting}>
   {#if greeting && !waiting}
     <div class="sai-krosh">
       <div class="sai-krosh-pic"><img src={krosh} alt="Крош" width="420" height="420" decoding="async" /></div>
