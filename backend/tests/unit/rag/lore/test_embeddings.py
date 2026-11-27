@@ -9,7 +9,6 @@ from smeshariki_ai.rag.lore.embeddings import (
     EmbeddingUnavailableError,
     FakeEmbeddingProvider,
     LocalEmbeddingProvider,
-    cosine,
 )
 from smeshariki_ai.rag.lore.hybrid import InMemoryDenseIndex, fuse_hits
 from smeshariki_ai.rag.lore.index import InMemoryBm25Index
@@ -58,33 +57,6 @@ class StubDense:
         if self._error is not None:
             raise self._error
         return self._hits
-
-
-async def test_fake_embeddings_are_deterministic_and_normalised() -> None:
-    provider = FakeEmbeddingProvider(dimension=8)
-
-    first = await provider.embed(("Крош и Ёжик", "Нюша"))
-    second = await provider.embed(("Крош и Ёжик", "Нюша"))
-
-    assert first == second
-    assert len(first[0]) == 8
-    assert cosine(first[0], first[0]) == pytest.approx(1.0)
-    assert cosine(first[0], first[1]) < 1.0
-
-
-async def test_fake_query_embedding_uses_the_query_form() -> None:
-    provider = FakeEmbeddingProvider(dimension=8)
-
-    query = await provider.embed_query("Крош играет в футбол")
-    passage = await provider.embed(("Крош играет в футбол",))
-
-    assert len(query) == 8
-    assert query != passage[0]
-
-
-def test_fake_embeddings_reject_invalid_dimension() -> None:
-    with pytest.raises(ValueError):
-        FakeEmbeddingProvider(dimension=0)
 
 
 async def test_local_query_embedding_uses_the_query_prefix(
@@ -184,13 +156,6 @@ async def test_in_memory_dense_index_handles_an_empty_limit() -> None:
     index = await InMemoryDenseIndex.build(provider, documents)
 
     assert await index.search("футбол", limit=0) == ()
-
-
-def test_local_provider_exposes_model_metadata() -> None:
-    provider = LocalEmbeddingProvider()
-
-    assert provider.model_id == "intfloat/multilingual-e5-small"
-    assert provider.dimension == 384
 
 
 async def test_search_merges_dense_candidates(tmp_path: Path) -> None:

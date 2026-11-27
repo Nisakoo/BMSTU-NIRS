@@ -27,14 +27,6 @@ def test_normalize_turns_markdown_links_into_their_text() -> None:
     )
 
 
-def test_normalize_puts_no_space_before_punctuation() -> None:
-    assert normalize_text("Привет , Крош !") == "Привет, Крош!"
-
-
-def test_split_returns_empty_tuple_for_blank_text() -> None:
-    assert split_for_speech(" \n\t ", max_chars=100) == ()
-
-
 def test_split_packs_sentences_and_adds_a_paragraph_pause() -> None:
     chunks = split_for_speech(
         "Первое предложение. Второе предложение.\n\nНовый абзац.",

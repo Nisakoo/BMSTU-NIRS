@@ -16,6 +16,7 @@ class Config(BaseModel):
     redis: RedisConfig
     speech: SpeechConfig
     ceph: CephS3Config
+    rag: RagConfig
 
 def load_config(environ: Mapping[str, str] | None = None) -> Config: ...
 ```
@@ -117,6 +118,15 @@ resource завершает старт контролируемой ошибко
 | `CEPH_S3_SECRET_KEY` | `ceph.secret_key` | SecretStr; задаётся только через env |
 | `CEPH_S3_REGION` | `ceph.region` | `us-east-1` |
 | `CEPH_S3_PREFIX` | `ceph.prefix` | `smeshariki-audio` |
+| `RAG_QUERY_EXPANSION_ENABLED` | `rag.query_expansion_enabled` | `false` |
+| `RAG_QUERY_EXPANSION_MODE` | `rag.query_expansion_mode` | `replace` или `append`, по умолчанию `replace` |
+| `RAG_LORE_RETRIEVAL_K` | `rag.lore_retrieval_k` | `10`, целое больше нуля |
+| `RAG_LORE_MAX_PASSAGES` | `rag.lore_max_passages` | `5`, целое больше нуля |
+| `RAG_LORE_MAX_CHARS` | `rag.lore_max_chars` | `4800`, целое больше нуля |
+| `RAG_LORE_MIN_SCORE` | `rag.lore_min_score` | `2.0`, число от 0 |
+| `RAG_LORE_RERANK_ENABLED` | `rag.lore_rerank_enabled` | `false` |
+| `RAG_HYBRID_ENABLED` | `rag.hybrid_enabled` | `false` |
+| `RAG_HYBRID_BM25_WEIGHT` | `rag.hybrid_bm25_weight` | `0.7`, число от 0 до 1 |
 
 Переменная `FORWARDED_ALLOW_IPS` не входит в `Config`: её читает Uvicorn
 (см. [доверие к `X-Forwarded-For`](./auth.md#ограничение-частоты-попыток)).

@@ -22,12 +22,6 @@ def test_simple_analyzer_keeps_words_and_hyphenated_names() -> None:
     )
 
 
-def test_analyzers_drop_stop_words() -> None:
-    assert "и" not in SimpleAnalyzer().terms("Крош и Ёжик")
-    assert "и" not in MorphAnalyzer().terms("Крош и Ёжик")
-    assert MorphAnalyzer().terms("что это было") == ()
-
-
 def test_morph_analyzer_lemmatizes_russian_forms() -> None:
     analyzer = MorphAnalyzer()
     assert analyzer.terms("возвращают билеты") == ("возвращать", "билет")

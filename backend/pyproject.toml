@@ -15,17 +15,24 @@ dependencies = [
     "boto3>=1.43,<2",
     "fastapi>=0.141.1,<1",
     "litellm>=1.101.0,<2",
-    "numpy>=1.26,<3",
     "pydantic>=2.13.5,<3",
     "pyjwt>=2.15.1,<3",
     "pymorphy3>=2.0,<3",
     "pyyaml>=6.0.3,<7",
     "redis>=8.1.0,<9",
-    "scipy>=1.14,<2",
     "sqlalchemy[asyncio]>=2.1.4,<3",
+    "uvicorn>=0.52.4,<1",
+]
+
+[project.optional-dependencies]
+speech = [
+    "numpy>=1.26,<3",
+    "scipy>=1.14,<2",
+    "torch>=2.9.0,<3",
+]
+hybrid = [
     "torch>=2.9.0,<3",
     "transformers>=5.24.1",
-    "uvicorn>=0.52.4,<1",
 ]
 
 [dependency-groups]

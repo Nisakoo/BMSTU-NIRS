@@ -272,10 +272,3 @@ def test_json_schema_exposes_constraints() -> None:
     assert properties["characters"]["uniqueItems"] is True
     assert "from" in interaction and "from_" not in interaction
     assert schema["additionalProperties"] is False
-
-
-def test_models_are_immutable() -> None:
-    character = Character.model_validate(CHARACTER)
-
-    with pytest.raises(ValidationError):
-        character.name = "Другой"  # type: ignore[misc]

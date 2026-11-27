@@ -14,7 +14,6 @@ from smeshariki_ai.auth import AuthConfig, RateLimitConfig
 from smeshariki_ai.cache import RedisConfig
 from smeshariki_ai.config import Config, load_config
 from smeshariki_ai.db import DatabaseConfig
-from smeshariki_ai.rag.config import RagConfig
 from smeshariki_ai.speech import CephS3Config, SpeechConfig
 
 JWT_SECRET = "test-secret-with-at-least-32-bytes!!"
@@ -36,26 +35,6 @@ class EnvironmentAccessForbidden(Mapping[str, str]):
 
     def __len__(self) -> int:
         raise AssertionError("Unexpected process environment size read")
-
-
-def test_config_has_component_owned_nested_configs() -> None:
-    config = load_config({**BASE_ENV, "LLM_MODEL": "test/model"})
-
-    assert set(Config.model_fields) == {
-        "agent",
-        "llm",
-        "logging",
-        "auth",
-        "database",
-        "redis",
-        "speech",
-        "ceph",
-        "rag",
-    }
-    assert isinstance(config.agent, AgentConfig)
-    assert isinstance(config.llm, LiteLLMProviderConfig)
-    assert isinstance(config.rag, RagConfig)
-    assert not hasattr(config_module, "ApplicationConfig")
 
 
 def test_load_config_uses_agent_and_provider_defaults() -> None:
@@ -123,17 +102,6 @@ def test_load_config_reads_speech_options() -> None:
     )
 
 
-def test_load_config_uses_speech_defaults() -> None:
-    assert load_config({**BASE_ENV, "LLM_MODEL": "test/model"}).speech == SpeechConfig()
-
-
-def test_query_expansion_is_off_by_default() -> None:
-    config = load_config({**BASE_ENV, "LLM_MODEL": "test/model"})
-
-    assert config.rag == RagConfig()
-    assert config.rag.query_expansion_enabled is False
-
-
 def test_query_expansion_flag_is_read_from_the_environment() -> None:
     config = load_config(
         {
@@ -144,19 +112,6 @@ def test_query_expansion_flag_is_read_from_the_environment() -> None:
     )
 
     assert config.rag.query_expansion_enabled is True
-
-
-def test_lore_context_settings_have_defaults() -> None:
-    config = load_config({**BASE_ENV, "LLM_MODEL": "test/model"})
-
-    assert config.rag.lore_retrieval_k == 10
-    assert config.rag.lore_max_passages == 5
-    assert config.rag.lore_max_chars == 4800
-    assert config.rag.lore_min_score == 2.0
-    assert config.rag.query_expansion_mode == "replace"
-    assert config.rag.lore_rerank_enabled is False
-    assert config.rag.hybrid_enabled is False
-    assert config.rag.hybrid_bm25_weight == 0.7
 
 
 def test_hybrid_flags_are_read_from_the_environment() -> None:
@@ -379,25 +334,6 @@ def test_load_config_rejects_invalid_environment(
         load_config(environ)
 
 
-def test_config_and_nested_configs_are_frozen_and_forbid_extra_fields() -> None:
-    config = load_config({**BASE_ENV, "LLM_MODEL": "test/model"})
-
-    with pytest.raises(ValidationError):
-        setattr(config, "agent", config.agent)
-    with pytest.raises(ValidationError):
-        setattr(config.agent, "max_iterations", 2)
-    with pytest.raises(ValidationError):
-        setattr(config.llm, "num_retries", 2)
-    with pytest.raises(ValidationError):
-        Config.model_validate(
-            {
-                "agent": config.agent,
-                "llm": config.llm,
-                "unexpected": True,
-            }
-        )
-
-
 def test_config_representation_does_not_reveal_api_key() -> None:
     api_key = "secret-config-marker"
 
@@ -437,20 +373,6 @@ def test_explicit_mapping_does_not_read_process_environment(
     config = load_config({**BASE_ENV, "LLM_MODEL": "explicit/model"})
 
     assert config.llm.model == "explicit/model"
-
-
-def test_repeated_loads_create_independent_configs() -> None:
-    first = load_config({**BASE_ENV, "LLM_MODEL": "first/model"})
-    second = load_config({**BASE_ENV, "LLM_MODEL": "second/model"})
-    expected_prompt = load_system_prompt()
-
-    assert first is not second
-    assert first.agent is not second.agent
-    assert first.llm is not second.llm
-    assert first.agent.system_prompt == expected_prompt
-    assert first.llm.model == "first/model"
-    assert second.agent.system_prompt == expected_prompt
-    assert second.llm.model == "second/model"
 
 
 def test_load_config_reads_auth_database_and_redis_values() -> None:

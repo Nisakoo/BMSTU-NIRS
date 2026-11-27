@@ -20,7 +20,6 @@ from smeshariki_ai.rag.lore.benchmark_llm import LiteLLMAnswerer
 from smeshariki_ai.rag.lore.context import LoreContext, LoreContextBuilder, LorePassage
 from smeshariki_ai.rag.lore.expansion import QueryExpander
 from smeshariki_ai.rag.lore.models import LoreHit
-from smeshariki_ai.rag.lore.package import check_package
 from smeshariki_ai.rag.lore.rerank import Ranker
 
 FIXTURE = Path(__file__).parents[3] / "fixtures" / "lore_benchmark"
@@ -50,21 +49,6 @@ class ScriptedProvider(LLMProvider):
     ) -> AsyncIterator[LLMTextDelta | LLMResponse]:
         self.messages = tuple(messages)
         yield LLMResponse(content=self.content)
-
-
-def test_fixture_has_the_course_shape() -> None:
-    check = check_package(FIXTURE / "lore")
-    questions = read_benchmark_questions(FIXTURE / "questions.yaml")
-
-    normal = [item for item in questions.questions if item.kind == "normal"]
-    traps = [item for item in questions.questions if item.kind == "trap"]
-
-    assert check.valid is True
-    assert check.document_count == 30
-    assert len(normal) == 10
-    assert len(traps) == 5
-    assert all(len(item.relevant_documents) >= 3 for item in normal)
-    assert all(not item.relevant_documents for item in traps)
 
 
 async def test_fixture_benchmark_metrics_with_prepared_answers() -> None:

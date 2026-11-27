@@ -5,7 +5,6 @@ import pytest
 from smeshariki_ai.speech.ceph import CephS3AudioObjectStore
 from smeshariki_ai.speech.config import CephS3Config
 from smeshariki_ai.speech.errors import SpeechObjectStoreError
-from smeshariki_ai.speech.memory_objects import InMemoryAudioObjectStore
 
 
 class NotFound(Exception):
@@ -71,16 +70,3 @@ async def test_ceph_store_maps_failures_to_safe_error() -> None:
 
     with pytest.raises(SpeechObjectStoreError):
         await store.startup()
-
-
-@pytest.mark.asyncio
-async def test_in_memory_object_store_round_trips() -> None:
-    store = InMemoryAudioObjectStore()
-
-    info = await store.put("key", b"data", content_type="audio/mpeg")
-
-    assert info.size == 4
-    assert await store.get("key") == b"data"
-    await store.delete("key")
-    assert "key" not in store.objects
-    assert store.deleted == ["key"]

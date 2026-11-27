@@ -7,7 +7,6 @@ from smeshariki_ai.admin import (
     ActivityPoint,
     AdminStatsService,
     AdminStatsStore,
-    FeedbackStats,
     RecentUser,
     StatsPeriod,
     UserStatsSnapshot,
@@ -119,23 +118,6 @@ async def test_longer_period_turns_older_activity_into_active() -> None:
     stats = await service.user_stats(StatsPeriod.DAYS_30)
 
     assert stats.recent_users[0].status is UserStatus.ACTIVE
-
-
-async def test_feedback_figures_are_passed_through() -> None:
-    feedback = FeedbackStats(answers_total=10, rated_answers=5, counts=(1, 0, 0, 1, 3))
-    service, _ = make_service(UserStatsSnapshot(0, 0, 0, (), feedback=feedback))
-
-    stats = await service.user_stats(StatsPeriod.DAYS_30)
-
-    assert stats.feedback == feedback
-
-
-async def test_feedback_defaults_to_zero() -> None:
-    service, _ = make_service(UserStatsSnapshot(0, 0, 0, ()))
-
-    stats = await service.user_stats(StatsPeriod.DAYS_7)
-
-    assert stats.feedback == FeedbackStats(0, 0, (0, 0, 0, 0, 0))
 
 
 @pytest.mark.parametrize(

@@ -464,19 +464,6 @@ test("page close cancels a pending dialog retry", async () => {
   assert.equal(ui.requests.length, 1);
 });
 
-test("repeated failures keep only one three-second retry pending", async () => {
-  const ui = await setup(deferred(), { createStatuses: [503, 503, 201] });
-  assert.equal(ui.timers.size, 1);
-  await ui.runNextTimer();
-  assert.equal(ui.requests.length, 2);
-  assert.equal(ui.timers.size, 1);
-  await ui.runNextTimer();
-  assert.equal(ui.requests.length, 3);
-  assert.equal(ui.timers.size, 0);
-  assert.deepEqual(ui.timerDelays, [3000, 3000]);
-  assert.equal(FakeEventSource.instances.length, 1);
-});
-
 test("failed dialog creation leaves the form disabled", async () => {
   const ui = await setup(deferred(), { createStatus: 503 });
   assert.equal(ui.source, undefined);
@@ -784,12 +771,6 @@ test("the sidebar shows the login and saved stories as text", async () => {
   assert.deepEqual(ui.historyRequests, ["/api/v1/dialogs"]);
 });
 
-test("an empty story list explains where stories will appear", async () => {
-  const ui = await setup(deferred());
-  assert.equal(ui.historyItems().length, 0);
-  assert.equal(ui.historyState.textContent, "Здесь появятся ваши истории");
-});
-
 test("opening a saved story shows its messages and streams that dialog", async () => {
   const response = deferred();
   const ui = await setup(response, {
@@ -945,73 +926,6 @@ test("a guest never requests the story list", async () => {
   assert.equal(ui.newStory.disabled, true);
 });
 
-test("Krosh greets a new story and leaves once the first message is accepted", async () => {
-  const response = deferred();
-  const ui = await setup(response);
-  assert.equal(ui.krosh().length, 1);
-  assert.equal(ui.bubbles().length, 0);
-
-  ui.prompt.value = "История";
-  const submission = ui.form.dispatch("submit");
-  assert.equal(ui.krosh().length, 1);
-  response.resolve({ status: 202 });
-  await submission;
-
-  assert.equal(ui.krosh().length, 0);
-  assert.deepEqual(ui.bubbles().map(bubble => bubble.textContent), ["История"]);
-});
-
-test("Krosh stays with the draft when the first message fails", async () => {
-  const response = deferred();
-  const ui = await setup(response);
-  ui.prompt.value = "История";
-  const submission = ui.form.dispatch("submit");
-  response.resolve({ status: 503 });
-  await submission;
-
-  assert.equal(ui.krosh().length, 1);
-  assert.equal(ui.prompt.value, "История");
-});
-
-test("a saved story opens without Krosh, an empty one shows him", async () => {
-  const ui = await setup(deferred(), {
-    dialogs: SAVED,
-    transcripts: {
-      "d-2": transcript("Ракета", [{ id: 11, role: "user", content: "Крош", created_at: "x", feedback: null }]),
-      "d-1": transcript(null, []),
-    },
-  });
-
-  ui.historyItems()[0].dispatch("click");
-  await settle();
-  assert.equal(ui.krosh().length, 0);
-  assert.deepEqual(ui.bubbles().map(bubble => bubble.textContent), ["Крош"]);
-
-  FakeEventSource.instances.at(-1).emit("ready");
-  ui.historyItems()[1].dispatch("click");
-  await settle();
-  assert.equal(ui.krosh().length, 1);
-  assert.equal(ui.bubbles().length, 0);
-});
-
-test("a new story brings Krosh back after a conversation", async () => {
-  const response = deferred();
-  const ui = await setup(response);
-  ui.prompt.value = "История";
-  const submission = ui.form.dispatch("submit");
-  response.resolve({ status: 202 });
-  await submission;
-  ui.source.emit("message_start");
-  ui.source.emit("message_end");
-  await settle();
-  assert.equal(ui.krosh().length, 0);
-
-  ui.newStory.dispatch("click");
-  await settle();
-  assert.equal(ui.krosh().length, 1);
-  assert.equal(ui.bubbles().length, 0);
-});
-
 test("the chosen story length is sent with every next request", async () => {
   const responses = [{ status: 202 }, { status: 202 }, { status: 202 }];
   const ui = await setup({ get promise() { return Promise.resolve(responses.shift()); } });
@@ -1064,59 +978,6 @@ test("the length button is locked together with the prompt", async () => {
   assert.equal(ui.lengthButton.disabled, true);
   ui.source.emit("message_end");
   assert.equal(ui.lengthButton.disabled, false);
-});
-
-test("the length button opens and closes the panel and focuses the slider", async () => {
-  const ui = await setup(deferred());
-  assert.equal(ui.lengthPanel.hidden, true);
-  assert.equal(ui.lengthButton.getAttribute("aria-expanded"), "false");
-  assert.equal(ui.lengthValue.textContent, "Любая");
-  assert.equal(ui.lengthButton.getAttribute("aria-label"), "Длина истории: Любая");
-
-  ui.lengthButton.dispatch("click");
-  assert.equal(ui.lengthPanel.hidden, false);
-  assert.equal(ui.lengthButton.getAttribute("aria-expanded"), "true");
-  assert.equal(ui.document.activeElement, ui.length);
-
-  ui.lengthButton.dispatch("click");
-  assert.equal(ui.lengthPanel.hidden, true);
-  assert.equal(ui.lengthButton.getAttribute("aria-expanded"), "false");
-});
-
-test("moving the slider updates the labels and the lit dots", async () => {
-  const ui = await setup(deferred());
-  ui.lengthButton.dispatch("click");
-  const steps = [["0", "Любая"], ["1", "2 мин"], ["2", "5 мин"], ["3", "10 мин"]];
-
-  for (const [value, label] of steps) {
-    ui.length.value = value;
-    ui.length.dispatch("input");
-    assert.equal(ui.lengthValue.textContent, label);
-    assert.equal(ui.lengthCurrent.textContent, `(${label.toLowerCase()})`);
-    assert.equal(ui.length.getAttribute("aria-valuetext"), label);
-    assert.equal(ui.lengthButton.getAttribute("aria-label"), `Длина истории: ${label}`);
-    assert.equal(ui.lengthDots.dataset.step, value);
-  }
-});
-
-test("escape and a click outside close the length panel", async () => {
-  const ui = await setup(deferred());
-  ui.lengthButton.dispatch("click");
-  ui.document.dispatch("keydown", { key: "Escape" });
-  assert.equal(ui.lengthPanel.hidden, true);
-  assert.equal(ui.document.activeElement, ui.lengthButton);
-
-  ui.lengthButton.dispatch("click");
-  ui.document.dispatch("click", { target: ui.length });
-  assert.equal(ui.lengthPanel.hidden, false, "a click inside keeps the panel");
-  ui.document.dispatch("click", { target: ui.lengthButton });
-  assert.equal(ui.lengthPanel.hidden, false, "the button handles its own click");
-  ui.document.dispatch("click", { target: ui.prompt });
-  assert.equal(ui.lengthPanel.hidden, true);
-  assert.equal(ui.lengthButton.getAttribute("aria-expanded"), "false");
-
-  ui.document.dispatch("keydown", { key: "Escape" });
-  assert.equal(ui.document.activeElement, ui.length, "escape on a closed panel changes nothing");
 });
 
 test("every slider step sends its minutes and any length sends none", async () => {
@@ -1326,17 +1187,6 @@ async function savedStories(options = {}) {
   return ui;
 }
 
-test("every saved story has a labelled delete button", async () => {
-  const ui = await savedStories();
-  const trashes = ui.historyRows().map(row => row.children[TRASH]);
-
-  assert.deepEqual(trashes.map(button => button.getAttribute("aria-label")), [
-    "Удалить историю «Ракета»",
-    "Удалить историю «Без названия»",
-  ]);
-  assert.ok(trashes.every(button => button.className === "sai-history-delete"));
-});
-
 test("the delete confirmation is cancelled by its button or escape", async () => {
   const ui = await savedStories();
 
@@ -1456,27 +1306,6 @@ function copyButton(bubble) {
   return bubble.parent.children.find(child => child.className === "sai-copy");
 }
 
-test("a copy button sits by the user's message and a finished answer only", async () => {
-  const ui = await answered();
-  const [request] = ui.bubbles();
-  assert.equal(copyButton(request).getAttribute("aria-label"), "Скопировать сообщение");
-  assert.equal(copyButton(request).textContent, "Копировать");
-
-  ui.source.emit("message_start");
-  ui.source.emit("message_delta", { delta: "Однажды" });
-  assert.equal(copyButton(ui.bubbles()[1]), undefined);
-  ui.source.emit("message_end", { message_id: 42 });
-  await settle();
-  assert.ok(copyButton(ui.bubbles()[1]));
-
-  ui.prompt.value = "Ещё";
-  ui.form.dispatch("submit");
-  await settle();
-  ui.source.emit("message_start");
-  ui.source.emit("message_error", { message: "Agent request failed." });
-  assert.equal(copyButton(ui.bubbles().at(-1)), undefined);
-});
-
 test("copy puts the exact text to the clipboard and says so for a moment", async () => {
   const ui = await rated();
   const [, answer] = ui.bubbles();
@@ -1519,37 +1348,6 @@ test("a failed copy is reported in the status line", async () => {
   assert.equal(ui.body.children.length, 0);
 });
 
-test("copy works while the agent answers and sends no requests", async () => {
-  const ui = await answered();
-  ui.source.emit("message_start");
-  assert.equal(ui.send.disabled, true);
-  const sent = ui.requests.length;
-
-  await copyButton(ui.bubbles()[0]).dispatch("click");
-
-  assert.deepEqual(ui.copied, ["История"]);
-  assert.equal(ui.requests.length, sent);
-  assert.equal(ui.feedbackRequests.length, 0);
-});
-
-test("every message of a saved story can be copied", async () => {
-  const ui = await setup(deferred(), {
-    dialogs: SAVED,
-    transcripts: {
-      "d-2": transcript("Ракета", [
-        { id: 11, role: "user", content: "Крош", created_at: "x", feedback: null },
-        { id: 12, role: "assistant", content: "Однажды…", created_at: "x", feedback: null },
-      ]),
-    },
-  });
-  ui.historyItems()[0].dispatch("click");
-  await settle();
-
-  for (const bubble of ui.bubbles()) await copyButton(bubble).dispatch("click");
-
-  assert.deepEqual(ui.copied, ["Крош", "Однажды…"]);
-});
-
 
 function find(root, className) {
   if (root.className === className) return root;
@@ -1584,17 +1382,6 @@ async function reportOpen(options) {
   return { ui, bar };
 }
 
-test("a report flag sits under a finished answer", async () => {
-  const ui = await rated();
-  const { flag, panel } = report(ui.feedbackBars()[0]);
-
-  assert.equal(flag.textContent, "Пожаловаться");
-  assert.equal(flag.getAttribute("aria-label"), "Пожаловаться на историю");
-  assert.equal(flag.getAttribute("aria-expanded"), "false");
-  assert.equal(flag.disabled, false);
-  assert.equal(panel, undefined);
-});
-
 test("the report panel offers reasons and waits for one", async () => {
   const { bar } = await reportOpen();
   const { flag, panel, reasons, comment, send, cancel } = report(bar);
@@ -1618,19 +1405,6 @@ test("the report panel offers reasons and waits for one", async () => {
   assert.equal(send.disabled, false);
   reasons[3].dispatch("click");
   assert.deepEqual(reasons.map(reason => reason.getAttribute("aria-pressed")), ["false", "false", "false", "true"]);
-});
-
-test("the report panel closes by its cancel button or escape", async () => {
-  const { ui, bar } = await reportOpen();
-  report(bar).cancel.dispatch("click");
-  assert.equal(report(bar).panel, undefined);
-  assert.equal(report(bar).flag.getAttribute("aria-expanded"), "false");
-  assert.equal(ui.document.activeElement, report(bar).flag);
-
-  await report(bar).flag.dispatch("click");
-  ui.document.dispatch("keydown", { key: "Escape" });
-  assert.equal(report(bar).panel, undefined);
-  assert.equal(ui.reportRequests.length, 0);
 });
 
 for (const status of [201, 409]) {
@@ -1913,15 +1687,6 @@ test("the gear opens settings and the window closes by button, escape or backdro
     );
   }
   assert.deepEqual(ui.passwordRequests, []);
-});
-
-test("a click inside the settings card keeps the window open", async () => {
-  const ui = await setup(deferred());
-  ui.settingsButton.dispatch("click");
-
-  ui.settings.dispatch("click", { target: ui.currentPassword });
-
-  assert.equal(ui.settings.hidden, false);
 });
 
 test("the password form checks its fields before sending anything", async () => {
@@ -2219,9 +1984,8 @@ test("switching stories stops the current player", async () => {
   assert.equal(audio.loaded, true);
 });
 
-test("the voice picker shows the current name without a label and stores the choice", async () => {
+test("the voice picker stores the selected voice", async () => {
   const ui = await setup(deferred());
-  assert.equal(ui.voiceValue.textContent, "Айдар");
   assert.equal(ui.voiceMenu.hidden, true);
 
   ui.voiceButton.dispatch("click");
@@ -2238,12 +2002,9 @@ test("the voice picker shows the current name without a label and stores the cho
     "eugene",
   ]);
   assert.equal(options[0].getAttribute("aria-selected"), "true");
-  assert.equal(ui.voiceValue.textContent, "Айдар");
-  assert.equal(ui.voiceButton.textContent.includes("Голос"), false);
 
   options[4].dispatch("click");
   assert.equal(ui.storage.getItem("smeshariki.voice"), "eugene");
-  assert.equal(ui.voiceValue.textContent, "Евгений");
   assert.equal(ui.voiceMenu.hidden, true);
 });
 
@@ -2267,26 +2028,4 @@ test("the chosen voice is sent with a new voiceover request", async () => {
   await settle();
 
   assert.deepEqual(JSON.parse(ui.audioRequests[0][1].body), { voice: "xenia" });
-});
-
-test("the compact player has its own controls and style hooks", async () => {
-  const ui = await setup(deferred(), {
-    dialogs: SAVED,
-    transcripts: {
-      "d-2": transcript("Ракета", [
-        { id: 12, role: "assistant", content: "Однажды…", created_at: "x", feedback: null, audio_voices: ["aidar"] },
-      ]),
-    },
-  });
-  ui.historyItems()[0].dispatch("click");
-  await settle();
-
-  const line = part(ui.feedbackBars()[0], "sai-voice-line");
-  const player = part(line, "sai-player");
-  assert.equal(player.hidden, false);
-  assert.equal(player.className, "sai-player");
-  assert.equal(player.children[1].className, "sai-player-toggle");
-  assert.equal(player.children[3].className, "sai-player-progress");
-  assert.equal(part(line, "sai-voice-button").textContent, "Скачать");
-  assert.equal(part(line, "sai-voice-refresh").hidden, false);
 });

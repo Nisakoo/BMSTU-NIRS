@@ -1,14 +1,7 @@
 # Specify
 
-1. Изучи запрос, `AGENTS.md` и относящийся к задаче код.
-2. Для нового `<change-id>` зарегистрируй `draft` только через CLI из
-   [status](status.md). Если запись уже существует, не создавай её повторно.
-3. Явно перечисли важные допущения и уточни неоднозначности.
-4. Создай `specs/changes/<change-id>/spec.md` по [шаблону](spec-template.md).
-5. Требования и критерии приёмки формулируй наблюдаемым и проверяемым образом.
-6. Не создавай код и будущую структуру проекта на этом этапе.
-7. Покажи спецификацию пользователю и дождись явного одобрения. До одобрения
-   сохраняй статус `draft`; после явного одобрения установи `in-queue` через
-   CLI.
-
-Если запрос содержит несколько независимо проверяемых возможностей, сначала предложи их разбиение и порядок реализации.
+1. Study the request, `AGENTS.md`, relevant code and existing contracts. Confirm that SDD applies.
+2. Register a new change as `draft` through the status CLI. Reuse an existing entry when applicable.
+3. Write `specs/changes/<change-id>/spec.md` using the template, within 80 physical lines including blanks. State the goal, scope, constraints, essential scenarios and observable acceptance criteria. Pair each criterion with its verification method, including existing tests or review where applicable. Do not implement tests at this stage.
+4. Identify material assumptions and unresolved questions. Split independently verifiable capabilities when appropriate.
+5. Present the specification and wait for explicit user approval. Keep it `draft` until approval, then set `in-queue` through the CLI.

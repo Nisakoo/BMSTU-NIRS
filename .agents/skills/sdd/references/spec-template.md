@@ -1,56 +1,26 @@
-# Шаблон спецификации
+# Specification template
+
+Keep `spec.md` within 80 physical lines, including blanks.
 
 ```markdown
-# <Название изменения>
+# <Change>
 
-## Цель
+## Goal and scope
 
-Что создаём, для кого и зачем.
+<Outcome, boundaries and material assumptions.>
 
-## Требования
+## Requirements and verification
 
-- REQ-001: <наблюдаемое поведение>
-- REQ-002: <наблюдаемое поведение>
+| ID | Observable acceptance criterion | Verification |
+| --- | --- | --- |
+| REQ-001 | <Behavior or contract> | <Existing test, new justified test, integration check or review> |
 
-## Сценарии
+## Scenarios
 
-### Основной сценарий
+- <Main path and expected result>
+- <Material failure or boundary and expected result>
 
-- Given <начальное состояние>
-- When <действие>
-- Then <результат>
+## Open questions
 
-### Ошибка или граничный случай
-
-- Given <начальное состояние>
-- When <ошибка или действие>
-- Then <ожидаемый результат>
-
-## Технологии и структура
-
-Используемые технологии и предлагаемые изменения структуры. На этапе `specify` они только описываются.
-
-## Команды
-
-- Запуск: `make run`
-- Тесты: `make test`
-
-## Тестирование
-
-Какими тестами поведения продукта проверяются функциональные требования. Для документации и структуры указать ревью без искусственных автоматических тестов.
-
-## Границы
-
-- Всегда: <обязательные действия>
-- Сначала спросить: <решения, требующие одобрения>
-- Никогда: <запрещённые действия>
-
-## Критерии приёмки
-
-- [ ] <проверяемый критерий>
-- [ ] Для изменения Python-кода продукта `make test` проходит успешно; для документации или структуры указано, почему команда неприменима.
-
-## Открытые вопросы
-
-- Нет или список вопросов.
+<Questions requiring resolution, or none.>
 ```

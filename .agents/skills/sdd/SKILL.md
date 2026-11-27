@@ -1,34 +1,17 @@
 ---
 name: sdd
-description: Guides project changes through Specify, Plan, Implement, and Verify while tracking specification status. Use when creating a feature, changing behavior, fixing a bug, or making an architectural change.
+description: Guides major product or cross-module features and public or shared contract changes through Specify, Plan, Implement and Verify.
 ---
 
 # SDD
 
-Веди разработку последовательно:
+Use SDD for substantial product-wide or cross-module features and changes to public or shared contracts, including HTTP, SSE, persisted data and cross-module interfaces. Local fixes and visual changes with no shared contract change use the direct workflow in `AGENTS.md`.
 
-```text
-specify -> plan -> implement -> verify
-```
+Follow `specify -> plan -> implement -> verify`. Read `specs/status.yaml` before selecting a change. Create, update or delete registry entries only with the CLI in [status](references/status.md). Read the applicable stage instructions before starting it.
 
-Перед выбором активной спецификации прочитай `specs/status.yaml`, если файл уже
-существует. Читать его можно напрямую. Создавать, обновлять и удалять записи
-разрешено только скриптом из [инструкции по статусам](references/status.md): не
-используй для этого `apply_patch`, редактор или shell redirect.
+- [specify](references/specify.md), using the [template](references/spec-template.md)
+- [plan](references/plan.md)
+- [implement](references/implement.md)
+- [verify](references/verify.md)
 
-Перед началом определи текущий этап и прочитай только соответствующую инструкцию:
-
-- [specify](references/specify.md) — сформулировать и согласовать требования;
-- [plan](references/plan.md) — подготовить и согласовать план;
-- [implement](references/implement.md) — реализовать план небольшими проверяемыми шагами;
-- [verify](references/verify.md) — доказать соответствие спецификации.
-
-Инструкцию [status](references/status.md) читай перед любой сменой состояния в
-реестре. `specs/status.yaml` хранит только имена спецификаций и их состояния;
-прогресс задач остаётся в самих SDD-артефактах.
-
-Для новой спецификации используй [шаблон](references/spec-template.md).
-
-Не переходи от `specify` к `plan` и от `plan` к `implement` без явного одобрения пользователя. Не называй работу выполненной до успешного `verify`. Для изменений Python-кода продукта также требуется успешный `make test`. Не добавляй автоматические тесты, проверяющие только структуру каталогов, README или служебные файлы.
-
-Подход адаптирован из [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills): спецификация до кода, небольшие вертикальные задачи, TDD и обязательная проверка результата.
+Obtain explicit user approval before moving from specify to plan and from plan to implement. Mark a change `done` only after successful verify. Each physical line counts, including blank lines. `spec.md` is limited to 80 lines, `plan.md` to 200 and `verification.md` to 30. Keep artifacts concise and link to existing contracts instead of duplicating them.

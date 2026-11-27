@@ -1,17 +1,7 @@
 # Implement
 
-Начинай только после одобрения `spec.md` и `plan.md`.
+Start only after the specification and plan are approved. Set `in-progress` through the status CLI.
 
-1. Перед началом активной работы установи `in-progress` только через CLI из
-   [status](status.md).
-2. Выполняй задачи плана по одной.
-3. Для изменения поведения используй RED -> GREEN -> REFACTOR: сначала падающий тест, затем минимальная реализация, затем упрощение при зелёных тестах.
-4. После каждой задачи с изменением Python-кода продукта запускай указанный в плане тест. Для документации и структуры проводи предусмотренное планом ревью без искусственных автоматических тестов.
-5. Не добавляй возможности и рефакторинг вне согласованного плана.
-6. При ошибке останови реализацию, воспроизведи проблему, исправь первопричину и добавь регрессионный тест.
-7. После всех задач, изменяющих Python-код продукта, запусти `make test`.
+Implement the approved tasks in order and run their selected checks. When a distinct core behavior or material regression needs a new test, use RED -> GREEN -> REFACTOR. Reproduce failures and fix their cause. Add a regression test only when existing coverage would miss that failure and the case warrants a test under the project rules.
 
-Если реализация требует изменить согласованные требования, вернись на этап `specify`. Не называй задачу выполненной: после реализации остаётся этап `verify`.
-
-Если активная работа останавливается и не продолжается сразу этапом `verify`,
-установи `in-queue` через CLI. Не устанавливай `done` на этапе реализации.
+Run tests for changed executable code, tests, runtime configuration or behavioral contracts. Select impacted modules and consumers as described in `AGENTS.md`; do not run independent suites. Review prose and formatting changes without a behavior or contract change. If requirements change, return to specify. If work pauses before verify, set `in-queue` through the CLI. Do not mark `done` at this stage.

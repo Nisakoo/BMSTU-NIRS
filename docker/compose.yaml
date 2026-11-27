@@ -1,6 +1,8 @@
 # An explicit name keeps this project apart from other compose files in `docker/` dirs.
 name: smeshariki-ai
 
+x-backend-image: &backend-image ${COMPOSE_PROJECT_NAME}-backend${BACKEND_IMAGE_SUFFIX:-}
+
 x-backend-environment: &backend-environment
   AGENT_MAX_ITERATIONS: ${AGENT_MAX_ITERATIONS:-4}
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
@@ -12,18 +14,22 @@ x-backend-environment: &backend-environment
   LLM_NUM_RETRIES: ${LLM_NUM_RETRIES:-0}
   LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.8}
   LLM_THINKING: ${LLM_THINKING:-false}
+  RAG_QUERY_EXPANSION_ENABLED: ${RAG_QUERY_EXPANSION_ENABLED:-false}
+  RAG_QUERY_EXPANSION_MODE: ${RAG_QUERY_EXPANSION_MODE:-replace}
+  RAG_LORE_RETRIEVAL_K: ${RAG_LORE_RETRIEVAL_K:-10}
+  RAG_LORE_MAX_PASSAGES: ${RAG_LORE_MAX_PASSAGES:-5}
+  RAG_LORE_MAX_CHARS: ${RAG_LORE_MAX_CHARS:-4800}
+  RAG_LORE_MIN_SCORE: ${RAG_LORE_MIN_SCORE:-2.0}
+  RAG_LORE_RERANK_ENABLED: ${RAG_LORE_RERANK_ENABLED:-false}
+  RAG_HYBRID_ENABLED: ${RAG_HYBRID_ENABLED:-false}
+  RAG_HYBRID_BM25_WEIGHT: ${RAG_HYBRID_BM25_WEIGHT:-0.7}
+  HF_HOME: /models/hf
   SPEECH_ENABLED: ${SPEECH_ENABLED:-false}
   SPEECH_VOICE: ${SPEECH_VOICE:-baya}
   SPEECH_SPEED: ${SPEECH_SPEED:-1.0}
   SPEECH_MAX_CONCURRENCY: ${SPEECH_MAX_CONCURRENCY:-1}
   SPEECH_MAX_TEXT_CHARS: ${SPEECH_MAX_TEXT_CHARS:-20000}
   SPEECH_MODEL_PATH: ${SPEECH_MODEL_PATH:-/models/silero/v5_ru.pt}
-  CEPH_S3_ENDPOINT: ${CEPH_S3_ENDPOINT:-http://ceph-rgw:7480}
-  CEPH_S3_BUCKET: ${CEPH_S3_BUCKET:-smeshariki-audio}
-  CEPH_S3_ACCESS_KEY: ${CEPH_S3_ACCESS_KEY:-smeshariki}
-  CEPH_S3_SECRET_KEY: ${CEPH_S3_SECRET_KEY:?Set CEPH_S3_SECRET_KEY in docker/.env}
-  CEPH_S3_REGION: ${CEPH_S3_REGION:-us-east-1}
-  CEPH_S3_PREFIX: ${CEPH_S3_PREFIX:-smeshariki-audio}
   AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?Set AUTH_JWT_SECRET in docker/.env}
   AUTH_ACCESS_TTL_SECONDS: ${AUTH_ACCESS_TTL_SECONDS:-900}
   AUTH_REFRESH_TTL_SECONDS: ${AUTH_REFRESH_TTL_SECONDS:-2592000}
@@ -61,24 +67,11 @@ services:
       timeout: 3s
       retries: 12
 
-  ceph-rgw:
-    image: quay.io/s3gw/s3gw:latest
-    platform: linux/amd64
-    environment:
-      RGW_DEFAULT_USER_ACCESS_KEY: ${CEPH_S3_ACCESS_KEY:-smeshariki}
-      RGW_DEFAULT_USER_SECRET_KEY: ${CEPH_S3_SECRET_KEY:?Set CEPH_S3_SECRET_KEY in docker/.env}
-    volumes:
-      - ceph-data:/data
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:7480/ >/dev/null || exit 1"]
-      interval: 5s
-      timeout: 3s
-      retries: 30
-
   migrate:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
+    image: *backend-image
+    pull_policy: never
+    volumes:
+      - hf-cache:/models/hf
     command: ["python", "-m", "smeshariki_ai.db.migrate"]
     environment: *backend-environment
     depends_on:
@@ -87,24 +80,25 @@ services:
     restart: "no"
 
   backend:
+    image: *backend-image
+    pull_policy: never
     build:
       context: ..
       dockerfile: docker/Dockerfile
+      args:
+        SPEECH_ENABLED: ${SPEECH_ENABLED:-false}
+        RAG_HYBRID_ENABLED: ${RAG_HYBRID_ENABLED:-false}
     volumes:
-      - ./models:/models:ro
       # The dense model is downloaded once and reused by the container.
       - hf-cache:/models/hf
     environment:
       <<: *backend-environment
-      HF_HOME: /models/hf
       # Uvicorn trusts X-Forwarded-For only from Caddy's fixed address.
       FORWARDED_ALLOW_IPS: 172.31.250.250
     depends_on:
       migrate:
         condition: service_completed_successfully
       redis:
-        condition: service_healthy
-      ceph-rgw:
         condition: service_healthy
     init: true
     healthcheck:
@@ -150,5 +144,4 @@ networks:
 
 volumes:
   postgres-data:
-  ceph-data:
   hf-cache:

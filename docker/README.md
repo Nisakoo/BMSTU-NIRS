@@ -24,6 +24,12 @@ make run
 backend отклоняет) и `POSTGRES_PASSWORD`. Локальный `docker/.env` не отслеживается Git;
 реальные секреты не должны попадать в `.env.example`.
 
+По умолчанию `make run` собирает backend для API, SSE и лексического поиска.
+`SPEECH_ENABLED=true` добавляет PyTorch, SciPy и FFmpeg для озвучки, а
+`RAG_HYBRID_ENABLED=true` добавляет PyTorch и Transformers для гибридного
+поиска. Оба флага читаются из `docker/.env` при сборке и запуске.
+Гибридный поиск использует общий том кэша модели для backend и команд лора.
+
 После запуска frontend доступен на `http://localhost:8090/`, demo-макет панели
 администратора — на `http://localhost:8090/admin/`, страница входа и регистрации —
 на `http://localhost:8090/login/`, API — на том же origin по
@@ -62,12 +68,22 @@ Backend использует LiteLLM Python SDK внутри своего про
 и включите `SPEECH_ENABLED=true`. Compose монтирует `docker/models` в
 контейнер read-only. Без модели оставьте `SPEECH_ENABLED=false`, иначе backend
 остановится при старте.
+
+`make run` автоматически добавляет `compose.speech.yaml` при включённой озвучке.
+При прямом вызове Docker Compose добавьте файл вручную:
+
+```sh
+docker compose --env-file docker/.env -f docker/compose.yaml -f docker/compose.speech.yaml up --build
+```
+
 MP3-файлы озвучки хранятся в Ceph RGW-совместимом сервисе `ceph-rgw`
 (`quay.io/s3gw/s3gw`, файловый backend, внутренний порт `7480`, том
-`ceph-data`). Backend обращается к нему по `CEPH_S3_ENDPOINT`; bucket
-`CEPH_S3_BUCKET` создаётся идемпотентно. Секрет `CEPH_S3_SECRET_KEY`
-передаётся только через `docker/.env`. Образ `ceph-rgw` собран под
-`linux/amd64`; на Apple Silicon Docker использует эмуляцию.
+`ceph-data`). Backend ждёт готовности `ceph-rgw` и обращается к нему по
+`CEPH_S3_ENDPOINT`. Он создаёт bucket `CEPH_S3_BUCKET` при необходимости.
+При включённой озвучке задайте `CEPH_S3_SECRET_KEY` в `docker/.env`.
+Образ `ceph-rgw` собран под `linux/amd64`; на Apple Silicon Docker использует
+эмуляцию. При отключении озвучки следующий `make run` удаляет старый
+контейнер Ceph этого Compose-проекта, сохраняя том с аудио.
 
 `LOG_LEVEL` задаёт уровень журнала backend (`DEBUG`, `INFO`, `WARNING`,
 `ERROR`), `LOG_FORMAT` выбирает читаемый формат `human` либо построчный `json`.
@@ -78,7 +94,11 @@ MP3-файлы озвучки хранятся в Ceph RGW-совместимо�
 Перед стартом backend одноразовый сервис `migrate` (тот же образ) выполняет
 `python -m smeshariki_ai.db.migrate`; backend запускается только после его
 успешного завершения и готовности Redis. Применить миграции отдельно, без
-запуска всего приложения, можно командой `make migrate`. Данные PostgreSQL хранятся в томе
+запуска всего приложения, можно командой `make migrate`. Она собирает
+общий образ и запускает миграции. При прямом вызове Compose сначала выполните
+`docker compose --env-file docker/.env -f docker/compose.yaml build backend`
+и затем запустите сервис `migrate` командой `run --rm migrate` с теми же
+параметрами Compose. Данные PostgreSQL хранятся в томе
 `smeshariki-ai_postgres-data`; Redis работает без персистентности, так как
 записи blacklist живут не дольше access-токена. Пароль PostgreSQL применяется
 только при первой инициализации тома: после его смены удалите том командой
@@ -129,10 +149,13 @@ curl -i -X POST http://localhost:8090/api/v1/dialogs/<dialog_id>/messages \
 
 ## Состав
 
-- `compose.yaml` — сервисы backend, migrate, PostgreSQL, Redis, Ceph RGW,
-  frontend/Nginx и Caddy;
-- `Dockerfile` — Python 3.12 образ backend с зависимостями из `backend/uv.lock`;
-- `frontend.Dockerfile` — Node.js 22 build frontend и runtime Nginx;
+- `compose.yaml` — сервисы backend, migrate, PostgreSQL, Redis, frontend/Nginx
+  и Caddy;
+- `compose.speech.yaml` — Ceph RGW, его зависимость для backend и модель Silero;
+- `Dockerfile` — двухэтапный Python 3.12 образ backend с зависимостями из
+  `backend/uv.lock`;
+- `frontend.Dockerfile` — двухэтапная сборка frontend с Node.js 22 и runtime
+  на `nginx:stable-alpine-slim`;
 - `nginx.conf` — конфиг Nginx: относительные редиректы на каталог
   (`absolute_redirect off`, `/login` → `/login/` без потери порта Caddy),
   `Cache-Control: no-cache` для HTML и `immutable` для хешированных
@@ -145,6 +168,10 @@ curl -i -X POST http://localhost:8090/api/v1/dialogs/<dialog_id>/messages \
 - `fetch-silero.sh` — загрузка и проверка SHA-256 модели Silero v5.
 - `compose.test.yaml` и `test-integration.sh` — временные PostgreSQL и Redis
   для `make test-integration`.
+
+Dockerfile-специфичные `.dockerignore` разрешают только входы сборки. Модели,
+корпус и локальные настройки исключены. BuildKit повторно использует слои
+зависимостей при правке исходников и кэши uv, npm и APT при замене слоёв.
 
 `make frontend` по-прежнему запускает отдельный Vite dev server при разработке;
 для основного запуска он не нужен.

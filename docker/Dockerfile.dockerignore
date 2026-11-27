@@ -1,0 +1,11 @@
+**
+!backend/pyproject.toml
+!backend/uv.lock
+!backend/README.md
+!backend/src/
+!backend/src/**
+backend/src/**/__pycache__/
+backend/src/**/*.py[cod]
+**/.env
+**/.env.*
+!docker/backend-features.sh

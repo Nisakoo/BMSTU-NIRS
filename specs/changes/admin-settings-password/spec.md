@@ -4,7 +4,7 @@
 
 В чате есть кнопка «Настройки» с окном смены пароля
 ([change-password](../change-password/spec.md),
-[settings-above-divider](../settings-above-divider/spec.md)), а в `/admin/`
+`settings-above-divider`), а в `/admin/`
 её нет. Изменение добавляет такую же кнопку и окно в панель администратора.
 Backend-контракт `PUT /api/v1/users/me/password` не меняется.
 
@@ -52,3 +52,5 @@ Backend-контракт `PUT /api/v1/users/me/password` не меняется.
 ## Открытые вопросы
 
 - Нет.
+
+Исторические документы доступны в [архиве SDD](../../README.md).

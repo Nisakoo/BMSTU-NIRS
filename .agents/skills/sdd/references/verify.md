@@ -1,11 +1,5 @@
 # Verify
 
-1. Перед началом активной проверки установи `in-progress` только через CLI из
-   [status](status.md), если статус ещё отличается.
-2. Сопоставь каждое требование и критерий приёмки из `spec.md` с тестом поведения продукта или результатом ревью. Не создавай автоматические тесты только для проверки структуры каталогов, README и служебных файлов.
-3. Если изменение затрагивает Python-код продукта, запусти `make test` на итоговом состоянии репозитория.
-4. Выполни предусмотренные спецификацией сборку и runtime-проверки.
-5. Убедись, что тесты не отключены, а изменения не вышли за согласованный scope.
-6. Запиши результат в `specs/changes/<change-id>/verification.md`: проверенные требования, команды, результаты и известные ограничения.
+Set `in-progress` through the status CLI if needed. Match every acceptance criterion to evidence from a behavior test, an integration check or review. Run the checks selected for the final change and impacted consumers. Include infrastructure checks where applicable and document skipped checks and coverage gaps. Review the final diff, scope and documentation.
 
-Задача выполнена только если все критерии подтверждены. Для изменений Python-кода продукта дополнительно требуется успешный `make test`. Только после записи успешного `verification.md` установи `done` через CLI. При ошибке вернись к `implement`, устрани причину и повтори `verify`; если работа приостанавливается, установи `in-queue`.
+Record commands, results and counts where available, failures, skips and known gaps in `verification.md`, at most 30 physical lines including blanks. Mark `done` through the CLI only when all acceptance criteria are verified. Otherwise fix the issue and repeat verification, or set `in-queue` if work stops.

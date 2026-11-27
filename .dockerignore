@@ -1,18 +1,2 @@
-.git
-.agents
-.codex
-.venv
-**/.venv
-**/__pycache__
-**/*.py[cod]
-**/.pytest_cache
-frontend/node_modules
-frontend/dist
-specs
-backend/tests
-docker/.env
-
-# Local RAG data and its encrypted archive are never needed in images
-data
-encrypted
-.data-decrypt-*
+# Each application Dockerfile has its own build context allowlist.
+**

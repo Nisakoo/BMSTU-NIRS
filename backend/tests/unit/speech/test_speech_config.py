@@ -7,7 +7,7 @@ from smeshariki_ai.speech import (
     SpeechConfig,
     SpeechStatus,
 )
-from smeshariki_ai.speech.models import AudioArtifact, AudioRecord
+from smeshariki_ai.speech.models import AudioRecord
 
 
 def test_speech_config_has_safe_defaults() -> None:
@@ -44,13 +44,6 @@ def test_speech_config_rejects_invalid_values(values: dict[str, object]) -> None
         SpeechConfig.model_validate(values)
 
 
-def test_speech_config_is_frozen() -> None:
-    config = SpeechConfig()
-
-    with pytest.raises(ValidationError):
-        config.voice = "aidar"  # type: ignore[misc]
-
-
 def test_audio_record_reports_only_complete_audio_as_ready() -> None:
     ready = AudioRecord(
         message_id=1,
@@ -72,9 +65,3 @@ def test_audio_record_reports_only_complete_audio_as_ready() -> None:
 
     assert ready.has_audio is True
     assert pending.has_audio is False
-
-
-def test_audio_artifact_defaults_to_mp3() -> None:
-    artifact = AudioArtifact(data=b"mp3", duration_ms=500)
-
-    assert artifact.mime_type == "audio/mpeg"

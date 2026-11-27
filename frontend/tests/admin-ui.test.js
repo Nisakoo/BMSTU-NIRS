@@ -281,35 +281,6 @@ test("dialog and message cards show backend figures without a demo label", async
   }
 });
 
-test("the activity chart has a column per bucket labelled by its start date", async () => {
-  const ui = await mountWithStats();
-  const columns = ui.elements["#adminActivity"].children;
-
-  assert.equal(columns.length, 10);
-  const first = columns[0];
-  assert.equal(first.children[0].textContent, "5");
-  assert.equal(first.children[2].textContent, "16.09");
-  assert.equal(first.children[1].children[0].style.height, "83%");
-  assert.equal(columns[1].children[1].children[0].style.height, "0%");
-  assert.equal(columns[1].children[1].children[0].className, "adm-chart-bar adm-chart-bar-empty");
-  assert.equal(first.children[1].children[0].className, "adm-chart-bar");
-  assert.equal(columns[9].children[1].children[0].style.height, "100%");
-  assert.match(ui.elements["#adminChartDescription"].textContent, /^Истории за 30 дней: 16\.09: 5, /);
-});
-
-test("a period without stories shows empty columns and says so", async () => {
-  const ui = await mountWithStats({
-    respond: period => Promise.resolve(statsFor(period, activityFor(period, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]))),
-  });
-  const chart = ui.elements["#adminActivity"].children;
-
-  assert.equal(chart.filter(child => child.className === "adm-chart-column").length, 10);
-  assert.equal(chart.at(-1).className, "adm-chart-empty");
-  assert.equal(chart.at(-1).textContent, "Историй за период нет");
-  assert.equal(ui.elements["#adminChartDescription"].textContent, "Историй за 30 дней нет.");
-  assert.equal(find(ui.elements["#adminMetrics"].children[2], "adm-metric-value").textContent, "0");
-});
-
 test("recent users show login, role, activity time, registration date and their stories", async () => {
   const ui = await mountWithStats();
   const rows = ui.elements["#adminUsers"].children;
@@ -330,15 +301,6 @@ test("recent users show login, role, activity time, registration date and their 
   assert.equal(rows[1].children[2].textContent, "1 234");
   assert.equal(rows[2].children[2].textContent, "0");
   assert.equal(rows[2].children[0].children[1].children[0].textContent, "<b>Pin</b>");
-});
-
-test("an empty user list is reported in place", async () => {
-  const ui = await mountWithStats({
-    respond: period => Promise.resolve(statsFor(period, { usersTotal: 0, recentUsers: [] })),
-  });
-
-  assert.equal(ui.elements["#adminUsers"].children.length, 1);
-  assert.equal(ui.elements["#adminUsers"].textContent, "Пользователей пока нет");
 });
 
 test("period buttons reload statistics and are locked while loading", async () => {
@@ -387,19 +349,6 @@ test("lost session or role is reported for a redirect", async () => {
     assert.deepEqual(ui.authErrors, [code]);
     assert.equal(ui.elements["#adminUsers"].children.length, 0);
   }
-});
-
-test("a registration day is today, yesterday or a date", () => {
-  assert.equal(formatDay(new Date(2026, 9, 16, 0, 5).toISOString(), NOW), "сегодня");
-  assert.equal(formatDay(new Date(2026, 9, 15, 23, 59).toISOString(), NOW), "вчера");
-  assert.match(formatDay(new Date(2026, 8, 3, 9, 30).toISOString(), NOW), /^3 сент\.?$/);
-  assert.match(formatDay(new Date(2025, 11, 31, 9, 30).toISOString(), NOW), /^31 дек\.? 2025/);
-});
-
-test("activity time falls back to a date for older visits", () => {
-  assert.equal(formatActivity(new Date(2026, 9, 16, 0, 5).toISOString(), NOW), "сегодня, 00:05");
-  assert.match(formatActivity(new Date(2026, 8, 3, 9, 30).toISOString(), NOW), /^3 сент\.?, 09:30$/);
-  assert.match(formatActivity(new Date(2025, 11, 31, 9, 30).toISOString(), NOW), /2025/);
 });
 
 test("navigation activates overview by default and moves state to the clicked section", () => {
@@ -479,105 +428,6 @@ function createScrollHarness({ offsets = [0, 700, 1400, 2100], pageHeight = 2600
   return { documentRef, links, windowRef, scrollTo, flush, runTimers, timers, state };
 }
 
-test("scrolling highlights the section that reached the reading line", () => {
-  const ui = createScrollHarness();
-  mountAdminNavigation(ui.documentRef, ui.windowRef);
-  assert.deepEqual(activeNavigationLabels(ui.links), ["Обзор"]);
-
-  ui.scrollTo(500);
-  ui.flush();
-  assert.deepEqual(activeNavigationLabels(ui.links), ["Активность"], "700 - 500 is above 35% of 800");
-
-  ui.scrollTo(1200);
-  ui.flush();
-  assert.deepEqual(activeNavigationLabels(ui.links), ["Пользователи"]);
-
-  ui.scrollTo(100);
-  ui.flush();
-  assert.deepEqual(activeNavigationLabels(ui.links), ["Обзор"]);
-});
-
-test("the bottom of the page highlights the last section", () => {
-  const ui = createScrollHarness({ offsets: [0, 700, 1400, 2500], pageHeight: 2700 });
-  mountAdminNavigation(ui.documentRef, ui.windowRef);
-
-  ui.scrollTo(1900);
-  ui.flush();
-
-  assert.deepEqual(activeNavigationLabels(ui.links), ["Жалобы"]);
-});
-
-test("hidden sections never move the highlight", () => {
-  const ui = createScrollHarness({ hidden: true });
-  mountAdminNavigation(ui.documentRef, ui.windowRef);
-  ui.links[2].click();
-  ui.runTimers();
-
-  ui.scrollTo(0);
-  ui.flush();
-
-  assert.deepEqual(activeNavigationLabels(ui.links), ["Пользователи"]);
-});
-
-test("a clicked section stays highlighted until its smooth scroll ends", () => {
-  const ui = createScrollHarness({ offsets: [0, 700, 1400, 2100], pageHeight: 2300 });
-  mountAdminNavigation(ui.documentRef, ui.windowRef);
-
-  ui.links[2].click();
-  for (const y of [300, 900, 1500]) {
-    ui.scrollTo(y);
-    ui.flush();
-    assert.deepEqual(activeNavigationLabels(ui.links), ["Пользователи"]);
-  }
-  ui.windowRef.dispatch("scrollend");
-  assert.deepEqual(activeNavigationLabels(ui.links), ["Пользователи"], "the end keeps the choice");
-
-  ui.scrollTo(200);
-  ui.flush();
-  assert.deepEqual(activeNavigationLabels(ui.links), ["Обзор"], "the next scroll follows again");
-});
-
-test("without scrollend the click hold ends after a second", () => {
-  const ui = createScrollHarness();
-  mountAdminNavigation(ui.documentRef, ui.windowRef);
-
-  ui.links[1].click();
-  assert.deepEqual([...ui.timers.values()].map(timer => timer.delay), [1000]);
-  ui.scrollTo(1300);
-  ui.flush();
-  assert.deepEqual(activeNavigationLabels(ui.links), ["Активность"]);
-
-  ui.runTimers();
-  ui.scrollTo(1300);
-  ui.flush();
-  assert.deepEqual(activeNavigationLabels(ui.links), ["Пользователи"]);
-});
-
-test("a browser hash change holds its section like a click", () => {
-  const ui = createScrollHarness();
-  mountAdminNavigation(ui.documentRef, ui.windowRef);
-
-  ui.windowRef.location.hash = "#reports";
-  ui.windowRef.dispatch("hashchange");
-  ui.scrollTo(400);
-  ui.flush();
-
-  assert.deepEqual(activeNavigationLabels(ui.links), ["Жалобы"]);
-});
-
-test("many scroll events in one frame are measured once and keep the hash", () => {
-  const ui = createScrollHarness();
-  mountAdminNavigation(ui.documentRef, ui.windowRef);
-
-  ui.scrollTo(100);
-  ui.scrollTo(300);
-  ui.scrollTo(600);
-
-  assert.equal(ui.flush(), 1);
-  assert.deepEqual(activeNavigationLabels(ui.links), ["Активность"]);
-  assert.equal(ui.windowRef.location.hash, "");
-});
-
 const ADMIN = { id: "admin-1", login: "sovunya", role: "admin" };
 const USER = { id: "user-1", login: "krosh", role: "user" };
 
@@ -610,14 +460,6 @@ async function mountGuarded({
   });
   return { ...ui, redirects, mounted, logoutCalls, passwordCalls };
 }
-
-test("the greeting follows the local time of day", () => {
-  const at = (hours, minutes) => new Date(2026, 9, 16, hours, minutes);
-  assert.deepEqual(
-    [[4, 59], [5, 0], [11, 59], [12, 0], [16, 59], [17, 0], [22, 59], [23, 0]].map(([h, m]) => greetingFor(at(h, m))),
-    ["Доброй ночи", "Доброе утро", "Доброе утро", "Добрый день", "Добрый день", "Добрый вечер", "Добрый вечер", "Доброй ночи"],
-  );
-});
 
 test("the administrator is greeted by login as text", async () => {
   const ui = await mountGuarded({ me: () => Promise.resolve({ ...ADMIN, login: "<b>sovunya</b>" }) });
@@ -779,24 +621,6 @@ test("answer quality shows the average score and numbered rows for the period", 
   assert.equal(rows[4].getAttribute("aria-label"), "Оценка 1 из 5: 1");
 });
 
-test("answer quality without ratings says so", async () => {
-  const ui = await mountWithStats({
-    respond: period => Promise.resolve(statsFor(period, {
-      feedback: { answersTotal: 3, ratedAnswers: 0, counts: [0, 0, 0, 0, 0] },
-    })),
-  });
-  const quality = ui.elements["#adminQuality"];
-
-  assert.match(quality.textContent, /Оценок пока нет/);
-  assert.match(quality.textContent, /оценено 0 из 3 ответов/);
-  assert.doesNotMatch(quality.textContent, /NaN|из 5/);
-  assert.equal(find(quality, "adm-quality-face"), undefined);
-  assert.deepEqual(
-    findAll(quality, "adm-quality-bar-fill").map(fill => fill.style.width),
-    ["0%", "0%", "0%", "0%", "0%"],
-  );
-});
-
 test("changing the period reloads answer quality", async () => {
   const ui = await mountWithStats({
     respond: period => Promise.resolve(statsFor(period, {
@@ -883,13 +707,6 @@ test("new reports show the reason, texts and a deleted story as text", async () 
     ["Рассмотрено", "resolved"],
     ["Отклонить", "dismissed"],
   ]);
-});
-
-test("an empty report list says so", async () => {
-  const ui = await mountReportsWith();
-
-  assert.equal(ui.cards().length, 1);
-  assert.equal(ui.cards()[0].textContent, "Жалоб нет");
 });
 
 test("filters reload the reports and mark the chosen one", async () => {

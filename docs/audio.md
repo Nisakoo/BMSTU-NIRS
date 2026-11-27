@@ -112,7 +112,7 @@ Ceph; новые MP3 в PostgreSQL не пишутся. Удаление диа�
 
 | Переменная | Значение по умолчанию | Назначение |
 | --- | --- | --- |
-| `SPEECH_ENABLED` | `true` | Включает локальную озвучку |
+| `SPEECH_ENABLED` | `true` в Python, `false` в Compose | Включает локальную озвучку |
 | `SPEECH_VOICE` | `baya` | Голос, если клиент не передал `voice` |
 | `SPEECH_SPEED` | `1.0` | Скорость речи, `0.5…2.0` |
 | `SPEECH_MAX_CONCURRENCY` | `1` | Одновременных CPU-синтезов |
@@ -128,6 +128,10 @@ Ceph; новые MP3 в PostgreSQL не пишутся. Удаление диа�
 Модель не коммитится в Git. `docker/fetch-silero.sh` скачивает её по
 официальному URL, проверяет SHA-256 и кладёт в
 `docker/models/silero/v5_ru.pt`; Compose монтирует этот каталог read-only.
+Задайте `SPEECH_ENABLED=true` и `CEPH_S3_SECRET_KEY` в `docker/.env`, затем
+запустите `make run`. Сборка добавит зависимости озвучки, а Compose запустит
+Ceph RGW и дождётся его готовности. При запуске Python на хосте укажите
+`--extra speech` в `uv run --project backend --locked` и установите FFmpeg.
 
 ## Выбор голоса во frontend
 

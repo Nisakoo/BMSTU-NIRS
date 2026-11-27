@@ -1,16 +1,9 @@
 # Plan
 
-Начинай только после одобрения `spec.md`.
+Start only after specification approval. Set `in-progress` through the status CLI.
 
-1. Перед началом активной работы установи `in-progress` только через CLI из
-   [status](status.md).
-2. Изучи спецификацию и существующие паттерны проекта.
-3. Определи зависимости и порядок реализации.
-4. Разбей работу на небольшие вертикальные задачи. Каждая задача должна давать проверяемый результат и обычно затрагивать не более пяти файлов.
-5. Для каждой задачи укажи связанные требования, критерии приёмки, зависимости, предполагаемые файлы и способ проверки. Для задачи, изменяющей Python-код продукта, укажи точную команду теста. Документацию и структуру проверяй ревью, не создавая для них искусственные автоматические тесты.
-6. Сохрани план в `specs/changes/<change-id>/plan.md`.
-7. Не пиши производственный код на этом этапе.
-8. Покажи план пользователю, установи `in-queue` через CLI на время ожидания и
-   дождись явного одобрения.
-
-Выноси рискованные предположения в первые задачи.
+1. Inspect the affected code, contracts, existing tests and direct consumers. Map downstream effects and infrastructure boundaries before choosing checks or new cases.
+2. Identify the smallest set of tests that proves each changed behavior and affected contract. Include real adapter integration when its boundary changes. Exclude independent modules. Widen the scope when a boundary is uncertain.
+3. Add test cases only for distinct core behavior, contracts or material failure risks that existing tests do not cover. Use review for prose and formatting with no behavior or contract change.
+4. Write `plan.md` in at most 200 physical lines including blanks. Order small verifiable tasks and record affected files, criteria and exact checks, including existing tests and any necessary new cases.
+5. Present the plan, set `in-queue` through the CLI while waiting and obtain explicit user approval before implementation.

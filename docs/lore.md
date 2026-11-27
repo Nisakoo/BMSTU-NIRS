@@ -441,8 +441,8 @@ LLM (`--answers` не указан; нужен `LLM_MODEL` и остальной
 - `rag_lore_embeddings` создаётся миграцией `0017` вместе с расширением
   `vector`; `lore-load` пишет векторы, если гибрид включён (`RAG_HYBRID_ENABLED`),
   иначе таблица пуста;
-- образ PostgreSQL — `pgvector/pgvector:pg17`; кэш модели монтируется в
-  backend-контейнер (`HF_HOME=/models/hf`), поэтому модель скачивается один раз.
+- образ PostgreSQL — `pgvector/pgvector:pg17`. Backend и `lore-load` используют
+  общий том кэша модели (`HF_HOME=/models/hf`).
 
 Замеры на одном и том же движке (`k=5`, вес `0.7`):
 
@@ -467,13 +467,18 @@ LLM (`--answers` не указан; нужен `LLM_MODEL` и остальной
 исправления (и регрессионного теста на префиксы) честные числа — в таблице
 выше.
 
+Для включения задайте `RAG_HYBRID_ENABLED=true` в `docker/.env`, затем
+переиндексируйте корпус и запустите приложение.
+
 ```sh
-make lore-load DIR=data/lore   # переиндексировать корпус с векторами
-# RAG_HYBRID_ENABLED=true в docker/.env
+make lore-load DIR=data/lore
+make run
 ```
 
-Бенчмарк умеет мерить оба режима: `lore-benchmark ... --hybrid` и
-`--hybrid-weight <0…1>`.
+Команда `make lore-benchmark … HYBRID=1` собирает образ для гибридного теста
+под отдельным тегом. Для запуска на хосте укажите `--extra hybrid` в
+`uv run --project backend --locked`. Команда Python принимает флаги
+`--hybrid` и `--hybrid-weight <0…1>`.
 
 
 ## Чистка корпуса

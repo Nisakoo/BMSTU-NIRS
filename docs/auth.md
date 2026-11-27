@@ -368,9 +368,6 @@ sequenceDiagram
   [спецификация](../specs/changes/change-password/spec.md),
   [план](../specs/changes/change-password/plan.md),
   [результат проверки](../specs/changes/change-password/verification.md);
-  место кнопки «Настройки»:
-  [спецификация](../specs/changes/settings-above-divider/spec.md),
-  [результат проверки](../specs/changes/settings-above-divider/verification.md);
   настройки в админке:
   [спецификация](../specs/changes/admin-settings-password/spec.md),
   [результат проверки](../specs/changes/admin-settings-password/verification.md).

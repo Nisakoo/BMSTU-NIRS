@@ -167,8 +167,7 @@ Frontend допускает один незавершённый запрос, б
   показывается на 1,5 с: текст кнопки (скрытый) становится «Скопировано», а
   квадратик подсвечивается голубым с галочкой, без видимой подписи. Кнопка —
   иконка постоянного размера 32×32px, приглушённая до наведения на реплику
-  (на телефоне видна всегда), поэтому не меняет ширину пузыря
-  ([copy-button-steady-width](../specs/changes/copy-button-steady-width/spec.md)). Двойной отказ — «Не удалось скопировать» в строке
+  (на телефоне видна всегда), поэтому не меняет ширину пузыря. Двойной отказ — «Не удалось скопировать» в строке
   состояния. Копирование работает при заблокированной
   форме и не обращается к сети; у ответа с ошибкой кнопки нет
   ([message-copy](../specs/changes/message-copy/spec.md)).
@@ -186,8 +185,7 @@ Frontend допускает один незавершённый запрос, б
   [`docs/audio.md`](../docs/audio.md).
 - Фраза Смешарика стоит в строке с мордашками (до 820px — своей строкой
   постоянной высоты под ними), а флажок «Пожаловаться» — на отдельной строке
-  под мордашками справа и не двигается при смене оценки
-  ([feedback-phrase-inline](../specs/changes/feedback-phrase-inline/spec.md)). Он открывает под ответом
+  под мордашками справа и не двигается при смене оценки. Он открывает под ответом
   панель «Что не так с историей?» с причинами «Страшно», «Грубо или обидно»,
   «Неправильно или непонятно», «Другое», комментарием до 500 символов и
   кнопками «Отправить» и «Отмена». «Отправить» недоступна без причины, а при
@@ -341,23 +339,6 @@ access JWT и refresh-токен передаются `HttpOnly` cookie.
 Исправление browser `fetch` описано в
 [`spec.md`](../specs/changes/frontend-fetch-binding/spec.md) и
 [`verification.md`](../specs/changes/frontend-fetch-binding/verification.md).
-Прежняя раскладка чата со сценой и подсказкой Кроша (заменена боковой
-панелью из `chat-sidebar-layout`) описана в следующих изменениях.
-Адаптивная геометрия и жизненный цикл подсказки Кроша описаны в
-[`spec.md`](../specs/changes/frontend-responsive-layout/spec.md), порядок работ —
-в [`plan.md`](../specs/changes/frontend-responsive-layout/plan.md), результаты
-проверки — в
-[`verification.md`](../specs/changes/frontend-responsive-layout/verification.md).
-Ноутбучная базовая геометрия, wide-screen масштаб и мобильный режим только с
-чатом уточнены в
-[`spec.md`](../specs/changes/frontend-laptop-baseline-mobile-chat/spec.md),
-[`plan.md`](../specs/changes/frontend-laptop-baseline-mobile-chat/plan.md) и
-[`verification.md`](../specs/changes/frontend-laptop-baseline-mobile-chat/verification.md).
-Правило скрытия подсказки после прямого нажатия на textarea или выбора типа
-истории описано в
-[`spec.md`](../specs/changes/frontend-krosh-hint-input-dismiss/spec.md),
-[`plan.md`](../specs/changes/frontend-krosh-hint-input-dismiss/plan.md) и
-[`verification.md`](../specs/changes/frontend-krosh-hint-input-dismiss/verification.md).
 Административный макет описан в
 [`spec.md`](../specs/changes/admin-dashboard-frontend/spec.md), порядок
 реализации — в

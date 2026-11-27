@@ -2,6 +2,7 @@ SHELL := /bin/sh
 
 COMPOSE_FILE := docker/compose.yaml
 ENV_FILE := docker/.env
+COMPOSE := docker compose $(if $(wildcard $(ENV_FILE)),--env-file "$(ENV_FILE)") -f "$(COMPOSE_FILE)"
 
 .PHONY: help run migrate create-admin frontend test lint format
 
@@ -17,7 +18,8 @@ help:
 	@echo "  make knowledge-restore REF=<type>/<id> [REVISION=N] [APPLY=1] [FORMAT=json] Restore a knowledge entity"
 	@echo "  make lore-check DIR=<path> Check a lore YAML package"
 	@echo "  make lore-clean DIR=<path> [APPLY=1] Remove technical noise from a lore package"
-	@echo "  make knowledge-benchmark DIR=<path> QUESTIONS=<yaml> Benchmark exact canon lookup"	@echo "  make lore-load DIR=<path> [FORMAT=json] Replace the lore corpus and BM25 index"
+	@echo "  make knowledge-benchmark DIR=<path> QUESTIONS=<yaml> Benchmark exact canon lookup"
+	@echo "  make lore-load DIR=<path> [FORMAT=json] Replace the lore corpus and BM25 index"
 	@echo "  make lore-search QUERY=\"...\" [TOPK=5] [FORMAT=json] Search the lore corpus"
 	@echo "  make lore-benchmark DIR=<path> QUESTIONS=<yaml> [K=5] [ANSWERS=<json>] [CONTEXT=1] [EXPAND=1] [HYBRID=1] Run the lore benchmark"
 	@echo "  make data-encrypt Encrypt data/ into encrypted/data.enc (asks for the passphrase)"
@@ -34,18 +36,17 @@ run:
 		echo "Error: $(COMPOSE_FILE) is not configured yet." >&2; \
 		exit 1; \
 	}
-	@if [ -f "$(ENV_FILE)" ]; then \
-		docker compose --env-file "$(ENV_FILE)" -f "$(COMPOSE_FILE)" up --build; \
-	else \
-		docker compose -f "$(COMPOSE_FILE)" up --build; \
-	fi
+	@compose_environment=$$($(COMPOSE) config --environment) || exit $$?; \
+	speech_enabled=$$(printf '%s\n' "$$compose_environment" | sed -n 's/^SPEECH_ENABLED=//p'); \
+	. docker/backend-features.sh; \
+	if feature_enabled "$$speech_enabled"; then \
+		set -- -f "$(dir $(COMPOSE_FILE))compose.speech.yaml"; \
+	fi; \
+	exec $(COMPOSE) "$$@" up --build --remove-orphans
 
 migrate:
-	@if [ -f "$(ENV_FILE)" ]; then \
-		docker compose --env-file "$(ENV_FILE)" -f "$(COMPOSE_FILE)" run --rm --build migrate; \
-	else \
-		docker compose -f "$(COMPOSE_FILE)" run --rm --build migrate; \
-	fi
+	@$(COMPOSE) build backend
+	@$(COMPOSE) run --rm migrate
 
 create-admin:
 	@test -n "$(LOGIN)" || { \
@@ -53,13 +54,8 @@ create-admin:
 		exit 2; \
 	}
 	@$(MAKE) --no-print-directory migrate
-	@if [ -f "$(ENV_FILE)" ]; then \
-		docker compose --env-file "$(ENV_FILE)" -f "$(COMPOSE_FILE)" run --rm migrate \
-			python -m smeshariki_ai.create_admin --login "$(LOGIN)"; \
-	else \
-		docker compose -f "$(COMPOSE_FILE)" run --rm migrate \
-			python -m smeshariki_ai.create_admin --login "$(LOGIN)"; \
-	fi
+	@$(COMPOSE) run --rm migrate \
+		python -m smeshariki_ai.create_admin --login "$(LOGIN)"
 
 .PHONY: knowledge-check
 
@@ -82,15 +78,9 @@ knowledge-load:
 		exit 2; \
 	}
 	@$(MAKE) --no-print-directory migrate >&2
-	@if [ -f "$(ENV_FILE)" ]; then \
-		docker compose --env-file "$(ENV_FILE)" -f "$(COMPOSE_FILE)" run --rm \
-			-v "$(abspath $(DIR)):/knowledge:ro" migrate \
-			python -m smeshariki_ai.rag load /knowledge --format "$(or $(FORMAT),text)"; \
-	else \
-		docker compose -f "$(COMPOSE_FILE)" run --rm \
-			-v "$(abspath $(DIR)):/knowledge:ro" migrate \
-			python -m smeshariki_ai.rag load /knowledge --format "$(or $(FORMAT),text)"; \
-	fi
+	@$(COMPOSE) run --rm \
+		-v "$(abspath $(DIR)):/knowledge:ro" migrate \
+		python -m smeshariki_ai.rag load /knowledge --format "$(or $(FORMAT),text)"
 
 .PHONY: knowledge-export
 
@@ -107,19 +97,12 @@ knowledge-export:
 		echo "Error: knowledge export directory $(DIR) is not empty." >&2; \
 		exit 2; \
 	}
-	@if [ -f "$(ENV_FILE)" ]; then \
-		docker compose --env-file "$(ENV_FILE)" -f "$(COMPOSE_FILE)" run --rm \
-			--user "$$(id -u):$$(id -g)" -e PYTHONDONTWRITEBYTECODE=1 \
-			-v "$(abspath $(DIR)):/knowledge" migrate \
-			python -m smeshariki_ai.rag export /knowledge \
-			$(if $(TYPE),--type $(TYPE),) --format "$(or $(FORMAT),text)"; \
-	else \
-		docker compose -f "$(COMPOSE_FILE)" run --rm \
-			--user "$$(id -u):$$(id -g)" -e PYTHONDONTWRITEBYTECODE=1 \
-			-v "$(abspath $(DIR)):/knowledge" migrate \
-			python -m smeshariki_ai.rag export /knowledge \
-			$(if $(TYPE),--type $(TYPE),) --format "$(or $(FORMAT),text)"; \
-	fi
+	@$(COMPOSE) build backend >&2
+	@$(COMPOSE) run --rm \
+		--user "$$(id -u):$$(id -g)" -e PYTHONDONTWRITEBYTECODE=1 \
+		-v "$(abspath $(DIR)):/knowledge" migrate \
+		python -m smeshariki_ai.rag export /knowledge \
+		$(if $(TYPE),--type $(TYPE),) --format "$(or $(FORMAT),text)"
 
 .PHONY: knowledge-delete
 
@@ -128,15 +111,10 @@ knowledge-delete:
 		echo "Usage: make knowledge-delete REFS=\"<type>/<id> ...\" [APPLY=1] [FORMAT=json]" >&2; \
 		exit 2; \
 	}
-	@if [ -f "$(ENV_FILE)" ]; then \
-		docker compose --env-file "$(ENV_FILE)" -f "$(COMPOSE_FILE)" run --rm migrate \
-			python -m smeshariki_ai.rag delete $(REFS) \
-			$(if $(filter 1,$(APPLY)),--apply,) --format "$(or $(FORMAT),text)"; \
-	else \
-		docker compose -f "$(COMPOSE_FILE)" run --rm migrate \
-			python -m smeshariki_ai.rag delete $(REFS) \
-			$(if $(filter 1,$(APPLY)),--apply,) --format "$(or $(FORMAT),text)"; \
-	fi
+	@$(COMPOSE) build backend >&2
+	@$(COMPOSE) run --rm migrate \
+		python -m smeshariki_ai.rag delete $(REFS) \
+		$(if $(filter 1,$(APPLY)),--apply,) --format "$(or $(FORMAT),text)"
 
 .PHONY: knowledge-restore
 
@@ -145,17 +123,11 @@ knowledge-restore:
 		echo "Usage: make knowledge-restore REF=<type>/<id> [REVISION=N] [APPLY=1] [FORMAT=json]" >&2; \
 		exit 2; \
 	}
-	@if [ -f "$(ENV_FILE)" ]; then \
-		docker compose --env-file "$(ENV_FILE)" -f "$(COMPOSE_FILE)" run --rm migrate \
-			python -m smeshariki_ai.rag restore $(REF) \
-			$(if $(REVISION),--revision $(REVISION),) \
-			$(if $(filter 1,$(APPLY)),--apply,) --format "$(or $(FORMAT),text)"; \
-	else \
-		docker compose -f "$(COMPOSE_FILE)" run --rm migrate \
-			python -m smeshariki_ai.rag restore $(REF) \
-			$(if $(REVISION),--revision $(REVISION),) \
-			$(if $(filter 1,$(APPLY)),--apply,) --format "$(or $(FORMAT),text)"; \
-	fi
+	@$(COMPOSE) build backend >&2
+	@$(COMPOSE) run --rm migrate \
+		python -m smeshariki_ai.rag restore $(REF) \
+		$(if $(REVISION),--revision $(REVISION),) \
+		$(if $(filter 1,$(APPLY)),--apply,) --format "$(or $(FORMAT),text)"
 
 .PHONY: data-encrypt data-decrypt
 
@@ -223,15 +195,9 @@ lore-load:
 		exit 2; \
 	}
 	@$(MAKE) --no-print-directory migrate >&2
-	@if [ -f "$(ENV_FILE)" ]; then \
-		docker compose --env-file "$(ENV_FILE)" -f "$(COMPOSE_FILE)" run --rm \
-			-v "$(abspath $(DIR)):/lore:ro" migrate \
-			python -m smeshariki_ai.rag lore-load /lore --format "$(or $(FORMAT),text)"; \
-	else \
-		docker compose -f "$(COMPOSE_FILE)" run --rm \
-			-v "$(abspath $(DIR)):/lore:ro" migrate \
-			python -m smeshariki_ai.rag lore-load /lore --format "$(or $(FORMAT),text)"; \
-	fi
+	@$(COMPOSE) run --rm \
+		-v "$(abspath $(DIR)):/lore:ro" migrate \
+		python -m smeshariki_ai.rag lore-load /lore --format "$(or $(FORMAT),text)"
 
 .PHONY: lore-search
 
@@ -240,17 +206,14 @@ lore-search:
 		echo "Usage: make lore-search QUERY=\"...\" [TOPK=5] [FORMAT=json]" >&2; \
 		exit 2; \
 	}
-	@if [ -f "$(ENV_FILE)" ]; then \
-		docker compose --env-file "$(ENV_FILE)" -f "$(COMPOSE_FILE)" run --rm migrate \
-			python -m smeshariki_ai.rag lore-search "$(QUERY)" \
-			--top-k "$(or $(TOPK),5)" --format "$(or $(FORMAT),text)"; \
-	else \
-		docker compose -f "$(COMPOSE_FILE)" run --rm migrate \
-			python -m smeshariki_ai.rag lore-search "$(QUERY)" \
-			--top-k "$(or $(TOPK),5)" --format "$(or $(FORMAT),text)"; \
-	fi
+	@$(COMPOSE) build backend >&2
+	@$(COMPOSE) run --rm migrate \
+		python -m smeshariki_ai.rag lore-search "$(QUERY)" \
+		--top-k "$(or $(TOPK),5)" --format "$(or $(FORMAT),text)"
 
 .PHONY: lore-benchmark
+
+LORE_BENCHMARK_ENV = $(if $(filter 1,$(HYBRID)),RAG_HYBRID_ENABLED=true BACKEND_IMAGE_SUFFIX=-hybrid-benchmark)
 
 lore-benchmark:
 	@test -n "$(DIR)" || { \
@@ -269,31 +232,18 @@ lore-benchmark:
 		echo "Error: questions file $(QUESTIONS) not found." >&2; \
 		exit 2; \
 	}
-	@if [ -f "$(ENV_FILE)" ]; then \
-		docker compose --env-file "$(ENV_FILE)" -f "$(COMPOSE_FILE)" run --rm \
-			-v "$(abspath $(DIR)):/lore:ro" \
-			-v "$(abspath $(QUESTIONS)):/questions.yaml:ro" \
-			$(if $(ANSWERS),-v "$(abspath $(ANSWERS)):/answers.json:ro",) \
-			migrate python -m smeshariki_ai.rag lore-benchmark /lore \
-			--questions /questions.yaml --k "$(or $(K),5)" \
-			$(if $(ANSWERS),--answers /answers.json,) \
-			$(if $(filter 1,$(CONTEXT)),--context,) \
-			$(if $(filter 1,$(EXPAND)),--expand,) \
-			$(if $(filter 1,$(HYBRID)),--hybrid,) \
-			--format "$(or $(FORMAT),text)"; \
-	else \
-		docker compose -f "$(COMPOSE_FILE)" run --rm \
-			-v "$(abspath $(DIR)):/lore:ro" \
-			-v "$(abspath $(QUESTIONS)):/questions.yaml:ro" \
-			$(if $(ANSWERS),-v "$(abspath $(ANSWERS)):/answers.json:ro",) \
-			migrate python -m smeshariki_ai.rag lore-benchmark /lore \
-			--questions /questions.yaml --k "$(or $(K),5)" \
-			$(if $(ANSWERS),--answers /answers.json,) \
-			$(if $(filter 1,$(CONTEXT)),--context,) \
-			$(if $(filter 1,$(EXPAND)),--expand,) \
-			$(if $(filter 1,$(HYBRID)),--hybrid,) \
-			--format "$(or $(FORMAT),text)"; \
-	fi
+	@$(LORE_BENCHMARK_ENV) $(COMPOSE) build backend >&2
+	@$(LORE_BENCHMARK_ENV) $(COMPOSE) run --rm \
+		-v "$(abspath $(DIR)):/lore:ro" \
+		-v "$(abspath $(QUESTIONS)):/questions.yaml:ro" \
+		$(if $(ANSWERS),-v "$(abspath $(ANSWERS)):/answers.json:ro",) \
+		migrate python -m smeshariki_ai.rag lore-benchmark /lore \
+		--questions /questions.yaml --k "$(or $(K),5)" \
+		$(if $(ANSWERS),--answers /answers.json,) \
+		$(if $(filter 1,$(CONTEXT)),--context,) \
+		$(if $(filter 1,$(EXPAND)),--expand,) \
+		$(if $(filter 1,$(HYBRID)),--hybrid,) \
+		--format "$(or $(FORMAT),text)"
 
 frontend:
 	@npm --prefix frontend run dev

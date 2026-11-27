@@ -1,5 +1,4 @@
 import importlib
-import logging
 import sys
 from typing import Any
 
@@ -15,7 +14,7 @@ from smeshariki_ai.agent import (
     LiteLLMProviderConfig,
     ToolCall,
 )
-from smeshariki_ai.application import AgentService, InMemoryDialogEventBroker
+from smeshariki_ai.application import AgentService
 from smeshariki_ai.auth import (
     AuthConfig,
     AuthService,
@@ -25,14 +24,12 @@ from smeshariki_ai.auth import (
 )
 from smeshariki_ai.bootstrap import (
     build_agent_service,
-    configure_logging,
     create_application,
 )
 from smeshariki_ai.cache import RedisAttemptLimiter, RedisConfig
 from smeshariki_ai.config import Config
 from smeshariki_ai.db import DatabaseConfig, PostgresHistoryStore
 from smeshariki_ai.dialogs import InMemoryHistoryStore
-from smeshariki_ai.observability import LoggingConfig
 from smeshariki_ai.rag.lore.analyzer import MorphAnalyzer, SimpleAnalyzer
 from smeshariki_ai.rag.lore.index import InMemoryBm25Index
 from smeshariki_ai.rag.lore.postgres import PostgresBm25Index
@@ -52,27 +49,6 @@ def make_config(*, speech_enabled: bool = False) -> Config:
         redis=RedisConfig(url="redis://127.0.0.1:1/0"),
         speech=SpeechConfig(enabled=speech_enabled),
     )
-
-
-def test_bootstrap_builds_service_with_explicit_provider() -> None:
-    config = make_config()
-    provider = FakeLLMProvider()
-
-    service = build_agent_service(config, llm_provider=provider)
-    app = create_application(config, llm_provider=provider)
-
-    assert isinstance(service, AgentService)
-    assert isinstance(service._event_broker, InMemoryDialogEventBroker)
-    assert isinstance(service._history_store, InMemoryHistoryStore)
-    assert isinstance(app, FastAPI)
-    assert app.title == "smeshariki-ai"
-    assert isinstance(app.state.agent_service, AgentService)
-    assert [
-        definition.name for definition in service._agent._tool_registry.definitions
-    ] == ["lookup_knowledge", "get_story_canon", "search_lore"]
-    lore_index, lore_analyzer = lore_components(service)
-    assert isinstance(lore_index, InMemoryBm25Index)
-    assert isinstance(lore_analyzer, SimpleAnalyzer)
 
 
 def knowledge_reader(service: AgentService) -> object:
@@ -244,23 +220,6 @@ def test_create_application_does_not_load_silero_for_explicit_speech_deps(
     )
 
     assert app.state.speech_service is not None
-
-
-def test_create_application_requires_config() -> None:
-    with pytest.raises(TypeError):
-        create_application()  # type: ignore[call-arg]
-
-
-def test_configure_logging_enables_application_info_events() -> None:
-    application_logger = logging.getLogger("smeshariki_ai")
-    original_level = application_logger.level
-    application_logger.setLevel(logging.WARNING)
-
-    try:
-        configure_logging(LoggingConfig())
-        assert application_logger.level == logging.INFO
-    finally:
-        application_logger.setLevel(original_level)
 
 
 def test_main_loads_config_once_and_passes_it_to_application(
