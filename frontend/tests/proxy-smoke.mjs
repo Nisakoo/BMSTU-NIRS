@@ -40,7 +40,7 @@ try {
     const entryUrl = document.querySelector(`script[type="module"][src$="/app/${entry}.ts"]`)?.getAttribute("src");
     assert.ok(entryUrl, `Missing module for ${path}`);
     const url = new URL(entryUrl, base + path);
-    assert.equal(url.pathname, `/app/${entry}.ts`);
+    assert.equal(url.pathname, `/src/app/${entry}.ts`);
     const module = await fetch(url);
     assert.equal(module.status, 200);
     assert.match(module.headers.get("content-type"), /javascript/);

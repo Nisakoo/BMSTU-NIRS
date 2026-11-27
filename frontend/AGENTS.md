@@ -1,8 +1,8 @@
 # Frontend
 
 Read the [frontend guide](README.md) for page behavior and deployment. The HTML
-entries in `src/`, `src/login/` and `src/admin/` must work on direct navigation
-through both Vite and Nginx.
+entries live under `src/entry/`, the Vite root. Direct navigation to `/`,
+`/login/` and `/admin/` must work through both Vite and Nginx.
 
 - Follow Feature-Sliced Design. Import down the layers from `app` to `pages`,
   `widgets`, `features`, `entities` and `shared`. Use a slice's public

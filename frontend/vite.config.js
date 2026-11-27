@@ -13,7 +13,10 @@ const proxy = {
 
 export default defineConfig({
   plugins: [svelte()],
-  root: fileURLToPath(new URL("./src", import.meta.url)),
+  root: fileURLToPath(new URL("./src/entry/", import.meta.url)),
+  resolve: {
+    alias: { "/src": fileURLToPath(new URL("./src", import.meta.url)) },
+  },
   server: {
     port: 5173,
     strictPort: true,
@@ -24,9 +27,9 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       input: {
-        main: fileURLToPath(new URL("./src/index.html", import.meta.url)),
-        admin: fileURLToPath(new URL("./src/admin/index.html", import.meta.url)),
-        login: fileURLToPath(new URL("./src/login/index.html", import.meta.url)),
+        main: fileURLToPath(new URL("./src/entry/index.html", import.meta.url)),
+        admin: fileURLToPath(new URL("./src/entry/admin/index.html", import.meta.url)),
+        login: fileURLToPath(new URL("./src/entry/login/index.html", import.meta.url)),
       },
     },
   },
