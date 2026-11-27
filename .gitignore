@@ -49,3 +49,6 @@ Thumbs.db
 # Course materials kept locally; the repository stays without them.
 /НИРС.pdf
 /Занятие_3_RAG_BM25.pdf
+# Scratch files created while investigating; never commit them.
+/.tmp_*
+/.commit-msg.tmp
