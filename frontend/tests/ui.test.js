@@ -145,6 +145,7 @@ async function setup(submitResponse, {
     return execCommandResult;
   };
   vi.spyOn(HTMLTextAreaElement.prototype, "scrollHeight", "get").mockReturnValue(30);
+  vi.spyOn(HTMLTextAreaElement.prototype, "clientHeight", "get").mockReturnValue(30);
   vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
   vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
   vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
@@ -396,8 +397,7 @@ test("preset, autosize, and Enter submission remain available", async () => {
   const ui = await setup(deferred());
   assert.equal(ui.prompt.style.height, "");
   const measure = ui.form.querySelector(".sai-composer-measure");
-  Object.defineProperty(measure, "clientWidth", { value: 120 });
-  Object.defineProperty(measure, "scrollWidth", { get: () => measure.textContent.length * 8 });
+  Object.defineProperty(measure, "scrollHeight", { get: () => measure.value ? 54 : 30 });
   await fire(ui.chips[0], "click");
   assert.match(ui.prompt.value, /Кроша и Ёжика/);
   assert.equal(ui.prompt.style.height, "30px");
@@ -2341,8 +2341,8 @@ test("the composer switches rows only when text needs more than the compact colu
   const ui = await setup(deferred());
   const measure = ui.form.querySelector(".sai-composer-measure");
   let available = 128;
-  Object.defineProperty(measure, "clientWidth", { get: () => available });
-  Object.defineProperty(measure, "scrollWidth", { get: () => measure.textContent.length * 8 });
+  Object.defineProperty(measure, "clientHeight", { value: 34 });
+  Object.defineProperty(measure, "scrollHeight", { get: () => measure.value.length * 8 > available ? 54 : 34 });
   const expanded = () => ui.form.classList.contains("is-expanded");
 
   assert.equal(expanded(), false);

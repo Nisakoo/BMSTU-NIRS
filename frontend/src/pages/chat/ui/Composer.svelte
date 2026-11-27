@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { onMount, tick } from "svelte";
   import { LENGTH_STEPS, VOICES, presets } from "../model/options";
 
   let { disabled, waiting, voice, chooseVoice, submit, settings }: {
@@ -13,7 +13,7 @@
   let length = $derived(LENGTH_STEPS[step]);
   let label = $derived(VOICES.find(([id]) => id === voice)?.[1] ?? "Айдар");
   let expanded = $state(false);
-  let measure: HTMLSpanElement;
+  let measure: HTMLTextAreaElement;
   let prompt: HTMLTextAreaElement;
   let form: HTMLFormElement;
   let slider: HTMLInputElement;
@@ -29,8 +29,8 @@
     preset = topic;
   }
   async function fit(value: string) {
-    // The measuring span always occupies the compact column, even when the editor is wide.
-    expanded = value.includes("\n") || measure.scrollWidth > measure.clientWidth;
+    measure.value = value;
+    expanded = value.includes("\n") || measure.scrollHeight > measure.clientHeight;
     await tick();
     if (!prompt) return;
     if (!expanded) {
@@ -43,6 +43,18 @@
     prompt.scrollTop = scrollTop;
   }
   $effect(() => { void fit(draft); });
+  onMount(() => {
+    const refit = () => { void fit(draft); };
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(refit);
+    if (observer) observer.observe(measure);
+    else window.addEventListener("resize", refit);
+    document.fonts?.addEventListener("loadingdone", refit);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", refit);
+      document.fonts?.removeEventListener("loadingdone", refit);
+    };
+  });
   async function send(event: SubmitEvent) {
     event.preventDefault();
     if (disabled || waiting || !draft.trim()) return;
@@ -84,10 +96,9 @@
   }
 </script>
 <svelte:document onclick={outside} onkeydown={keys} />
-<svelte:window onresize={() => void fit(draft)} />
 <div class="sai-compose-wrap">
   <form class="sai-composer" class:is-expanded={expanded} id="saiForm" bind:this={form} onsubmit={send}>
-    <span class="sai-composer-measure" aria-hidden="true" bind:this={measure}>{draft.includes("\n") ? "" : draft}</span>
+    <textarea class="sai-composer-measure" rows="1" readonly inert bind:this={measure}></textarea>
     <textarea id="saiPrompt" rows="1" placeholder="Идея для сказки" aria-label="Идея для истории"
       {disabled} bind:this={prompt} bind:value={() => draft, edit} onkeydown={e => {
         if (e.key !== "Enter" || e.shiftKey || e.isComposing || e.keyCode === 229) return;

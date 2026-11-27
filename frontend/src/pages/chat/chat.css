@@ -612,22 +612,21 @@ button,textarea{font:inherit}
 }
 .sai-composer:focus-within{border-color:var(--sai-blue);box-shadow:0 18px 40px rgba(0,8,20,.45),0 0 0 4px rgba(98,208,255,.14)}
 .sai-composer.is-expanded{--toolbar-row:2;padding-block:9px}
-.sai-composer textarea,.sai-composer-measure{
+.sai-composer textarea{
   grid-column:1;grid-row:1;
   padding:5px 8px;
   font:500 15px/1.45 Inter,system-ui,-apple-system,"Segoe UI",sans-serif;
-}
-.sai-composer-measure{
-  position:absolute;inset-inline:0;max-height:0;
-  visibility:hidden;overflow:hidden;white-space:pre;pointer-events:none;
-}
-.sai-composer textarea{
   width:100%;min-width:0;min-height:34px;max-height:min(176px,24dvh);
   overflow-y:hidden;overscroll-behavior:contain;resize:none;
   border:0;outline:0;background:transparent;color:#edf6ff;
 }
+.sai-composer .sai-composer-measure{
+  /* Measure native wrapping one em before the compact editor's right edge. */
+  position:absolute;grid-column:1/2;inset-inline-start:0;width:calc(100% - 1em);
+  visibility:hidden;pointer-events:none;
+}
 .sai-composer textarea::placeholder{color:#8ea6be;white-space:nowrap;text-overflow:ellipsis}
-.sai-composer.is-expanded textarea{grid-column:1/-1;overflow-y:auto}
+.sai-composer.is-expanded #saiPrompt{grid-column:1/-1;overflow-y:auto}
 /* Длина истории: кнопка в цвет поля, подложка — только при наведении или открытой панели */
 .sai-composer{position:relative}
 .sai-length-button{
@@ -892,7 +891,7 @@ button,textarea{font:inherit}
   .sai-player{flex-basis:100%;min-width:0;max-width:none}
 }
 @media (max-width:480px){
-  .sai-composer{grid-template-columns:minmax(0,1fr) 80px 72px 40px}
+  .sai-composer{grid-template-columns:minmax(0,1fr) 86px 72px 40px}
   .sai-length-button{padding:0 4px}
   .sai-voice-picker{padding-inline:4px}
 }
