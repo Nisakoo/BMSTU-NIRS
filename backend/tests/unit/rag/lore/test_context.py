@@ -40,7 +40,7 @@ def test_empty_search_returns_empty_context() -> None:
 
 
 def test_at_most_three_passages_and_one_per_document() -> None:
-    context = LoreContextBuilder().build(
+    context = LoreContextBuilder(max_passages=3).build(
         result(
             hit("a", 10.0),
             hit("a", 9.0, position=1),

@@ -70,8 +70,8 @@ class LoreContextBuilder:
         self,
         *,
         retrieval_k: int = 10,
-        max_passages: int = 3,
-        max_chars: int = 1600,
+        max_passages: int = 5,
+        max_chars: int = 4800,
         min_score: float = 2.0,
     ) -> None:
         if retrieval_k <= 0:

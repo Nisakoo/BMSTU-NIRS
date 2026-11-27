@@ -11,11 +11,13 @@ from smeshariki_ai.agent.tools import ToolRegistry
 from smeshariki_ai.rag.lore.analyzer import SimpleAnalyzer
 from smeshariki_ai.rag.lore.bm25 import Bm25Params
 from smeshariki_ai.rag.lore.context import LoreContextBuilder
+from smeshariki_ai.rag.lore.embeddings import FakeEmbeddingProvider
 from smeshariki_ai.rag.lore.index import InMemoryBm25Index
 from smeshariki_ai.rag.lore.models import LoreQuery
 from smeshariki_ai.rag.lore.ports import LoreSchemaNotReadyError
 from smeshariki_ai.rag.lore.postgres import (
     PostgresBm25Index,
+    PostgresDenseIndex,
     PostgresLoreDocumentStore,
     PostgresLoreStore,
 )
@@ -203,9 +205,43 @@ async def test_missing_tables_are_reported_as_schema_not_ready(
             text(
                 "DROP TABLE rag_lore_postings, rag_lore_terms, "
                 "rag_lore_chunks, rag_lore_documents, rag_lore_stats, "
-                "rag_lore_loads CASCADE"
+                "rag_lore_loads, rag_lore_embeddings CASCADE"
             )
         )
 
     with pytest.raises(LoreSchemaNotReadyError):
         await PostgresBm25Index(engine).search(["слово"], 5, Bm25Params())
+
+
+async def test_postgres_dense_index_returns_persisted_vectors(
+    engine: AsyncEngine, tmp_path: Path
+) -> None:
+    write_package(
+        tmp_path,
+        {
+            "a": "Возврат оплаты на карту.",
+            "b": "Статус оплаты в приложении.",
+            "c": "Возврат билета через кассу.",
+        },
+    )
+    analyzer = SimpleAnalyzer()
+    provider = FakeEmbeddingProvider(dimension=384)
+    store = PostgresLoreStore(engine, embedding_provider=provider)
+
+    await LoadLore(analyzer).load(tmp_path, store)
+
+    async with engine.connect() as connection:
+        stored = await connection.scalar(
+            text("SELECT count(*) FROM rag_lore_embeddings")
+        )
+    dense = PostgresDenseIndex(engine, provider)
+    hits = await dense.search("возврат оплаты", limit=2)
+
+    assert stored == 3
+    assert hits[0].document_id == "a"
+    assert [hit.rank for hit in hits] == [1, 2]
+
+    merged = await SearchLore(PostgresBm25Index(engine), analyzer, dense=dense).search(
+        LoreQuery(text="возврат оплаты", top_k=3)
+    )
+    assert "a" in [hit.document_id for hit in merged.hits]

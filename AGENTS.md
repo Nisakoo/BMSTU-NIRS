@@ -482,8 +482,11 @@
     `SearchLore` (`rag/lore/services.py`) и `LoreContextBuilder`
     (`rag/lore/context.py`). BM25-поиск по YAML-пакетам лора, PostgreSQL-индекс
     `rag_lore_*` и in-memory адаптер реализованы в `lore-bm25-core`; инструмент
-    отдаёт не более 3 фрагментов, один на документ, до 1600 символов и без
-    score/id. Абсолютный `min_score` и требование содержательного терма
+    отдаёт не более 5 фрагментов, один на документ, до 4800 символов и без
+    score/id. Термы заголовка индексируются в первом чанке с двойным повтором,
+    но не увеличивают его длину (`LoreChunk.length`), поэтому название эпизода
+    работает как буст без штрафа по нормализации. Абсолютный `min_score` и
+    требование содержательного терма
     отсекают слабые совпадения и запросы из одних имён. Режим `mode`
     (`any`/`style`/`plot`/`facts`) фильтрует документы по тегам `tags`;
     события `lore.search.completed` и `lore.tool.completed` показывают
@@ -497,10 +500,12 @@
     вопросы через путь `search_lore`: пассажи выбирает общая с инструментом
     функция `LoreContextBuilder.select`, отчёт получает `context_recall`,
     `context_any_relevant`, `context_found_rate` и `trap_passage_rate`;
-    контрольный прогон на golden: `Context Recall 0.367`,
-    `Trap Passage Rate 1.000`, документные `Doc Recall@5 0.550` и
-    `Doc MRR@5 0.722` (метрики считаются и по чанкам, и по документам;
-    документные дедуплицируют хиты до среза `k`). Параметры контекста задаются
+    контрольный прогон на golden: `Context Recall 0.583` (`Any-Relevant
+    0.850`), чанковый `Recall@5 0.500`, документные `Doc Recall@5 0.583` и
+    `Doc MRR@5 0.725`; на контрольном наборе курса — `Context Recall 0.867`,
+    `Doc Recall@5 0.867`. `Trap Passage Rate 1.000`. Метрики считаются и по
+    чанкам, и по документам; документные дедуплицируют хиты до среза `k`.
+    Параметры контекста задаются
     `RAG_LORE_RETRIEVAL_K`, `RAG_LORE_MAX_PASSAGES`, `RAG_LORE_MAX_CHARS`,
     `RAG_LORE_MIN_SCORE`; длинный пассаж обрезается по границе предложения,
     чтобы освободить бюджет следующему. Команда `lore-clean` (dry-run по
@@ -564,6 +569,22 @@
     `false`). Замер на golden: `MRR@5 0.713 → 0.810`, `Doc MRR@5 0.722 → 0.810`,
     но `Context Recall` не меняется (`0.367`), поэтому функция включена только
     как opt-in. Спецификация: `lore-llm-rerank`.
+19. Гибридный поиск (`rag/lore/embeddings.py`, `rag/lore/hybrid.py`,
+    `rag/lore/postgres.py`): порт `EmbeddingProvider` (`embed` и `embed_query`),
+    `LocalEmbeddingProvider` на `intfloat/multilingual-e5-small` с ленивым
+    импортом `transformers`, детерминированный `FakeEmbeddingProvider`;
+    `InMemoryDenseIndex` для бенчмарка и `PostgresDenseIndex` для pgvector.
+    `fuse_hits` сливает BM25 и плотные кандидаты по документам с весом
+    `RAG_HYBRID_BM25_WEIGHT` (по умолчанию `0.7`) и сохраняет шкалу BM25, чтобы
+    абсолютный `min_score` работал; при сбое плотной части поиск пишет
+    `lore.search.degraded` и работает на BM25. Миграция `0017` создаёт
+    расширение `vector` и таблицу `rag_lore_embeddings`, образ PostgreSQL —
+    `pgvector/pgvector:pg17`, кэш модели монтируется в backend
+    (`HF_HOME=/models/hf`). Флаг `RAG_HYBRID_ENABLED` (по умолчанию `false`):
+    на контрольном наборе курса `Recall@5 0.733 → 0.900` и `Context Recall
+    0.867 → 0.900`, на golden set контекст немного хуже (`0.583 → 0.550`),
+    поэтому режим opt-in. Бенчмарк: `--hybrid` и `--hybrid-weight`.
+    Спецификация: `lore-hybrid-retrieval`.
 
 ## Реализованная озвучка сказок
 
@@ -613,6 +634,10 @@
 - PostgreSQL 17, SQLAlchemy (async Core) с asyncpg и Alembic — постоянное
   хранилище пользователей, истории диалогов, структурированных знаний RAG и
   его миграции.
+- `pgvector` — хранение и косинусный поиск эмбеддингов лора
+  (`rag_lore_embeddings`), образ `pgvector/pgvector:pg17`.
+- `transformers` — локальные эмбеддинги `intfloat/multilingual-e5-small` для
+  гибридного поиска; импортируется лениво, без него работает BM25.
 - PyYAML — безопасный разбор пакетов структурированных знаний RAG.
 - Redis — blacklist отозванных access-токенов и счётчики ограничения частоты входа.
 - PyJWT и argon2-cffi — подпись access JWT и хеширование паролей.

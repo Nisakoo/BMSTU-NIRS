@@ -7,6 +7,8 @@ database; a test checks that it matches this description.
 
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
@@ -26,10 +28,30 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.types import UserDefinedType
 
 from smeshariki_ai.rag.models import SLUG_PATTERN
 
+VECTOR_DIMENSIONS = 384
+
+
+class Vector(UserDefinedType):
+    """The pgvector ``vector`` column type, enough for DDL and comparisons."""
+
+    cache_ok = True
+
+    def __init__(self, dimensions: int = VECTOR_DIMENSIONS) -> None:
+        self.dimensions = dimensions
+
+    def get_col_spec(self, **_: Any) -> str:
+        return f"vector({self.dimensions})"
+
+
 metadata = MetaData()
+# The pgvector column type cannot be reflected by SQLAlchemy, so the embeddings
+# table lives in its own metadata and its shape is checked by an
+# ``information_schema`` test instead of autogenerate.
+embedding_metadata = MetaData()
 
 documents = Table(
     "rag_lore_documents",
@@ -136,4 +158,21 @@ loads = Table(
         "term_count IS NULL OR term_count >= 0",
         name="rag_lore_loads_term_count_non_negative",
     ),
+)
+
+embeddings = Table(
+    "rag_lore_embeddings",
+    embedding_metadata,
+    Column(
+        "chunk_id",
+        BigInteger,
+        ForeignKey("rag_lore_chunks.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column("model", Text, nullable=False),
+    Column("embedding", Vector(VECTOR_DIMENSIONS), nullable=False),
+    Column(
+        "created_at", DateTime(timezone=True), nullable=False, server_default=func.now()
+    ),
+    CheckConstraint("btrim(model) <> ''", name="rag_lore_embeddings_model_not_blank"),
 )

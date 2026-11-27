@@ -160,7 +160,7 @@ make test-integration PYTEST_ARGS="backend/tests/integration/rag -x"
 ```
 
 Команда поднимает отдельный Compose-проект `smeshariki-ai-test` из
-`compose.test.yaml` (`postgres:17-alpine` и `redis:7-alpine`), ждёт
+`compose.test.yaml` (`pgvector/pgvector:pg17` и `redis:7-alpine`), ждёт
 healthcheck и запускает pytest на хосте через `uv` с `TEST_DATABASE_URL` и
 `TEST_REDIS_URL`. Проект не читает `docker/.env`, не использует тома и сеть
 основного стека и может работать рядом с `make run`. Порты выбираются Docker

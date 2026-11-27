@@ -97,9 +97,14 @@ async def postgres_lore_store() -> AsyncIterator[LoreStore]:
         config = load_config()
     except ValidationError as error:
         raise ConfigurationError from error
+    embedding_provider = None
+    if config.rag.hybrid_enabled:
+        from smeshariki_ai.rag.lore.embeddings import LocalEmbeddingProvider
+
+        embedding_provider = LocalEmbeddingProvider()
     engine = create_engine(config.database)
     try:
-        yield PostgresLoreStore(engine)
+        yield PostgresLoreStore(engine, embedding_provider=embedding_provider)
     finally:
         await engine.dispose()
 
@@ -182,6 +187,8 @@ def main(
                 arguments.expand_cache,
                 arguments.rerank,
                 arguments.retrieval_k,
+                hybrid=arguments.hybrid,
+                hybrid_weight=arguments.hybrid_weight,
             )
         )
         _write_lore_benchmark(stdout, arguments.format, report)
@@ -299,6 +306,9 @@ async def _lore_benchmark(
     expand_cache_path: Path | None = None,
     rerank: bool = False,
     retrieval_k: int = 10,
+    *,
+    hybrid: bool = False,
+    hybrid_weight: float = 0.7,
 ) -> BenchmarkReport | None:
     try:
         questions = read_benchmark_questions(questions_path)
@@ -355,6 +365,22 @@ async def _lore_benchmark(
 
             ranker = LLMReranker(provider)
 
+        dense = None
+        if hybrid:
+            from smeshariki_ai.rag.lore.embeddings import (
+                EmbeddingUnavailableError,
+                LocalEmbeddingProvider,
+            )
+            from smeshariki_ai.rag.lore.hybrid import InMemoryDenseIndex
+            from smeshariki_ai.rag.lore.package import read_package
+
+            try:
+                dense = await InMemoryDenseIndex.build(
+                    LocalEmbeddingProvider(), read_package(package).documents
+                )
+            except EmbeddingUnavailableError as error:
+                raise BenchmarkError(str(error)) from error
+
         return await BenchmarkRunner(
             MorphAnalyzer(),
             answerer,
@@ -362,6 +388,8 @@ async def _lore_benchmark(
             context=LoreContextBuilder(retrieval_k=retrieval_k) if context else None,
             expander=expander,
             ranker=ranker,
+            dense=dense,
+            hybrid_weight=hybrid_weight,
         ).run(package, questions)
     except (BenchmarkError, ConfigurationError):
         return None
@@ -479,6 +507,17 @@ def _parser() -> argparse.ArgumentParser:
         default=10,
         help="окно кандидатов для контекста (по умолчанию 10)",
     )
+    lore_benchmark.add_argument(
+        "--hybrid",
+        action="store_true",
+        help="добавить плотные кандидаты (embeddings) к BM25",
+    )
+    lore_benchmark.add_argument(
+        "--hybrid-weight",
+        type=_weight,
+        default=0.7,
+        help="доля BM25 в слиянии, 0…1 (по умолчанию 0.7)",
+    )
     lore_benchmark.add_argument("--format", choices=("text", "json"), default="text")
 
     export = commands.add_parser("export", help="выгрузить знания в пакет")
@@ -550,6 +589,16 @@ def _positive_int(value: str) -> int:
         raise argparse.ArgumentTypeError("ожидается целое число") from error
     if number < 1:
         raise argparse.ArgumentTypeError("ревизия должна быть не меньше 1")
+    return number
+
+
+def _weight(value: str) -> float:
+    try:
+        number = float(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("ожидается число от 0 до 1") from error
+    if not 0.0 <= number <= 1.0:
+        raise argparse.ArgumentTypeError("вес должен быть от 0 до 1")
     return number
 
 

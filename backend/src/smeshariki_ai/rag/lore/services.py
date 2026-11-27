@@ -14,9 +14,11 @@ from smeshariki_ai.observability import log_event, utc_now
 from smeshariki_ai.rag.lore.analyzer import TextAnalyzer
 from smeshariki_ai.rag.lore.bm25 import Bm25Params
 from smeshariki_ai.rag.lore.chunking import ChunkingConfig, chunk_text
+from smeshariki_ai.rag.lore.hybrid import DenseSearcher, fuse_hits
 from smeshariki_ai.rag.lore.models import (
     LoreChunk,
     LoreEntry,
+    LoreHit,
     LoreLoadSummary,
     LoreQuery,
     LoreSearchResult,
@@ -59,10 +61,17 @@ class SearchLore:
         index: LoreIndex,
         analyzer: TextAnalyzer,
         config: LoreConfig | None = None,
+        *,
+        dense: DenseSearcher | None = None,
+        hybrid_weight: float = 0.7,
     ) -> None:
+        if not 0.0 <= hybrid_weight <= 1.0:
+            raise ValueError("hybrid_weight must be between 0 and 1")
         self._index = index
         self._analyzer = analyzer
         self._config = config or LoreConfig()
+        self._dense = dense
+        self._hybrid_weight = hybrid_weight
 
     async def search(self, query: LoreQuery) -> LoreSearchResult:
         started_at = utc_now()
@@ -77,6 +86,8 @@ class SearchLore:
                 else ()
             )
             version = await self._index.version()
+            if self._dense is not None:
+                hits = await self._fuse(query, hits)
         except LoreStoreError as error:
             log_event(
                 logger,
@@ -109,6 +120,31 @@ class SearchLore:
         """Analyze a query the same way documents were analyzed."""
 
         return self._analyzer.terms(text)
+
+    async def _fuse(
+        self, query: LoreQuery, hits: tuple[LoreHit, ...]
+    ) -> tuple[LoreHit, ...]:
+        """Merge BM25 hits with dense candidates, falling back on BM25 alone."""
+
+        dense = self._dense
+        if dense is None:
+            return hits
+        try:
+            dense_hits = await dense.search(query.text, query.top_k * 4)
+        except Exception as error:  # noqa: BLE001 - dense side is optional
+            log_event(
+                logger,
+                logging.WARNING,
+                "lore.search.degraded",
+                started_at=utc_now(),
+                duration_ms=0.0,
+                outcome="degraded",
+                error_type=type(error).__name__,
+            )
+            return hits
+        if not dense_hits:
+            return hits
+        return fuse_hits(hits, dense_hits, weight=self._hybrid_weight)
 
 
 class LoadLore:
@@ -182,18 +218,42 @@ class LoadLore:
 
     def _entries(self, root: Path) -> Iterator[LoreEntry]:
         for document in iter_documents(root):
-            chunks = tuple(
-                LoreChunk(
-                    document_id=document.id,
-                    position=position,
-                    text=text,
-                    terms=self._analyzer.terms(text),
+            title_terms = self._analyzer.terms(document.title)
+            chunks = []
+            for position, text in enumerate(
+                chunk_text(document.text, self._config.chunking)
+            ):
+                terms, length = self._chunk_terms(position, title_terms, text)
+                chunks.append(
+                    LoreChunk(
+                        document_id=document.id,
+                        position=position,
+                        text=text,
+                        terms=terms,
+                        length=length,
+                    )
                 )
-                for position, text in enumerate(
-                    chunk_text(document.text, self._config.chunking)
-                )
-            )
-            yield LoreEntry(document=document, chunks=chunks)
+            yield LoreEntry(document=document, chunks=tuple(chunks))
+
+    def _chunk_terms(
+        self,
+        position: int,
+        title_terms: tuple[str, ...],
+        text: str,
+    ) -> tuple[tuple[str, ...], int]:
+        """Return the indexed terms and the BM25 length of the chunk.
+
+        The title is repeated in the first chunk as a field boost: the repeated
+        terms raise ``tf`` (bounded by BM25 saturation), while ``length`` stays
+        the length of the text so the chunk is not punished as if it were
+        longer.
+        """
+
+        text_terms = self._analyzer.terms(text)
+        length = len(text_terms)
+        if position != 0 or not title_terms:
+            return text_terms, length
+        return (*title_terms, *title_terms, *text_terms), length
 
     @staticmethod
     def _failed(code: str, message: str) -> LoreLoadReport:

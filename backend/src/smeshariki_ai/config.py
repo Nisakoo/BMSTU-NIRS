@@ -127,6 +127,8 @@ def load_config(environ: Mapping[str, str] | None = None) -> Config:
         ("RAG_LORE_MAX_CHARS", "lore_max_chars"),
         ("RAG_LORE_MIN_SCORE", "lore_min_score"),
         ("RAG_LORE_RERANK_ENABLED", "lore_rerank_enabled"),
+        ("RAG_HYBRID_ENABLED", "hybrid_enabled"),
+        ("RAG_HYBRID_BM25_WEIGHT", "hybrid_bm25_weight"),
     ):
         if environment_name in source and source[environment_name].strip():
             rag_values[field_name] = source[environment_name]

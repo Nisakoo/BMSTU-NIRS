@@ -15,6 +15,7 @@ from smeshariki_ai.rag.lore.context import (
     LorePassage,
 )
 from smeshariki_ai.rag.lore.expansion import QueryExpander
+from smeshariki_ai.rag.lore.hybrid import DenseSearcher
 from smeshariki_ai.rag.lore.index import InMemoryBm25Index
 from smeshariki_ai.rag.lore.models import (
     LoreHit,
@@ -154,6 +155,8 @@ class BenchmarkRunner:
         context: LoreContextBuilder | None = None,
         expander: QueryExpander | None = None,
         ranker: Ranker | None = None,
+        dense: DenseSearcher | None = None,
+        hybrid_weight: float = 0.7,
     ) -> None:
         if k <= 0:
             raise ValueError("k must be positive")
@@ -163,6 +166,8 @@ class BenchmarkRunner:
         self._context = context
         self._expander = expander
         self._ranker = ranker
+        self._dense = dense
+        self._hybrid_weight = hybrid_weight
 
     async def run(
         self,
@@ -174,7 +179,12 @@ class BenchmarkRunner:
         if not loaded.loaded or loaded.summary is None:
             raise BenchmarkError("the lore package could not be loaded")
 
-        search = SearchLore(index, self._analyzer)
+        search = SearchLore(
+            index,
+            self._analyzer,
+            dense=self._dense,
+            hybrid_weight=self._hybrid_weight,
+        )
         # With a context builder the tool-like window is wider than ``k``:
         # raw metrics stay sliced to ``k``, the context to ``retrieval_k``.
         top_k = (

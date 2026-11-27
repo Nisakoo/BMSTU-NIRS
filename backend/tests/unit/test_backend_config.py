@@ -150,11 +150,39 @@ def test_lore_context_settings_have_defaults() -> None:
     config = load_config({**BASE_ENV, "LLM_MODEL": "test/model"})
 
     assert config.rag.lore_retrieval_k == 10
-    assert config.rag.lore_max_passages == 3
-    assert config.rag.lore_max_chars == 1600
+    assert config.rag.lore_max_passages == 5
+    assert config.rag.lore_max_chars == 4800
     assert config.rag.lore_min_score == 2.0
     assert config.rag.query_expansion_mode == "replace"
     assert config.rag.lore_rerank_enabled is False
+    assert config.rag.hybrid_enabled is False
+    assert config.rag.hybrid_bm25_weight == 0.7
+
+
+def test_hybrid_flags_are_read_from_the_environment() -> None:
+    config = load_config(
+        {
+            **BASE_ENV,
+            "LLM_MODEL": "test/model",
+            "RAG_HYBRID_ENABLED": "true",
+            "RAG_HYBRID_BM25_WEIGHT": "0.6",
+        }
+    )
+
+    assert config.rag.hybrid_enabled is True
+    assert config.rag.hybrid_bm25_weight == 0.6
+
+
+@pytest.mark.parametrize("weight", ["-0.1", "1.1", "abc"])
+def test_hybrid_weight_is_validated(weight: str) -> None:
+    with pytest.raises(ValidationError):
+        load_config(
+            {
+                **BASE_ENV,
+                "LLM_MODEL": "test/model",
+                "RAG_HYBRID_BM25_WEIGHT": weight,
+            }
+        )
 
 
 def test_rerank_flag_is_read_from_the_environment() -> None:

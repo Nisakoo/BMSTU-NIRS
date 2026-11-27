@@ -40,6 +40,35 @@ async def test_load_and_search_use_the_same_index(tmp_path: Path) -> None:
     assert result.total == 1
 
 
+async def test_title_terms_boost_the_first_chunk_without_lengthening_it(
+    tmp_path: Path,
+) -> None:
+    write_package(tmp_path, text="Оплата картой и возврат средств.")
+
+    entries = list(LoadLore(SimpleAnalyzer())._entries(tmp_path))
+
+    chunk = entries[0].chunks[0]
+    text_terms = SimpleAnalyzer().terms("Оплата картой и возврат средств.")
+
+    assert chunk.terms.count("возврат") == 3  # twice from the title, once from text
+    assert chunk.length == len(text_terms)
+    assert chunk.term_count == len(text_terms)
+
+
+async def test_title_boost_touches_only_the_first_chunk(tmp_path: Path) -> None:
+    write_package(
+        tmp_path,
+        text=" ".join(["Первый абзац текста."] * 120 + ["Второй абзац текста."] * 120),
+    )
+
+    entries = list(LoadLore(SimpleAnalyzer())._entries(tmp_path))
+    chunks = entries[0].chunks
+
+    assert len(chunks) > 1
+    assert "возврат" in chunks[0].terms
+    assert "возврат" not in chunks[1].terms
+
+
 async def test_invalid_package_does_not_replace_the_corpus(tmp_path: Path) -> None:
     index = InMemoryBm25Index()
     loader = LoadLore(SimpleAnalyzer())

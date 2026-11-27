@@ -122,7 +122,7 @@ async def test_schema_matches_table_description(engine: AsyncEngine) -> None:
         )
 
     assert differences == []
-    assert len(await rag_table_names(engine)) == 29
+    assert len(await rag_table_names(engine)) == 31
 
 
 async def test_downgrade_removes_tables_and_upgrade_restores_them(
@@ -132,7 +132,7 @@ async def test_downgrade_removes_tables_and_upgrade_restores_them(
     assert await rag_table_names(engine) == set()
 
     await asyncio.to_thread(upgrade, create_engine(database_config))
-    assert len(await rag_table_names(engine)) == 29
+    assert len(await rag_table_names(engine)) == 31
 
 
 async def test_title_key_migration_fills_existing_episodes(

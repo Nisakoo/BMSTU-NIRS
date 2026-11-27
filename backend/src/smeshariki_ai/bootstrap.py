@@ -27,6 +27,7 @@ from smeshariki_ai.rag.lookup import KnowledgeLookup
 from smeshariki_ai.rag.lore.analyzer import MorphAnalyzer, SimpleAnalyzer, TextAnalyzer
 from smeshariki_ai.rag.lore.context import LoreContextBuilder
 from smeshariki_ai.rag.lore.expansion import CachedQueryExpander, LiteLLMQueryExpander
+from smeshariki_ai.rag.lore.hybrid import DenseSearcher
 from smeshariki_ai.rag.lore.index import InMemoryBm25Index
 from smeshariki_ai.rag.lore.ports import LoreIndex
 from smeshariki_ai.rag.lore.postgres import PostgresBm25Index
@@ -56,6 +57,7 @@ def build_agent_service(
     knowledge_reader: KnowledgeReader | None = None,
     lore_index: LoreIndex | None = None,
     lore_analyzer: TextAnalyzer | None = None,
+    lore_dense: DenseSearcher | None = None,
 ) -> AgentService:
     provider = LiteLLMProvider(config.llm) if llm_provider is None else llm_provider
     reader = knowledge_reader or InMemoryKnowledgeStore()
@@ -64,6 +66,8 @@ def build_agent_service(
     lore = SearchLore(
         lore_index or InMemoryBm25Index(),
         lore_analyzer or SimpleAnalyzer(),
+        dense=lore_dense,
+        hybrid_weight=config.rag.hybrid_bm25_weight,
     )
     expander = (
         CachedQueryExpander(LiteLLMQueryExpander(provider))
@@ -120,6 +124,7 @@ def create_application(
     knowledge_reader: KnowledgeReader | None = None
     lore_index: LoreIndex | None = None
     lore_analyzer: TextAnalyzer | None = None
+    lore_dense: DenseSearcher | None = None
     if auth_service is None:
         # Both clients are lazy: no connection is opened until the first request.
         engine = create_engine(config.database)
@@ -129,6 +134,11 @@ def create_application(
         knowledge_reader = PostgresKnowledgeStore(engine)
         lore_index = PostgresBm25Index(engine)
         lore_analyzer = MorphAnalyzer()
+        if config.rag.hybrid_enabled:
+            from smeshariki_ai.rag.lore.embeddings import LocalEmbeddingProvider
+            from smeshariki_ai.rag.lore.postgres import PostgresDenseIndex
+
+            lore_dense = PostgresDenseIndex(engine, LocalEmbeddingProvider())
         auth_service = AuthService(
             users=PostgresUserStore(engine),
             sessions=PostgresRefreshSessionStore(engine),
@@ -165,6 +175,7 @@ def create_application(
         knowledge_reader=knowledge_reader,
         lore_index=lore_index,
         lore_analyzer=lore_analyzer,
+        lore_dense=lore_dense,
     )
     return create_app(
         agent_service,

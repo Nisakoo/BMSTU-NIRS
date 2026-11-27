@@ -211,3 +211,5 @@ specs:
       status: done
     - name: lore-llm-rerank
       status: done
+    - name: lore-hybrid-retrieval
+      status: done

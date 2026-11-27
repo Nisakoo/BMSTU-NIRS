@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from smeshariki_ai.rag.lore import tables
 from smeshariki_ai.rag.lore.bm25 import Bm25Params
+from smeshariki_ai.rag.lore.embeddings import EmbeddingProvider
 from smeshariki_ai.rag.lore.models import (
     LoreDocument,
     LoreEntry,
@@ -73,9 +74,16 @@ class PostgresLoreStore(LoreStore):
         engine: AsyncEngine,
         *,
         clock: Callable[[], datetime] | None = None,
+        embedding_provider: EmbeddingProvider | None = None,
     ) -> None:
+        if (
+            embedding_provider is not None
+            and embedding_provider.dimension != tables.VECTOR_DIMENSIONS
+        ):
+            raise ValueError(f"embedding dimension must be {tables.VECTOR_DIMENSIONS}")
         self._engine = engine
         self._clock = clock or (lambda: datetime.now(UTC))
+        self._embedding_provider = embedding_provider
 
     async def replace(self, entries: Iterable[LoreEntry]) -> LoreLoadSummary:
         started_at = self._clock()
@@ -120,6 +128,21 @@ class PostgresLoreStore(LoreStore):
                             chunk_rows,
                             chunk_terms,
                         )
+                        if self._embedding_provider is not None:
+                            ids = await _chunk_ids(
+                                connection, [entry.document.id for entry in batch]
+                            )
+                            await _insert_embeddings(
+                                connection,
+                                self._embedding_provider,
+                                [
+                                    (
+                                        ids[(row["document_id"], row["position"])],
+                                        row["text"],
+                                    )
+                                    for row in chunk_rows
+                                ],
+                            )
 
                 await connection.execute(
                     text(
@@ -288,6 +311,101 @@ async def _insert_postings(
         await connection.execute(
             insert(tables.postings), postings[start : start + _POSTING_BATCH]
         )
+
+
+async def _insert_embeddings(
+    connection: AsyncConnection,
+    provider: EmbeddingProvider,
+    chunks: Sequence[tuple[int, str]],
+) -> None:
+    vectors = await provider.embed([text for _, text in chunks])
+    rows = [
+        {
+            "chunk_id": chunk_id,
+            "model": provider.model_id,
+            "embedding": _vector_literal(vector),
+        }
+        for (chunk_id, _), vector in zip(chunks, vectors, strict=True)
+    ]
+    await connection.execute(
+        text(
+            "INSERT INTO rag_lore_embeddings (chunk_id, model, embedding) "
+            "VALUES (:chunk_id, :model, CAST(:embedding AS vector))"
+        ),
+        rows,
+    )
+
+
+async def _chunk_ids(
+    connection: AsyncConnection, document_ids: Sequence[str]
+) -> dict[tuple[str, int], int]:
+    rows = await connection.execute(
+        select(
+            tables.chunks.c.id, tables.chunks.c.document_id, tables.chunks.c.position
+        )
+        .where(tables.chunks.c.document_id.in_(document_ids))
+        .order_by(tables.chunks.c.document_id, tables.chunks.c.position)
+    )
+    return {(row.document_id, row.position): row.id for row in rows}
+
+
+def _vector_literal(vector: Sequence[float]) -> str:
+    return "[" + ",".join(f"{value:.7f}" for value in vector) + "]"
+
+
+class PostgresDenseIndex:
+    """Dense candidates from pgvector; the BM25 path stays untouched."""
+
+    def __init__(self, engine: AsyncEngine, provider: EmbeddingProvider) -> None:
+        self._engine = engine
+        self._provider = provider
+
+    async def search(self, query: str, limit: int) -> tuple[LoreHit, ...]:
+        if limit <= 0:
+            return ()
+        vector = _vector_literal(await self._provider.embed_query(query))
+        statement = text(
+            """
+            SELECT c.id AS chunk_id,
+                   c.document_id,
+                   c.position,
+                   c.text,
+                   d.title,
+                   d.source,
+                   1 - (e.embedding <=> CAST(:vector AS vector)) AS score
+            FROM rag_lore_embeddings e
+            JOIN rag_lore_chunks c ON c.id = e.chunk_id
+            JOIN rag_lore_documents d ON d.id = c.document_id
+            WHERE e.model = :model
+            ORDER BY e.embedding <=> CAST(:vector AS vector)
+            LIMIT :limit
+            """
+        )
+        with _translate_errors():
+            async with self._engine.connect() as connection:
+                rows = (
+                    await connection.execute(
+                        statement,
+                        {
+                            "vector": vector,
+                            "model": self._provider.model_id,
+                            "limit": limit,
+                        },
+                    )
+                ).mappings()
+                return tuple(
+                    LoreHit(
+                        chunk_id=row["chunk_id"],
+                        document_id=row["document_id"],
+                        position=row["position"],
+                        title=row["title"],
+                        source=row["source"],
+                        text=row["text"],
+                        score=float(row["score"]),
+                        rank=rank,
+                    )
+                    for rank, row in enumerate(rows, start=1)
+                )
 
 
 def _document(row: Any) -> LoreDocument:

@@ -39,7 +39,7 @@ x-backend-environment: &backend-environment
 
 services:
   postgres:
-    image: postgres:17-alpine
+    image: pgvector/pgvector:pg17
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-smeshariki}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in docker/.env}
@@ -92,8 +92,11 @@ services:
       dockerfile: docker/Dockerfile
     volumes:
       - ./models:/models:ro
+      # The dense model is downloaded once and reused by the container.
+      - hf-cache:/models/hf
     environment:
       <<: *backend-environment
+      HF_HOME: /models/hf
       # Uvicorn trusts X-Forwarded-For only from Caddy's fixed address.
       FORWARDED_ALLOW_IPS: 172.31.250.250
     depends_on:
@@ -148,3 +151,4 @@ networks:
 volumes:
   postgres-data:
   ceph-data:
+  hf-cache:

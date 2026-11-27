@@ -32,10 +32,14 @@ class LoreChunk(LoreModel):
     position: int = Field(ge=0)
     text: NonEmptyText
     terms: tuple[NonEmptyText, ...] = ()
+    # The length used by BM25 normalisation. It can differ from ``len(terms)``
+    # when a field such as the title is indexed as a boost without making the
+    # chunk look longer.
+    length: int | None = Field(default=None, ge=0)
 
     @property
     def term_count(self) -> int:
-        return len(self.terms)
+        return len(self.terms) if self.length is None else self.length
 
 
 class LoreEntry(LoreModel):

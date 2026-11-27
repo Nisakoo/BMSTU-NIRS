@@ -17,11 +17,15 @@ class RagConfig(BaseModel):
     # ``replace`` wins on the golden set: better MRR and context recall.
     query_expansion_mode: ExpansionMode = "replace"
     lore_retrieval_k: int = Field(default=10, ge=1)
-    lore_max_passages: int = Field(default=3, ge=1)
-    lore_max_chars: int = Field(default=1600, ge=1)
+    lore_max_passages: int = Field(default=5, ge=1)
+    lore_max_chars: int = Field(default=4800, ge=1)
     lore_min_score: float = Field(default=2.0, ge=0)
     # Off by default: reranking costs an extra LLM call per search.
     lore_rerank_enabled: bool = False
+    # Off by default: dense candidates need pgvector and a local model, and
+    # they help the 30-document set but not the golden one.
+    hybrid_enabled: bool = False
+    hybrid_bm25_weight: float = Field(default=0.7, ge=0, le=1)
 
 
 __all__ = ["ExpansionMode", "RagConfig"]
