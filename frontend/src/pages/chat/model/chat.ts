@@ -3,6 +3,7 @@ import { type AuthApi, LOGIN_PATH, SESSION, checkSession, errorCode, refreshSess
 import { createStore } from "../../../shared/lib/store";
 import type { MessageActions } from "../../../widgets/chat-transcript";
 import { readVoice, saveVoice } from "./options";
+import { selectedDialog, rememberDialog, pendingTurn, clearTurn, writeTurn, PENDING_WINDOW_MS, type PendingTurn } from "./selection";
 import { busy, initialState, reduceChat } from "./state";
 
 export function createChat(api: AgentApi, auth: AuthApi, navigate: (url: string) => void) {
@@ -17,7 +18,40 @@ export function createChat(api: AgentApi, auth: AuthApi, navigate: (url: string)
   let retryTimer: number | undefined;
   let buffer: [DialogEventType, unknown][] = [];
 
+  // The stream has no replay or running-task flag. On reload, subscribe first,
+  // then read the committed transcript while listening for newer commits.
+  interface Recovery {
+    id: string;
+    reading: boolean;
+    revision: number;
+    lastEnd?: number;
+    loaded: boolean;
+    pending: PendingTurn | null;
+  }
+  let recovery: Recovery | null = null;
+  let localTurn: PendingTurn | null = null;
+  let recoveryDeadline: number | undefined;
+
+  function finishTurn() {
+    window.clearTimeout(recoveryDeadline);
+    const user = getState().user;
+    if (user) clearTurn(user.id);
+    if (recovery) recovery.pending = null;
+    localTurn = null;
+  }
+
+  function remember(id: string | null) {
+    const user = getState().user;
+    if (user) {
+      finishTurn();
+      rememberDialog(user.id, id);
+    }
+  }
+
   function stopStream() {
+    window.clearTimeout(recoveryDeadline);
+    recovery = null;
+    localTurn = null;
     generation++;
     connection?.close();
     connection = null;
@@ -26,13 +60,22 @@ export function createChat(api: AgentApi, auth: AuthApi, navigate: (url: string)
   }
 
   function destroy() {
+    if (disposed) return;
+    const user = getState().user;
+    // A locally submitted request is still known to be outstanding on unload.
+    // Repeated reloads of a recovered request keep its previous deadline.
+    if (localTurn) localTurn.expiresAt = Date.now() + PENDING_WINDOW_MS;
+    const pending = localTurn ?? recovery?.pending;
+    if (user && pending) writeTurn(user.id, pending);
     disposed = true;
+    dispatch({ type: "closed" });
     window.clearTimeout(retryTimer);
     stopStream();
   }
 
   function login() {
     if (disposed) return;
+    remember(null);
     destroy();
     navigate(LOGIN_PATH);
   }
@@ -47,8 +90,8 @@ export function createChat(api: AgentApi, auth: AuthApi, navigate: (url: string)
     }, 3000);
   }
 
-  function notify(text: string, kind: "ready" | "error" | "connecting" = "ready") {
-    if (!disposed) dispatch({ type: "status", text, kind });
+  function notify(text: string, kind: "info" | "error" = "info") {
+    if (!disposed) dispatch({ type: "notice", text, kind });
   }
 
   async function withSession<T>(operation: () => Promise<T>): Promise<T> {
@@ -59,6 +102,7 @@ export function createChat(api: AgentApi, auth: AuthApi, navigate: (url: string)
     }
     const result = await refreshSession(auth);
     if (result.status === SESSION.ANONYMOUS) login();
+    if (result.status === SESSION.USER && result.user.id !== getState().user?.id) login();
     if (result.status !== SESSION.USER || disposed) throw new Error("session unavailable");
     try {
       return await operation();
@@ -79,10 +123,90 @@ export function createChat(api: AgentApi, auth: AuthApi, navigate: (url: string)
     }
   }
 
+  function watchDeadline(current: Recovery, expiresAt: number) {
+    recoveryDeadline = window.setTimeout(() => {
+      if (recovery !== current || !current.pending) return;
+      // Recent stream activity extends the silence window. Only one timer is armed.
+      if (current.pending.expiresAt > expiresAt && current.pending.expiresAt > Date.now()) {
+        watchDeadline(current, current.pending.expiresAt);
+        return;
+      }
+      finishTurn();
+      dispatch({ type: "remote-run", active: false });
+      void snapshot(current);
+    }, Math.max(0, expiresAt - Date.now()));
+  }
+
+  async function restore(id: string) {
+    const user = getState().user;
+    if (disposed || !user) return;
+    stopStream();
+    const pending = pendingTurn(user.id, id);
+    const current = { id, reading: false, revision: 0, loaded: false, pending };
+    recovery = current;
+    if (pending) {
+      dispatch({ type: "remote-run", active: true });
+      watchDeadline(current, pending.expiresAt);
+    }
+    dispatch({ type: "hydrate", pending: true });
+    connect(id);
+  }
+
+  async function snapshot(current: Recovery) {
+    if (current.reading || current !== recovery) return;
+    current.reading = true;
+    dispatch({ type: "hydrate", pending: true });
+    try {
+      let revision: number;
+      let story: Awaited<ReturnType<AgentApi["getMessages"]>>;
+      do {
+        revision = current.revision;
+        story = await withSession(() => api.getMessages(current.id));
+        if (current !== recovery) return;
+        // A commit observed during the GET is often already in its response.
+        if (current.lastEnd && story.messages.some(m => m.id === current.lastEnd)) break;
+      } while (current.revision !== revision);
+
+      if (current.pending) {
+        const last = story.messages.filter(m => m.role === "assistant").at(-1);
+        if (last && last.id !== current.pending.lastAnswer) {
+          finishTurn();
+          dispatch({ type: "remote-run", active: false });
+        }
+      }
+      current.loaded = true;
+      dispatch({ type: "snapshot", title: story.title, messages: story.messages.map(m => ({ ...m, complete: true })) });
+      dispatch({ type: "hydrate", pending: false });
+    } catch (error) {
+      if (current !== recovery) return;
+      stopStream();
+      dispatch({ type: "disconnected" });
+      dispatch({ type: "hydrate", pending: false });
+      dispatch({ type: "remote-run", active: false });
+      if (errorCode(error) === "not_found") {
+        remember(null);
+        if (busy(getState())) retry(create);
+        else await create();
+      } else {
+        notify("Не удалось загрузить историю. Скоро попробуем ещё раз", "error");
+        retry(() => restore(current.id));
+      }
+    } finally {
+      current.reading = false;
+    }
+  }
+
   function receive(type: DialogEventType, payload: unknown) {
     if (type === "ready") {
       reopened = false;
       dispatch({ type: "ready" });
+      if (recovery && !localTurn) {
+        // A run might have ended while this stream was disconnected.
+        dispatch({ type: "remote-run", active: recovery.pending !== null });
+        recovery.revision++;
+        recovery.lastEnd = undefined;
+        void snapshot(recovery);
+      }
       return;
     }
     if (getState().submitting) {
@@ -90,6 +214,22 @@ export function createChat(api: AgentApi, auth: AuthApi, navigate: (url: string)
       return;
     }
     const data = payload && typeof payload === "object" ? payload : {};
+    if (recovery && !localTurn) {
+      if (type === "message_start" || type === "message_delta") {
+        if (recovery.pending) recovery.pending.expiresAt = Date.now() + PENDING_WINDOW_MS;
+        dispatch({ type: "remote-run", active: true });
+        return;
+      }
+      if (type === "message_end") {
+        finishTurn();
+        dispatch({ type: "remote-run", active: false });
+        recovery.revision++;
+        recovery.lastEnd = "message_id" in data && typeof data.message_id === "number" ? data.message_id : undefined;
+        void snapshot(recovery);
+        void list();
+        return;
+      }
+    }
     switch (type) {
       case "message_start": dispatch({ type: "answer-start" }); break;
       case "message_delta":
@@ -97,10 +237,12 @@ export function createChat(api: AgentApi, auth: AuthApi, navigate: (url: string)
         else notify("некорректное событие от сервера", "error");
         break;
       case "message_end":
+        finishTurn();
         dispatch({ type: "answer-end", id: "message_id" in data && typeof data.message_id === "number" && Number.isInteger(data.message_id) ? data.message_id : undefined });
         void list();
         break;
       case "message_error":
+        finishTurn();
         dispatch({ type: "answer-error", text: "message" in data && typeof data.message === "string" ? data.message : "ошибка агента" });
         break;
     }
@@ -114,7 +256,9 @@ export function createChat(api: AgentApi, auth: AuthApi, navigate: (url: string)
     if (checking === stream) checking = null;
     if (disposed || connection !== stream) return;
     if (session.status === SESSION.ANONYMOUS) return login();
-    if (session.status !== SESSION.USER || !stream.isClosed()) return;
+    if (session.status !== SESSION.USER) return;
+    if (session.user.id !== getState().user?.id) return login();
+    if (!stream.isClosed()) return;
     if (reopened) return notify("соединение потеряно; обновите страницу", "error");
     reopened = true;
     connect(id, true);
@@ -129,6 +273,8 @@ export function createChat(api: AgentApi, auth: AuthApi, navigate: (url: string)
       onConnectionError: () => {
         if (version !== generation) return;
         dispatch({ type: "disconnected" });
+        // EventSource hides HTTP errors, including the 404 of an expired draft.
+        if (recovery && !recovery.loaded) void snapshot(recovery);
         void checkConnection(id);
       },
     });
@@ -140,14 +286,16 @@ export function createChat(api: AgentApi, auth: AuthApi, navigate: (url: string)
     stopStream();
     dispatch({ type: "story", id: null, title: null, messages: [] });
     dispatch({ type: "switch", pending: true });
-    notify("создание диалога…", "connecting");
     try {
       const id = await withSession(() => api.createDialog());
-      if (!disposed) connect(id);
+      if (!disposed) {
+        remember(id);
+        connect(id);
+      }
     } catch {
       if (disposed) return;
       dispatch({ type: "switch", pending: false });
-      notify("backend недоступен; повторная попытка…", "error");
+      notify("Не удалось подключиться. Скоро попробуем ещё раз", "error");
       retry(create);
     }
   }
@@ -155,13 +303,13 @@ export function createChat(api: AgentApi, auth: AuthApi, navigate: (url: string)
   async function open(id: string) {
     if (disposed || busy(getState()) || getState().dialogId === id) return;
     dispatch({ type: "switch", pending: true });
-    notify("загрузка истории…", "connecting");
     try {
       const story = await withSession(() => api.getMessages(id));
       if (disposed) return;
       window.clearTimeout(retryTimer);
       stopStream();
       dispatch({ type: "story", id, title: story.title, messages: story.messages.map(m => ({ ...m, complete: true })) });
+      remember(id);
       connect(id);
     } catch (error) {
       if (disposed) return;
@@ -187,7 +335,10 @@ export function createChat(api: AgentApi, auth: AuthApi, navigate: (url: string)
     if (disposed) return;
     ++historyRequest;
     dispatch({ type: "removed", id });
-    if (getState().dialogId === id) await create();
+    if (getState().dialogId === id) {
+      remember(null);
+      await create();
+    }
   }
 
   async function submit(draft: string, readingMinutes: number | null) {
@@ -195,6 +346,9 @@ export function createChat(api: AgentApi, auth: AuthApi, navigate: (url: string)
     const s = getState();
     const id = s.dialogId;
     if (!request || !id || !s.ready || busy(s) || disposed) return false;
+    const lastAnswer = s.messages.filter(m => m.role === "assistant" && m.id !== undefined).at(-1)?.id ?? null;
+    localTurn = { dialogId: id, lastAnswer, expiresAt: Date.now() + PENDING_WINDOW_MS };
+    if (s.user) writeTurn(s.user.id, localTurn);
     dispatch({ type: "submitting" });
     buffer = [];
     try {
@@ -207,7 +361,11 @@ export function createChat(api: AgentApi, auth: AuthApi, navigate: (url: string)
       return true;
     } catch {
       buffer = [];
-      if (!disposed) dispatch({ type: "rejected" });
+      localTurn = null;
+      if (!disposed) {
+        finishTurn();
+        dispatch({ type: "rejected" });
+      }
       return false;
     }
   }
@@ -226,17 +384,18 @@ export function createChat(api: AgentApi, auth: AuthApi, navigate: (url: string)
   }
 
   async function start() {
-    notify("проверка входа…", "connecting");
     const session = await checkSession(auth);
     if (disposed) return;
     if (session.status === SESSION.ANONYMOUS) return login();
     if (session.status === SESSION.UNAVAILABLE) {
-      notify("backend недоступен; повторная попытка…", "error");
+      notify("Не удалось подключиться. Скоро попробуем ещё раз", "error");
       return retry(start);
     }
     dispatch({ type: "session", user: session.user });
     void list();
-    await create();
+    const saved = selectedDialog(session.user.id);
+    if (saved) await restore(saved);
+    else await create();
     if (!disposed) void readNews();
   }
 

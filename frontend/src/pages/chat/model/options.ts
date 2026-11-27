@@ -7,10 +7,10 @@ export const VOICES = [
 ] as const;
 // Slider steps of the story length: minutes sent to the agent and the label.
 export const LENGTH_STEPS = [
-  [null, "Любая"],
   [2, "2 мин"],
   [5, "5 мин"],
   [10, "10 мин"],
+  [null, "Любая"],
 ] as const;
 
 export const presets: Record<string, string> = {

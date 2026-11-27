@@ -60,15 +60,13 @@
       <button class="sai-history-toggle" id="saiHistoryToggle" type="button" aria-controls="saiSidebar" aria-expanded={sidebar} onclick={() => sidebar = true}>Истории</button>
       <div class="sai-heading">
         <h1 class="sai-title" id="saiTitle" {title}>{title}</h1>
-        <div class="sai-status" id="saiStatus" role="status" aria-live="polite" data-state={$store.status.kind}>
-          <i></i><span id="saiStatusText">{$store.status.text}</span>
-        </div>
       </div>
     </header>
     <News news={$store.news} dismiss={chat.dismissNews} {open} />
     {#key dialogId}
-      <Transcript {dialogId} messages={$store.messages} greeting={$store.greeting} voice={$store.voice} {actions} {reportId} onreport={id => reportId = id} />
+      <Transcript {dialogId} messages={$store.messages} submitting={$store.submitting} processing={$store.processing} greeting={$store.greeting} voice={$store.voice} {actions} {reportId} onreport={id => reportId = id} />
     {/key}
-    <Composer disabled={locked || !$store.ready} ready={$store.ready} voice={$store.voice} {settings} chooseVoice={chat.chooseVoice} submit={chat.submit} />
+    <div class="sai-notice" role="status" data-kind={$store.notice?.kind}>{$store.notice?.text ?? ""}</div>
+    <Composer disabled={!$store.ready || !$store.user || $store.loggingOut || $store.hydrating || $store.switching || $store.deletingId !== null} waiting={$store.submitting || $store.processing} voice={$store.voice} {settings} chooseVoice={chat.chooseVoice} submit={chat.submit} />
   </main>
 </div>

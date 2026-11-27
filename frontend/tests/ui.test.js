@@ -80,6 +80,9 @@ function authResponse(status, user = USER) {
 async function setup(submitResponse, {
   autoReady = true,
   createStatus = 201,
+  createdId = "dialog-1",
+  preserveSession = false,
+  initSession,
   createStatuses,
   meStatuses = [200],
   refreshStatuses = [401],
@@ -103,7 +106,8 @@ async function setup(submitResponse, {
 } = {}) {
   await cleanup();
   localStorage.clear();
-  sessionStorage.clear();
+  if (!preserveSession) sessionStorage.clear();
+  initSession?.();
   const requests = [];
   const timers = new Map();
   const timerDelays = [];
@@ -234,13 +238,13 @@ async function setup(submitResponse, {
     if (args[0].endsWith("/messages") && args.length === 1) {
       historyRequests.push(args[0]);
       const id = decodeURIComponent(args[0].split("/")[4]);
-      return transcripts[id] ?? { status: 404, json: async () => ({ detail: "Dialog not found." }) };
+      return (typeof transcripts[id] === "function" ? transcripts[id]() : transcripts[id]) ?? { status: 404, json: async () => ({ detail: "Dialog not found." }) };
     }
     requests.push(args);
     if (args[0] === "/api/v1/dialogs") {
       const status = createStatuses?.[createCalls] ?? createStatus;
       createCalls += 1;
-      return { status, json: async () => ({ dialog_id: "dialog-1" }) };
+      return { status, json: async () => ({ dialog_id: createdId }) };
     }
     return submitResponse.promise;
   });
@@ -250,12 +254,13 @@ async function setup(submitResponse, {
   await settle();
   const source = FakeEventSource.instances[0];
   if (autoReady) source?.emit("ready", { dialog_id: "dialog-1" });
+  await settle();
   const get = selector => document.querySelector(selector);
   const all = selector => Array.from(document.querySelectorAll(selector));
   const form = get("#saiForm");
   const prompt = get("#saiPrompt");
   const send = get(".sai-send");
-  const status = get("#saiStatusText");
+  const notice = get(".sai-notice");
   const bubbles = () => all("#saiMessages .sai-bubble");
   const chips = all(".sai-chip");
   const runNextTimer = async () => {
@@ -272,7 +277,7 @@ async function setup(submitResponse, {
     form,
     prompt,
     send,
-    status,
+    notice,
     logout: get("#saiLogout"),
     get messages() { return get("#saiMessages"); },
     krosh: () => all(".sai-krosh"),
@@ -341,7 +346,7 @@ test("dialog creation retries and recovers without a page reload", async () => {
   const ui = await setup(deferred(), { createStatuses: [503, 201] });
   assert.equal(ui.send.disabled, true);
   assert.equal(ui.timers.size, 1);
-  assert.match(ui.status.textContent, /повторная попытка/);
+  assert.match(ui.notice.textContent, /попробуем ещё раз/);
 
   await ui.runNextTimer();
   const source = FakeEventSource.instances[0];
@@ -369,7 +374,7 @@ test("failed dialog creation leaves the form disabled", async () => {
   assert.equal(ui.source, undefined);
   assert.equal(ui.send.disabled, true);
   assert.equal(ui.prompt.disabled, true);
-  assert.match(ui.status.textContent, /backend недоступен/);
+  assert.match(ui.notice.textContent, /Не удалось подключиться/);
 });
 
 test("form waits for ready and reconnects on the same EventSource", async () => {
@@ -379,7 +384,7 @@ test("form waits for ready and reconnects on the same EventSource", async () => 
   assert.equal(ui.send.disabled, false);
   ui.source.fail();
   assert.equal(ui.send.disabled, true);
-  assert.equal(ui.status.textContent, "переподключение…");
+  assert.equal(ui.notice.textContent, "Соединение прервалось. Пробуем снова…");
   ui.source.emit("ready");
   assert.equal(ui.send.disabled, false);
   assert.equal(FakeEventSource.instances.length, 1);
@@ -390,7 +395,10 @@ test("form waits for ready and reconnects on the same EventSource", async () => 
 test("preset, autosize, and Enter submission remain available", async () => {
   const ui = await setup(deferred());
   assert.equal(ui.prompt.style.height, "");
-  fire(ui.chips[0], "click");
+  const measure = ui.form.querySelector(".sai-composer-measure");
+  Object.defineProperty(measure, "clientWidth", { value: 120 });
+  Object.defineProperty(measure, "scrollWidth", { get: () => measure.textContent.length * 8 });
+  await fire(ui.chips[0], "click");
   assert.match(ui.prompt.value, /Кроша и Ёжика/);
   assert.equal(ui.prompt.style.height, "30px");
   fire(ui.prompt, "keydown", { key: "Enter", shiftKey: true });
@@ -403,7 +411,7 @@ test("preset, autosize, and Enter submission remain available", async () => {
 test("invalid SSE JSON is reported without displaying payload as HTML", async () => {
   const ui = await setup(deferred());
   ui.source.emitRaw("message_delta", "<script>invalid</script>");
-  assert.equal(ui.status.textContent, "некорректное событие от сервера");
+  assert.equal(ui.notice.textContent, "некорректное событие от сервера");
   assert.equal(ui.bubbles().length, 0);
 });
 
@@ -438,7 +446,7 @@ test("fast SSE error remains visible after the POST completes", async () => {
   response.resolve({ status: 202 });
   await submission;
   assert.deepEqual(ui.bubbles().map(bubble => bubble.textContent), ["История", "Ошибка ответа"]);
-  assert.equal(ui.status.textContent, "Agent request failed.");
+  assert.equal(ui.notice.textContent, "Agent request failed.");
   assert.equal(ui.send.disabled, false);
 });
 
@@ -467,7 +475,7 @@ test("disconnect during POST leaves the form locked after acceptance", async () 
   response.resolve({ status: 202 });
   await submission;
   assert.equal(ui.send.disabled, true);
-  assert.equal(ui.status.textContent, "переподключение…");
+  assert.equal(ui.notice.textContent, "Соединение прервалось. Пробуем снова…");
 });
 
 test("failed submission preserves the draft and does not show it in chat", async () => {
@@ -504,7 +512,7 @@ test("an unavailable auth backend keeps the page and retries the check", async (
   assert.deepEqual(ui.redirects, []);
   assert.equal(ui.requests.length, 0);
   assert.equal(ui.send.disabled, true);
-  assert.match(ui.status.textContent, /повторная попытка/);
+  assert.match(ui.notice.textContent, /попробуем ещё раз/);
   assert.deepEqual(ui.timerDelays, [3000]);
 
   await ui.runNextTimer();
@@ -577,7 +585,7 @@ test("a closed SSE connection with a valid session is reopened once until ready"
   reopened.fail();
   await settle();
   assert.equal(FakeEventSource.instances.length, 2);
-  assert.match(ui.status.textContent, /обновите страницу/);
+  assert.match(ui.notice.textContent, /обновите страницу/);
 
   reopened.readyState = 1;
   reopened.emit("ready");
@@ -642,7 +650,7 @@ test("a failed logout keeps the chat and lets the user try again", async () => {
 
     assert.deepEqual(ui.redirects, []);
     assert.equal(ui.logout.disabled, false);
-    assert.equal(ui.status.textContent, "Не удалось выйти. Попробуйте ещё раз");
+    assert.equal(ui.notice.textContent, "Не удалось выйти. Попробуйте ещё раз");
     assert.notEqual(ui.source.closed, true);
   }
 });
@@ -711,7 +719,7 @@ test("a missing story keeps the current dialog and reloads the list", async () =
   fire(ui.historyItems()[1], "click");
   await settle();
 
-  assert.equal(ui.status.textContent, "история не найдена");
+  assert.equal(ui.notice.textContent, "история не найдена");
   assert.notEqual(ui.source.closed, true);
   assert.equal(FakeEventSource.instances.length, 1);
   assert.equal(ui.send.disabled, false);
@@ -839,7 +847,7 @@ test("the chosen story length is sent with every next request", async () => {
   ui.source.emit("message_end");
   await settle();
 
-  ui.length.value = "2";
+  ui.length.value = "1";
   fire(ui.length, "input");
   input(ui.prompt, "Вторая");
   await fire(ui.form, "submit");
@@ -857,10 +865,10 @@ test("the chosen story length is sent with every next request", async () => {
     { request: "Вторая", reading_minutes: 5 },
     { request: "Третья", reading_minutes: 5 },
   ]);
-  assert.equal(ui.length.value, "2");
+  assert.equal(ui.length.value, "1");
 });
 
-test("the length button is locked together with the prompt", async () => {
+test("length selection unlocks when ready and prepares the next request during generation", async () => {
   const response = deferred();
   const ui = await setup(response, { autoReady: false });
   assert.equal(ui.lengthButton.disabled, true);
@@ -871,12 +879,13 @@ test("the length button is locked together with the prompt", async () => {
   fire(ui.lengthButton, "click");
   input(ui.prompt, "История");
   const submission = fire(ui.form, "submit");
-  assert.equal(ui.lengthButton.disabled, true);
+  assert.equal(ui.lengthButton.disabled, false);
+  assert.equal(ui.send.disabled, true);
   assert.equal(ui.lengthPanel.hidden, true);
   assert.equal(ui.lengthButton.getAttribute("aria-expanded"), "false");
   response.resolve({ status: 202 });
   await submission;
-  assert.equal(ui.lengthButton.disabled, true);
+  assert.equal(ui.lengthButton.disabled, false);
   ui.source.emit("message_end");
   assert.equal(ui.lengthButton.disabled, false);
 });
@@ -888,7 +897,7 @@ test("every slider step sends its minutes and any length sends none", async () =
     .filter(([path]) => path.endsWith("/messages"))
     .map(([, init]) => JSON.parse(init.body));
 
-  for (const value of ["1", "2", "3", "0"]) {
+  for (const value of ["0", "1", "2", "3"]) {
     ui.length.value = value;
     fire(ui.length, "input");
     input(ui.prompt, `Шаг ${value}`);
@@ -898,10 +907,10 @@ test("every slider step sends its minutes and any length sends none", async () =
   }
 
   assert.deepEqual(bodies(), [
-    { request: "Шаг 1", reading_minutes: 2 },
-    { request: "Шаг 2", reading_minutes: 5 },
-    { request: "Шаг 3", reading_minutes: 10 },
-    { request: "Шаг 0" },
+    { request: "Шаг 0", reading_minutes: 2 },
+    { request: "Шаг 1", reading_minutes: 5 },
+    { request: "Шаг 2", reading_minutes: 10 },
+    { request: "Шаг 3" },
   ]);
 });
 
@@ -1032,7 +1041,7 @@ test("a failed rating is rolled back with a message", async () => {
 
   assert.deepEqual(pressed(bar), ["3"]);
   assert.equal(part(bar, "sai-feedback-say").textContent, "Лосяш задумался");
-  assert.equal(ui.status.textContent, "Не удалось сохранить оценку");
+  assert.equal(ui.notice.textContent, "Не удалось сохранить оценку");
   assert.equal(faces["1"].disabled, false);
 });
 
@@ -1164,7 +1173,7 @@ test("a failed delete keeps the story and says so", async () => {
   await settle();
 
   assert.deepEqual(ui.historyItems().map(item => item.textContent), ["Ракета", "Без названия"]);
-  assert.equal(ui.status.textContent, "Не удалось удалить историю");
+  assert.equal(ui.notice.textContent, "Не удалось удалить историю");
 });
 
 test("a story already deleted elsewhere is simply removed", async () => {
@@ -1175,7 +1184,7 @@ test("a story already deleted elsewhere is simply removed", async () => {
   await settle();
 
   assert.deepEqual(ui.historyItems().map(item => item.textContent), ["Без названия"]);
-  assert.notEqual(ui.status.textContent, "Не удалось удалить историю");
+  assert.notEqual(ui.notice.textContent, "Не удалось удалить историю");
 });
 
 test("a 401 on delete refreshes the session and retries once", async () => {
@@ -1242,13 +1251,13 @@ for (const clipboard of ["none", "denied"]) {
   });
 }
 
-test("a failed copy is reported in the status line", async () => {
+test("a failed copy is reported near the composer", async () => {
   const ui = await answered({ clipboard: "none", execCommandResult: false });
   const button = copyButton(ui.bubbles()[0]);
 
   await fire(button, "click");
 
-  assert.equal(ui.status.textContent, "Не удалось скопировать");
+  assert.equal(ui.notice.textContent, "Не удалось скопировать");
   assert.equal(button.textContent, "Копировать");
   assert.equal(ui.body.querySelector(".sai-copy-buffer"), null);
 });
@@ -1323,7 +1332,7 @@ for (const status of [201, 409]) {
     assert.equal(flag.textContent, "Жалоба отправлена");
     assert.equal(flag.disabled, true);
     assert.ok(flag.classList.contains("is-sent"));
-    assert.equal(ui.status.textContent, "Спасибо! Взрослые посмотрят");
+    assert.equal(ui.notice.textContent, "Спасибо! Взрослые посмотрят");
   });
 }
 
@@ -1342,7 +1351,7 @@ test("a failed report keeps the panel with the choice", async () => {
   assert.equal(after.comment.value, "Неправда");
   assert.equal(after.send.disabled, false);
   assert.equal(after.flag.disabled, false);
-  assert.equal(ui.status.textContent, "Не удалось отправить жалобу");
+  assert.equal(ui.notice.textContent, "Не удалось отправить жалобу");
 });
 
 test("a 401 on report refreshes the session and retries once", async () => {
@@ -1487,8 +1496,8 @@ test("the banner opens the reviewed story", async () => {
 test("news failures stay silent and the banner comes once per page", async () => {
   const failed = await setup(deferred(), { news: 503 });
   assert.equal(failed.newsBox.hidden, true);
-  assert.notEqual(failed.status.textContent, "Не удалось загрузить новости");
-  assert.equal(failed.document.querySelector("#saiStatus").dataset.state, "ready");
+  assert.notEqual(failed.notice.textContent, "Не удалось загрузить новости");
+  assert.equal(failed.notice.textContent, "");
 
   const unsaved = await setup(deferred(), {
     news: [{ report_id: 3, dialog_id: "d-2", dialog_title: "Ракета" }],
@@ -1497,7 +1506,7 @@ test("news failures stay silent and the banner comes once per page", async () =>
   fire(newsParts(unsaved.newsBox).buttons[0], "click");
   await settle();
   assert.equal(unsaved.newsBox.hidden, true);
-  assert.equal(unsaved.document.querySelector("#saiStatus").dataset.state, "ready");
+  assert.equal(unsaved.notice.textContent, "");
 
   fire(unsaved.newStory, "click");
   await settle();
@@ -2000,4 +2009,382 @@ test("a late voiceover leaves the selected voice playing and available for downl
   await fire(ui.voiceMenu.querySelector('[data-voice="aidar"]'), "click");
   assert.equal(action.textContent, "Скачать");
   assert.match(audio.src, /^blob:test-/);
+});
+
+test("a late POST leaves the next draft editable, blocks duplicate sends and preserves focus", async () => {
+  const response = deferred();
+  const ui = await setup(response);
+  assert.equal(ui.prompt.placeholder, "Идея для сказки");
+  assert.equal(ui.length.value, "3");
+  assert.equal(ui.length.getAttribute("aria-valuetext"), "Любая");
+
+  input(ui.prompt, "Первая история");
+  const posting = fire(ui.form, "submit");
+  assert.equal(ui.prompt.disabled, false);
+  assert.equal(ui.send.disabled, true);
+  input(ui.prompt, "Следующая идея");
+  await fire(ui.prompt, "keydown", { key: "Enter" });
+  response.resolve({ status: 202 });
+  await posting;
+  await settle();
+  assert.equal(ui.prompt.value, "Следующая идея");
+  assert.equal(ui.bubbles()[0].textContent, "Первая история");
+
+  input(ui.prompt, "Ещё одна идея");
+  await fire(ui.form, "submit");
+  assert.equal(ui.requests.filter(([path]) => path.endsWith("/messages")).length, 1);
+  ui.lengthButton.focus();
+  ui.source.emit("message_end");
+  assert.equal(document.activeElement, ui.lengthButton);
+  assert.equal(ui.prompt.value, "Ещё одна идея");
+  assert.equal(ui.send.disabled, false);
+  await fire(ui.prompt, "keydown", { key: "Enter" });
+  assert.deepEqual(JSON.parse(ui.requests.at(-1)[1].body), { request: "Ещё одна идея" });
+  assert.equal(ui.prompt.value, "");
+});
+
+test("IME confirmation and Shift+Enter allow native editing without submitting", async () => {
+  const ui = await setup(deferred());
+  input(ui.prompt, "История");
+  for (const options of [{ isComposing: true }, { keyCode: 229 }, { shiftKey: true }]) {
+    const key = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true, ...options });
+    ui.prompt.dispatchEvent(key);
+    assert.equal(key.defaultPrevented, false);
+  }
+  assert.equal(ui.requests.filter(([path]) => path.endsWith("/messages")).length, 0);
+});
+
+const savedId = "eee57d4a-6420-4dc1-b713-623941784987";
+const freshId = "aeee032b-69cc-46f5-bc5a-6ed47f99bc6a";
+const sessionKey = "smeshariki.dialog.user-1";
+const savedPair = [
+  { id: 21, role: "user", content: "История до F5", feedback: null },
+  { id: 22, role: "assistant", content: "Полный ответ", feedback: 4 },
+];
+const savedPath = `/api/v1/dialogs/${savedId}/messages`;
+
+test("F5 restores the created draft and later the selected saved story in the same tab", async () => {
+  const first = await setup(deferred(), { createdId: freshId });
+  assert.equal(sessionStorage.getItem(sessionKey), freshId);
+  const dialogs = [{ ...SAVED[0], dialog_id: savedId }];
+  const transcripts = { [freshId]: transcript(null, []), [savedId]: transcript("Архив", savedPair) };
+  const draft = await setup(deferred(), { preserveSession: true, dialogs, transcripts });
+  assert.equal(first.source.closed, true);
+  assert.equal(draft.requests.length, 0);
+  assert.match(draft.source.url, new RegExp(freshId));
+  assert.equal(draft.krosh().length, 1);
+  await fire(draft.historyItems()[0], "click");
+  assert.equal(sessionStorage.getItem(sessionKey), savedId);
+  const restored = await setup(deferred(), { preserveSession: true, transcripts });
+  assert.equal(restored.requests.length, 0);
+  assert.deepEqual(restored.historyRequests, ["/api/v1/dialogs", savedPath]);
+  assert.deepEqual(restored.bubbles().map(b => b.textContent), savedPair.map(m => m.content));
+  assert.equal(restored.send.disabled, false);
+  assert.equal(sessionStorage.length, 1);
+  assert.equal(sessionStorage.getItem(sessionKey), savedId);
+});
+
+test("F5 never requests another user's selection or a malformed id", async () => {
+  const initSession = () => {
+    sessionStorage.setItem("smeshariki.dialog.previous-user", savedId);
+    sessionStorage.setItem(sessionKey, "not-a-uuid");
+  };
+  const ui = await setup(deferred(), { initSession, createdId: freshId });
+  assert.deepEqual(ui.historyRequests, ["/api/v1/dialogs"]);
+  assert.equal(ui.requests.length, 1);
+  assert.equal(sessionStorage.getItem(sessionKey), freshId);
+});
+
+test("F5 handles a missing or foreign selection even when SSE fails before ready", async () => {
+  const ui = await setup(deferred(), { autoReady: false, createdId: freshId,
+    initSession: () => sessionStorage.setItem(sessionKey, savedId) });
+  ui.source.fail();
+  await settle();
+  assert.equal(ui.source.closed, true);
+  assert.equal(ui.historyRequests.filter(p => p === savedPath).length, 1);
+  assert.equal(ui.requests.length, 1);
+  assert.equal(sessionStorage.getItem(sessionKey), freshId);
+  assert.equal(ui.timers.size, 0);
+});
+
+test("a temporarily unavailable transcript retries the same selection and sends no messages", async () => {
+  let unavailable = true;
+  const ui = await setup(deferred(), { initSession: () => sessionStorage.setItem(sessionKey, savedId),
+    transcripts: { [savedId]: () => unavailable ? { status: 503 } : transcript("Архив", savedPair) } });
+  assert.equal(sessionStorage.getItem(sessionKey), savedId);
+  assert.equal(ui.send.disabled, true);
+  unavailable = false;
+  await ui.runNextTimer();
+  FakeEventSource.instances.at(-1).emit("ready");
+  await settle();
+  assert.equal(ui.send.disabled, false);
+  assert.equal(ui.requests.length, 0);
+  assert.equal(ui.historyRequests.filter(p => p === savedPath).length, 2);
+});
+
+test("F5 in the middle of a run loads both committed messages after the final SSE event", async () => {
+  let committed = false;
+  const ui = await setup(deferred(), { initSession: () => sessionStorage.setItem(sessionKey, savedId),
+    transcripts: { [savedId]: () => transcript(committed ? "Архив" : null, committed ? savedPair : []) } });
+  assert.deepEqual(ui.bubbles(), []);
+  ui.source.emit("message_delta", { delta: "пропущено начало" });
+  assert.equal(ui.send.disabled, true);
+  assert.deepEqual(ui.bubbles(), []);
+  committed = true;
+  ui.source.emit("message_end", { message_id: 22 });
+  await settle();
+  assert.deepEqual(ui.bubbles().map(b => b.textContent), savedPair.map(m => m.content));
+  assert.equal(ui.send.disabled, false);
+  assert.equal(ui.requests.length, 0);
+  assert.equal(ui.historyRequests.filter(p => p === savedPath).length, 2);
+});
+
+test("F5 coalesces an end observed while a transcript already contains that commit", async () => {
+  const reading = deferred();
+  const ui = await setup(deferred(), { initSession: () => sessionStorage.setItem(sessionKey, savedId),
+    transcripts: { [savedId]: reading.promise } });
+  assert.equal(ui.send.disabled, true);
+  ui.source.emit("message_end", { message_id: 22 });
+  reading.resolve(transcript("Архив", savedPair));
+  await settle();
+  assert.deepEqual(ui.bubbles().map(b => b.textContent), savedPair.map(m => m.content));
+  assert.equal(ui.historyRequests.filter(p => p === savedPath).length, 1);
+});
+
+test("explicit logout forgets the open dialog only after success", async () => {
+  const failed = await setup(deferred(), { createdId: freshId, logoutResponse: Promise.resolve({ status: 503 }) });
+  await fire(failed.logout, "click");
+  assert.equal(sessionStorage.getItem(sessionKey), freshId);
+  const ui = await setup(deferred(), { preserveSession: true, transcripts: { [freshId]: transcript(null, []) } });
+  await fire(ui.logout, "click");
+  assert.equal(sessionStorage.getItem(sessionKey), null);
+});
+
+test("blocked sessionStorage still allows normal chat", async () => {
+  const ui = await setup(deferred(), { createdId: freshId, initSession: () => {
+    vi.stubGlobal("sessionStorage", {
+      getItem() { throw new Error("unavailable"); },
+      setItem() { throw new Error("unavailable"); },
+      removeItem() { throw new Error("unavailable"); },
+    });
+  } });
+  assert.equal(ui.requests.length, 1);
+  assert.equal(ui.send.disabled, false);
+});
+
+test("waiting begins on submit, survives start and blank chunks, then gives way to the streamed answer", async () => {
+  const response = deferred();
+  const ui = await setup(response);
+  const waiting = () => ui.messages.querySelector("[data-story-waiting]");
+  const announcement = ui.document.querySelector(".sai-sr-only[role=status]");
+  const interval = vi.spyOn(window, "setInterval").mockReturnValue(42);
+  const clear = vi.spyOn(window, "clearInterval");
+  assert.equal(ui.document.querySelector(".sai-chat-head [role=status]"), null);
+  assert.equal(ui.notice.textContent, "");
+  assert.equal(waiting(), null);
+  input(ui.prompt, "Куда отправимся?");
+  const submission = fire(ui.form, "submit");
+  const first = waiting();
+  assert.ok(first);
+  assert.equal(first.getAttribute("aria-hidden"), "true");
+  assert.equal(announcement.textContent, "Смешарики сочиняют историю…");
+  assert.equal(first.querySelector(".sai-wait-phrase").textContent, "Красим скамейку…");
+  const [nextPhrase] = interval.mock.calls[0];
+  nextPhrase();
+  flushSync();
+  assert.equal(first.querySelector(".sai-wait-phrase").textContent, "Раскладываем фантики…");
+  assert.equal(announcement.textContent, "Смешарики сочиняют историю…");
+  assert.equal(ui.bubbles().length, 0);
+  response.resolve({ status: 202 });
+  await submission;
+  ui.source.emit("message_start");
+  ui.source.emit("message_delta", { delta: " " });
+  assert.equal(waiting(), first);
+  assert.deepEqual(ui.bubbles().map(b => b.textContent), ["Куда отправимся?"]);
+  assert.equal(ui.messages.getAttribute("aria-busy"), "true");
+  ui.source.emit("message_delta", { delta: "Привет" });
+  assert.equal(waiting(), null);
+  assert.ok(clear.mock.calls.some(([id]) => id === 42));
+  assert.equal(announcement.textContent, "");
+  assert.equal(ui.bubbles().at(-1).textContent, " Привет");
+  ui.source.emit("message_end", { message_id: 7 });
+  assert.equal(ui.messages.getAttribute("aria-busy"), "false");
+});
+
+test("streaming and completion preserve a reader's scroll position", async () => {
+  const ui = await answered();
+  const log = ui.messages;
+  Object.defineProperty(log, "scrollHeight", { value: 2400, configurable: true });
+  log.scrollTop = 128;
+  ui.source.emit("message_start");
+  assert.equal(log.scrollTop, 128);
+  ui.source.emit("message_delta", { delta: "Однажды…" });
+  assert.equal(log.scrollTop, 128);
+  log.scrollTop = 300;
+  ui.source.emit("message_delta", { delta: " Крош поехал в гости." });
+  assert.equal(log.scrollTop, 300);
+  ui.source.emit("message_end", { message_id: 42 });
+  await settle();
+  assert.equal(log.scrollTop, 300);
+});
+
+test.each(["message_error", "message_end", "close", "reject"])("waiting clears on %s, including without a first delta", async ending => {
+  const response = deferred();
+  const ui = await setup(response);
+  const interval = vi.spyOn(window, "setInterval").mockReturnValue(73);
+  const clear = vi.spyOn(window, "clearInterval");
+  input(ui.prompt, "Ещё одна история");
+  const submission = fire(ui.form, "submit");
+  assert.ok(ui.messages.querySelector("[data-story-waiting]"));
+  response.resolve({ status: ending === "reject" ? 503 : 202 });
+  await submission;
+  if (ending === "close") await fire(window, "beforeunload");
+  else if (ending !== "reject") ui.source.emit(ending);
+  assert.equal(ui.messages.querySelector("[data-story-waiting]"), null);
+  assert.equal(interval.mock.calls.length, 1);
+  assert.ok(clear.mock.calls.some(([id]) => id === 73));
+});
+
+test("reduced motion keeps a static waiting phrase", async () => {
+  const ui = await setup(deferred());
+  const change = vi.fn();
+  vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: change, removeEventListener: vi.fn() }));
+  const interval = vi.spyOn(window, "setInterval");
+  input(ui.prompt, "История");
+  await fire(ui.form, "submit");
+  assert.equal(ui.messages.querySelector(".sai-wait-phrase").textContent, "Красим скамейку…");
+  assert.equal(interval.mock.calls.length, 0);
+  assert.equal(change.mock.calls[0][0], "change");
+});
+
+test("F5 after 202 before the first delta holds send, allows typing, and never resubmits", async () => {
+  const post = deferred();
+  const first = await setup(post, { createdId: savedId });
+  input(first.prompt, "Новый запрос");
+  void fire(first.form, "submit");
+  post.resolve({ status: 202 });
+  await settle();
+  let committed = false;
+  const ui = await setup(deferred(), { preserveSession: true, transcripts: {
+    [savedId]: () => transcript(null, committed ? savedPair : []),
+  } });
+  assert.equal(ui.prompt.disabled, false);
+  assert.equal(ui.send.disabled, true);
+  assert.equal(ui.messages.getAttribute("aria-busy"), "true");
+  input(ui.prompt, "Следующая идея");
+  await fire(ui.form, "submit");
+  assert.equal(ui.requests.length, 0);
+  assert.equal(ui.prompt.value, "Следующая идея");
+  assert.ok(!JSON.stringify(sessionStorage).includes("Новый запрос"));
+  committed = true;
+  ui.source.emit("message_end", { message_id: 22 });
+  await settle();
+  assert.equal(ui.send.disabled, false);
+  assert.equal(ui.timers.size, 0);
+  assert.equal(sessionStorage.length, 1);
+  assert.deepEqual(ui.bubbles().map(b => b.textContent), savedPair.map(m => m.content));
+});
+
+test("a run that committed before F5 subscribed is recognized on the first snapshot", async () => {
+  const post = deferred();
+  const first = await setup(post, { createdId: savedId });
+  input(first.prompt, "Новый запрос");
+  void fire(first.form, "submit");
+  post.resolve({ status: 202 });
+  await settle();
+  const ui = await setup(deferred(), { preserveSession: true, transcripts: { [savedId]: transcript(null, savedPair) } });
+  assert.deepEqual(ui.bubbles().map(b => b.textContent), savedPair.map(m => m.content));
+  assert.equal(ui.send.disabled, false);
+  assert.equal(ui.timers.size, 0);
+  assert.equal(ui.requests.length, 0);
+  assert.equal(sessionStorage.length, 1);
+});
+
+test("an unchanged previous answer keeps F5 waiting; a lost terminal error eventually releases send", async () => {
+  const post = deferred();
+  const transcripts = { [savedId]: transcript("Архив", savedPair) };
+  const first = await setup(post, { initSession: () => sessionStorage.setItem(sessionKey, savedId), transcripts });
+  input(first.prompt, "Ещё история");
+  void fire(first.form, "submit");
+  post.resolve({ status: 202 });
+  await settle();
+  const ui = await setup(deferred(), { preserveSession: true, transcripts });
+  assert.equal(ui.send.disabled, true);
+  assert.equal(ui.prompt.disabled, false);
+  assert.ok(ui.timerDelays.some(delay => delay > 0 && delay <= 120000));
+  await ui.runNextTimer();
+  assert.equal(ui.send.disabled, false);
+  assert.equal(ui.requests.length, 0);
+  assert.equal(ui.timers.size, 0);
+  assert.deepEqual(ui.bubbles().map(b => b.textContent), savedPair.map(m => m.content));
+});
+
+test("the composer switches rows only when text needs more than the compact column", async () => {
+  const ui = await setup(deferred());
+  const measure = ui.form.querySelector(".sai-composer-measure");
+  let available = 128;
+  Object.defineProperty(measure, "clientWidth", { get: () => available });
+  Object.defineProperty(measure, "scrollWidth", { get: () => measure.textContent.length * 8 });
+  const expanded = () => ui.form.classList.contains("is-expanded");
+
+  assert.equal(expanded(), false);
+  input(ui.prompt, "Крош");
+  assert.equal(expanded(), false);
+  input(ui.prompt, "Крош идёт искать поляну");
+  assert.equal(expanded(), true);
+  available = 300;
+  await fire(window, "resize");
+  assert.equal(expanded(), false);
+  available = 128;
+  await fire(window, "resize");
+  assert.equal(expanded(), true);
+  input(ui.prompt, "Крош");
+  assert.equal(expanded(), false);
+  input(ui.prompt, "Крош\n");
+  assert.equal(expanded(), true);
+  input(ui.prompt, "");
+  assert.equal(expanded(), false);
+});
+
+test("a failed multiline draft stays expanded and a successful retry collapses it", async () => {
+  const statuses = [503, 202];
+  const ui = await setup({ get promise() { return Promise.resolve({ status: statuses.shift() }); } });
+  const text = "Крош и Ёжик\nстроят ракету";
+  input(ui.prompt, text);
+  await fire(ui.form, "submit");
+  assert.equal(ui.form.classList.contains("is-expanded"), true);
+  assert.equal(ui.prompt.value, text);
+  await fire(ui.form, "submit");
+  assert.equal(ui.form.classList.contains("is-expanded"), false);
+  assert.equal(ui.prompt.value, "");
+});
+
+test("a late delta postpones the F5 silence deadline, then a terminal error clears the marker", async () => {
+  const now = Date.now();
+  const ui = await setup(deferred(), { initSession: () => {
+    sessionStorage.setItem(sessionKey, savedId);
+    sessionStorage.setItem("smeshariki.turn.user-1", JSON.stringify({
+      dialogId: savedId, lastAnswer: null, expiresAt: now + 1000,
+    }));
+  }, transcripts: { [savedId]: transcript(null, []) } });
+  assert.equal(ui.send.disabled, true);
+  ui.source.emit("message_delta", { delta: "…" });
+  await ui.runNextTimer();
+  assert.equal(ui.send.disabled, true);
+  assert.equal(ui.timers.size, 1);
+  ui.source.emit("message_error", { message: "Ответ прерван" });
+  assert.equal(ui.timers.size, 0);
+  assert.equal(ui.send.disabled, false);
+  assert.equal(sessionStorage.length, 1);
+});
+
+test("deleting the open selection clears its UUID even if the replacement draft is unavailable", async () => {
+  const dialogs = [{ ...SAVED[0], dialog_id: savedId }];
+  const ui = await setup(deferred(), { initSession: () => sessionStorage.setItem(sessionKey, savedId),
+    createStatus: 503, dialogs, transcripts: { [savedId]: transcript(null, []) } });
+  await fire(document.querySelector(".sai-history-delete"), "click");
+  await fire(document.querySelector(".sai-history-confirm-delete"), "click");
+  assert.equal(ui.deleteRequests.length, 1);
+  assert.equal(sessionStorage.getItem(sessionKey), null);
+  assert.equal(ui.requests.length, 1);
 });

@@ -17,5 +17,5 @@ export interface MessageActions {
   startAudio(id: number, voice: string): ReturnType<AgentApi["startAudio"]>;
   getAudio(id: number, voice: string): ReturnType<AgentApi["getAudio"]>;
   downloadAudio(id: number, voice: string): ReturnType<AgentApi["downloadAudio"]>;
-  notify(text: string, kind?: "ready" | "error"): void;
+  notify(text: string, kind?: "info" | "error"): void;
 }
