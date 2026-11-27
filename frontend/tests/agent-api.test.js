@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 
-import { AgentApi, AgentApiError } from "../src/agent-api.js";
+import { AgentApi, AgentApiError } from "../src/entities/dialog";
 
 function response(status, body) {
   return {

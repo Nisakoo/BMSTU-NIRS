@@ -1,5 +1,6 @@
 import { fileURLToPath, URL } from "node:url";
 
+import { svelte } from "@sveltejs/vite-plugin-svelte";
 import { defineConfig } from "vite";
 
 const backendUrl = process.env.BACKEND_URL || "http://127.0.0.1:8000";
@@ -11,7 +12,11 @@ const proxy = {
 };
 
 export default defineConfig({
-  root: fileURLToPath(new URL("./src", import.meta.url)),
+  plugins: [svelte()],
+  root: fileURLToPath(new URL("./src/html/", import.meta.url)),
+  resolve: {
+    alias: { "/src": fileURLToPath(new URL("./src", import.meta.url)) },
+  },
   server: {
     port: 5173,
     strictPort: true,
@@ -22,9 +27,9 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       input: {
-        main: fileURLToPath(new URL("./src/index.html", import.meta.url)),
-        admin: fileURLToPath(new URL("./src/admin/index.html", import.meta.url)),
-        login: fileURLToPath(new URL("./src/login/index.html", import.meta.url)),
+        main: fileURLToPath(new URL("./src/html/index.html", import.meta.url)),
+        admin: fileURLToPath(new URL("./src/html/admin/index.html", import.meta.url)),
+        login: fileURLToPath(new URL("./src/html/login/index.html", import.meta.url)),
       },
     },
   },

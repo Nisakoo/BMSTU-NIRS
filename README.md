@@ -44,8 +44,8 @@ Docker Compose проектом. Агент и RAG входят в состав 
 
 - `make run` — сборка и запуск всего приложения через Docker Compose;
 - `make frontend` — отдельный Vite dev server при разработке frontend;
-- `make test` — запуск frontend Node-тестов и backend Pytest;
-- `make lint` — проверка Python-кода через Ruff;
+- `make test` — запуск frontend-тестов Vitest и backend Pytest;
+- `make lint` — проверка Svelte и TypeScript через svelte-check и Python-кода через Ruff;
 - `make format` — автоматическое исправление и форматирование Python-кода.
 
 После настройки `docker/.env` приложение доступно на

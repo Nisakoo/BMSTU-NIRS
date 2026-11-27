@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createServer as createHttpServer } from "node:http";
 import { fileURLToPath } from "node:url";
 
+import { JSDOM } from "jsdom";
 import { createServer as createViteServer } from "vite";
 
 const backend = createHttpServer((request, response) => {
@@ -31,16 +32,19 @@ try {
   await vite.listen();
   const base = `http://127.0.0.1:${vite.httpServer.address().port}`;
 
-  const page = await fetch(base);
-  assert.equal(page.status, 200);
-  assert.match(await page.text(), /id="saiForm"/);
-
-  const adminPage = await fetch(`${base}/admin/`);
-  assert.equal(adminPage.status, 200);
-  assert.match(await adminPage.text(), /id="adminDashboard"/);
-  const loginPage = await fetch(`${base}/login/`);
-  assert.equal(loginPage.status, 200);
-  assert.match(await loginPage.text(), /id="authForm"/);
+  for (const [path, entry] of [["/", "chat"], ["/admin/", "admin"], ["/login/", "login"]]) {
+    const page = await fetch(base + path);
+    assert.equal(page.status, 200);
+    const html = await page.text();
+    const document = JSDOM.fragment(html);
+    const entryUrl = document.querySelector(`script[type="module"][src$="/app/${entry}.ts"]`)?.getAttribute("src");
+    assert.ok(entryUrl, `Missing module for ${path}`);
+    const url = new URL(entryUrl, base + path);
+    assert.equal(url.pathname, `/src/app/${entry}.ts`);
+    const module = await fetch(url);
+    assert.equal(module.status, 200);
+    assert.match(module.headers.get("content-type"), /javascript/);
+  }
 
   const dialog = await fetch(`${base}/api/v1/dialogs`, { method: "POST" });
   assert.equal(dialog.status, 201);

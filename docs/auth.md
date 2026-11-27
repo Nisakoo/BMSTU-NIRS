@@ -8,8 +8,8 @@ backend-реализацию на JWT и refresh-токенах и исполь�
 
 ## Границы ответственности
 
-- **Frontend** ([`auth-api.js`](../frontend/src/auth-api.js),
-  [`login/`](../frontend/src/login/)) отправляет запросы контракта на том же
+- **Frontend** ([`entities/session`](../frontend/src/entities/session/),
+  [`login/`](../frontend/src/pages/login/)) отправляет запросы контракта на том же
   origin, проверяет поля до отправки и после успешного входа переходит в чат.
   Он не хранит пароль и токены в JavaScript-хранилищах и не читает cookie.
 - **Backend** ([`smeshariki_ai.auth`](../backend/src/smeshariki_ai/auth/),
@@ -235,7 +235,7 @@ Compose-контейнере `migrate`. Пароль вводится дважд
 
 ## Проверка сессии во frontend
 
-[`auth-session.js`](../frontend/src/auth-session.js) — общий DOM-независимый
+[`session.ts`](../frontend/src/entities/session/session.ts) — общий DOM-независимый
 модуль для `/`, `/admin/` и `/login/`. `checkSession` вызывает
 `GET /users/me`, а при `401` — один раз `POST /auth/refresh` и берёт
 пользователя из его ответа. `refresh` выполняется под общей блокировкой
@@ -298,8 +298,7 @@ Web Locks `smeshariki-auth-refresh`: вкладка, дождавшаяся её
 (под ссылкой «Панель администратора», если она есть), а в `/admin/` — кнопка
 «Настройки» над «Выйти» открывают модальное окно с разделом «Сменить
 пароль». Логика окна общая — модуль
-[`password-settings.js`](../frontend/src/password-settings.js); страница
-передаёт ему элементы и `changePassword` со своей обработкой `401`. Окно проверяет длину и повтор
+[`features/password`](../frontend/src/features/password/). Страница передаёт компоненту обработчик смены пароля со своей обработкой `401`. Окно проверяет длину и повтор
 пароля до запроса, отправляет `PUT` через `AuthApi.changePassword`, при `401`
 выполняет один `refresh` и повтор, показывает итог в области `aria-live` и
 очищает поля после успеха, закрытия или неверного текущего пароля. Пароли не

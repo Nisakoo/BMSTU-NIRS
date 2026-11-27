@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 
-import { AdminApi, AdminApiError } from "../src/admin/admin-api.js";
+import { AdminApi, AdminApiError } from "../src/entities/admin";
 
 const BODY = {
   period: "30",

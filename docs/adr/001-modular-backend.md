@@ -21,6 +21,10 @@ agent, which calls registered tools when needed. RAG indexing and retrieval
 remain backend responsibilities, with PostgreSQL as their storage. Provider and
 storage interfaces keep infrastructure choices outside the agent runtime.
 
+The Svelte frontend consumes the same-origin HTTP and SSE interfaces. Its
+TypeScript modules own browser state and presentation. Authorization, dialog
+ownership and access to the agent and storage remain in the backend.
+
 ## Consequences
 
 The deployment and tool-call path remain simpler, and modules can be tested
@@ -36,6 +40,7 @@ contracts change. Check the Compose topology for deployment changes.
 
 ## References
 
+- [Frontend modules and state](../../frontend/README.md)
 - [Architecture map](../README.md)
 - [Agent architecture](../agent.md)
 - [RAG architecture and tools](../rag.md)

@@ -2,7 +2,7 @@
 
 ## Project map and flow
 
-- `frontend/` contains the vanilla JavaScript chat, login and admin pages. Vite builds them and Nginx serves them.
+- `frontend/` contains the Svelte and TypeScript chat, login and admin pages. Vite builds them and Nginx serves them.
 - `backend/src/smeshariki_ai/api/` exposes HTTP and SSE. `application/` coordinates dialog requests and events.
 - `agent/` runs the model and tool loop. `agent/providers/` adapts LLM providers through an internal interface.
 - `dialogs/`, `auth/`, `admin/`, and `speech/` own their respective domain services and contracts.
@@ -12,6 +12,8 @@
 - `docs/README.md` indexes architecture and contracts. `specs/` contains SDD changes. `docs/adr/` records decisions.
 
 A browser sends same-origin HTTP requests through Caddy. Use SSE for streamed responses unless a specification requires another transport. The API calls application services, which coordinate dialog history, the agent and its tools. The agent streams results via SSE. The backend owns access to LLMs, PostgreSQL, Redis and object storage.
+
+Check for a local `AGENTS.md` on the path to each file you change. The [frontend instructions](frontend/AGENTS.md) cover Feature-Sliced Design (FSD), Flux and browser verification.
 
 ## Mandatory rules
 
@@ -42,4 +44,4 @@ Record durable architectural decisions in `docs/adr/`. Use MADR for significant 
 - Identify the changed behavior and its dependencies. Run tests for the changed module and every consumer or entry point that can observe the change. Include API or SSE client tests when wire format or observable behavior changes. Include affected shared authentication, configuration, persistence or protocol consumers and real infrastructure adapter tests when those boundaries change.
 - Do not run suites for independent modules whose behavior and contracts cannot be affected. If a boundary is uncertain, widen the selection. Use the full suite for cross-cutting changes or when the affected boundary cannot be determined.
 - Select existing tests before adding new ones. Add tests for distinct core flows, contracts or material failure risks. Cover meaningful outcome boundaries and avoid tests tied only to visual details or implementation trivia. Use deterministic fakes for unit tests and real infrastructure for adapter integration tests.
-- Examples from the repository root include `node --test frontend/tests/ui.test.js`, `uv run --project backend --locked pytest backend/tests/unit/agent/test_runtime.py`, and `make test-integration PYTEST_ARGS="backend/tests/integration/rag"`. `make test` runs the broader local suite and can skip infrastructure tests when services are absent. `make test-integration` supplies temporary PostgreSQL and Redis.
+- Examples from the repository root include `npm --prefix frontend test -- tests/agent-api.test.js`, `uv run --project backend --locked pytest backend/tests/unit/agent/test_runtime.py`, and `make test-integration PYTEST_ARGS="backend/tests/integration/rag"`. `make test` runs the broader local suite and can skip infrastructure tests when services are absent. `make test-integration` supplies temporary PostgreSQL and Redis.

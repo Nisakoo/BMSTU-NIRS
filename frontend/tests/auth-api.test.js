@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 
-import { AuthApi, AuthApiError } from "../src/auth-api.js";
+import { AuthApi, AuthApiError } from "../src/entities/session/index.ts";
 
 const USER = { id: "user-1", login: "krosh", role: "user" };
 

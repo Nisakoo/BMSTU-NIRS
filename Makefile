@@ -28,7 +28,7 @@ help:
 	@echo "  make test    Run all configured project tests"
 	@echo "  make benchmark Run the committed 30-document BM25 benchmark (no DB, no LLM)"
 	@echo "  make test-integration [PYTEST_ARGS=...] Run backend tests against disposable PostgreSQL and Redis"
-	@echo "  make lint    Check backend code with Ruff"
+	@echo "  make lint    Check frontend types and backend code"
 	@echo "  make format  Fix and format backend code with Ruff"
 
 run:
@@ -258,6 +258,7 @@ test-integration:
 	@sh docker/test-integration.sh
 
 lint:
+	@npm --prefix frontend run check
 	@uv run --project backend --locked ruff check backend
 	@uv run --project backend --locked ruff format --check backend
 

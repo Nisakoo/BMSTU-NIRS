@@ -2,6 +2,7 @@
 !frontend/package.json
 !frontend/package-lock.json
 !frontend/vite.config.js
+!frontend/tsconfig.json
 !frontend/src/
 !frontend/src/**
 **/.env
