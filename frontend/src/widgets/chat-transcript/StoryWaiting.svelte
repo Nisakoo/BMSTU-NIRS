@@ -1,13 +1,22 @@
-<script lang="ts">
-  import { onMount } from "svelte";
-
+<script module lang="ts">
   const phrases = [
     "Красим скамейку…",
     "Раскладываем фантики…",
     "Поливаем грядки…",
     "Ищем карту Кроша…",
   ];
-  let index = $state(0);
+  let lastPhrase: string;
+
+  function pickPhrase() {
+    const choices = phrases.filter(phrase => phrase !== lastPhrase);
+    lastPhrase = choices[Math.floor(Math.random() * choices.length)];
+    return lastPhrase;
+  }
+</script>
+
+<script lang="ts">
+  import { onMount } from "svelte";
+  let phrase = $state(pickPhrase());
 
   onMount(() => {
     const motion = window.matchMedia?.("(prefers-reduced-motion: reduce)");
@@ -15,7 +24,7 @@
     function updateMotion() {
       window.clearInterval(timer);
       if (!motion?.matches) {
-        timer = window.setInterval(() => { index = (index + 1) % phrases.length; }, 3000);
+        timer = window.setInterval(() => { phrase = pickPhrase(); }, 3000);
       }
     }
     updateMotion();
@@ -31,7 +40,7 @@
   <div class="sai-msg-icon">⭐</div>
   <div class="sai-wait">
     <span class="sai-wait-dots"><i></i><i></i><i></i></span>
-    <span class="sai-wait-phrase">{phrases[index]}</span>
+    <span class="sai-wait-phrase">{phrase}</span>
   </div>
 </div>
 

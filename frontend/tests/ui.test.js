@@ -2257,6 +2257,7 @@ test("waiting begins on submit, survives start and blank chunks, then gives way 
   const announcement = ui.document.querySelector(".sai-sr-only[role=status]");
   const interval = vi.spyOn(window, "setInterval").mockReturnValue(42);
   const clear = vi.spyOn(window, "clearInterval");
+  const random = vi.spyOn(Math, "random").mockReturnValue(0.99);
   assert.equal(ui.document.querySelector(".sai-chat-head [role=status]"), null);
   assert.equal(ui.notice.textContent, "");
   assert.equal(waiting(), null);
@@ -2266,11 +2267,16 @@ test("waiting begins on submit, survives start and blank chunks, then gives way 
   assert.ok(first);
   assert.equal(first.getAttribute("aria-hidden"), "true");
   assert.equal(announcement.textContent, "Смешарики сочиняют историю…");
-  assert.equal(first.querySelector(".sai-wait-phrase").textContent, "Красим скамейку…");
+  const phrase = () => first.querySelector(".sai-wait-phrase").textContent;
+  assert.ok(["Ищем карту Кроша…", "Поливаем грядки…"].includes(phrase()));
   const [nextPhrase] = interval.mock.calls.find(([, delay]) => delay === 3000);
+  random.mockReturnValue(0);
   nextPhrase();
   flushSync();
-  assert.equal(first.querySelector(".sai-wait-phrase").textContent, "Раскладываем фантики…");
+  assert.equal(phrase(), "Красим скамейку…");
+  nextPhrase();
+  flushSync();
+  assert.equal(phrase(), "Раскладываем фантики…");
   assert.equal(announcement.textContent, "Смешарики сочиняют историю…");
   assert.equal(ui.bubbles().length, 0);
   response.resolve({ status: 202 });
@@ -2323,14 +2329,20 @@ test.each(["message_error", "message_end", "close", "reject"])("waiting clears o
   assert.ok(clear.mock.calls.some(([id]) => id === 73));
 });
 
-test("reduced motion keeps a static waiting phrase", async () => {
-  const ui = await setup(deferred());
+test("reduced motion picks a different static phrase for consecutive quick requests", async () => {
+  const ui = await setup({ promise: Promise.resolve({ status: 202 }) });
   const change = vi.fn();
   vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: change, removeEventListener: vi.fn() }));
   const interval = vi.spyOn(window, "setInterval");
+  vi.spyOn(Math, "random").mockReturnValue(0.99);
+  const phrase = () => ui.messages.querySelector(".sai-wait-phrase").textContent;
   input(ui.prompt, "История");
   await fire(ui.form, "submit");
-  assert.equal(ui.messages.querySelector(".sai-wait-phrase").textContent, "Красим скамейку…");
+  const first = phrase();
+  ui.source.emit("message_end");
+  input(ui.prompt, "Продолжение");
+  await fire(ui.form, "submit");
+  assert.deepEqual(new Set([first, phrase()]), new Set(["Ищем карту Кроша…", "Поливаем грядки…"]));
   assert.equal(interval.mock.calls.length, 0);
   assert.equal(change.mock.calls[0][0], "change");
 });
