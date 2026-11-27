@@ -1,7 +1,7 @@
 # Frontend
 
 Read the [frontend guide](README.md) for page behavior and deployment. The HTML
-entries live under `src/entry/`, the Vite root. Direct navigation to `/`,
+entries live under `src/html/`, the Vite root. Direct navigation to `/`,
 `/login/` and `/admin/` must work through both Vite and Nginx.
 
 - Follow Feature-Sliced Design. Import down the layers from `app` to `pages`,

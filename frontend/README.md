@@ -6,7 +6,7 @@
 
 ## Модули и состояние
 
-Корень Vite — `src/entry/`. В нём лежат `index.html` для чата,
+Корень Vite — `src/html/`. В нём лежат `index.html` для чата,
 `login/index.html` для входа и `admin/index.html` для панели. При сборке
 они занимают те же пути в `dist/`, поэтому Nginx обслуживает привычные URL.
 Остальной код организован по слоям Feature-Sliced Design (FSD).

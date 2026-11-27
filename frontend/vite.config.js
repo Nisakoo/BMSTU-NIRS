@@ -13,7 +13,7 @@ const proxy = {
 
 export default defineConfig({
   plugins: [svelte()],
-  root: fileURLToPath(new URL("./src/entry/", import.meta.url)),
+  root: fileURLToPath(new URL("./src/html/", import.meta.url)),
   resolve: {
     alias: { "/src": fileURLToPath(new URL("./src", import.meta.url)) },
   },
@@ -27,9 +27,9 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       input: {
-        main: fileURLToPath(new URL("./src/entry/index.html", import.meta.url)),
-        admin: fileURLToPath(new URL("./src/entry/admin/index.html", import.meta.url)),
-        login: fileURLToPath(new URL("./src/entry/login/index.html", import.meta.url)),
+        main: fileURLToPath(new URL("./src/html/index.html", import.meta.url)),
+        admin: fileURLToPath(new URL("./src/html/admin/index.html", import.meta.url)),
+        login: fileURLToPath(new URL("./src/html/login/index.html", import.meta.url)),
       },
     },
   },
