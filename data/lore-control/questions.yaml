@@ -1,0 +1,141 @@
+questions:
+- id: q1
+  text: Какие эпизоды про спорт и игры с мячом есть в списке, включая футбольные и гольф?
+  kind: normal
+  relevant_documents:
+  - futbol_1_y_taym
+  - futbol_2_oy_taym
+  - golf
+  reference_answer: Эти эпизоды посвящены спортивным играм и состязаниям, в том числе футболу и гольфу.
+  required_facts:
+  - футбол
+  - гольф
+  - мяч
+- id: q2
+  text: Подскажите эпизоды про зиму, мороз и новогоднее настроение со снегом и ёлкой?
+  kind: normal
+  relevant_documents:
+  - 41_s
+  - kuda_ukhodit_staryy_god
+  - plyus_sneg_minus_elka
+  reference_answer: Эти эпизоды затрагивают зимнюю погоду, морозы и темы, связанные с провожанием старого года.
+  required_facts:
+  - зим
+  - снег
+  - мороз
+- id: q3
+  text: Какие серии затрагивают тему здоровья, простуды и заботы о зубах героев?
+  kind: normal
+  relevant_documents:
+  - ezhik_i_zdorove
+  - novye_zuby_krosha
+  - orz
+  reference_answer: Эти эпизоды связаны со здоровьем, простудными заболеваниями и темой зубов.
+  required_facts:
+  - здоров
+  - простуд
+  - зуб
+- id: q4
+  text: Где найти эпизоды про космос, космические путешествия и загадочную туманность?
+  kind: normal
+  relevant_documents:
+  - ezhik_v_tumannosti
+  - kosmicheskaya_odisseya_chast_1
+  - kosmicheskaya_odisseya_chast_2
+  reference_answer: Эти эпизоды связаны с космической темой и путешествиями.
+  required_facts:
+  - космос
+  - путеш
+  - туманн
+- id: q5
+  text: Какие серии поднимают тему дружбы, общения и того, зачем нужны друзья?
+  kind: normal
+  relevant_documents:
+  - kak_sobrat_druzey_po_bystromu
+  - nastoyashchie_tsennosti
+  - zachem_nuzhny_druzya
+  reference_answer: Эти эпизоды раскрывают тему дружбы, объединения друзей и ценностей.
+  required_facts:
+  - друж
+  - друз
+  - ценност
+- id: q6
+  text: Какие эпизоды связаны со снами, ночным храпом и полётами наяву или во сне?
+  kind: normal
+  relevant_documents:
+  - energiya_khrapa
+  - polety_vo_sne_i_nayavu
+  - snotvorets
+  reference_answer: Эти эпизоды касаются сновидений и явлений, связанных со сном.
+  required_facts:
+  - сон
+  - храп
+  - полет
+- id: q7
+  text: Где есть истории про тайные общества, секреты фокусов и анонимность?
+  kind: normal
+  relevant_documents:
+  - anonim
+  - sekret_gudini
+  - taynoe_obshchestvo
+  reference_answer: Эти эпизоды строятся вокруг тайн, скрытности и секретов.
+  required_facts:
+  - тайн
+  - секрет
+  - аноним
+- id: q8
+  text: Какие серии связаны с музыкой, танцами, балетом и сочинением стихов?
+  kind: normal
+  relevant_documents:
+  - kak_zdorovo_sochinyat_stikhi
+  - kordebalet
+  - royal
+  reference_answer: Эти эпизоды посвящены творчеству и искусству.
+  required_facts:
+  - роял
+  - стих
+  - музык
+- id: q9
+  text: Какие эпизоды затрагивают еду, лакомства, кулинарию и погоню за большой выгодой?
+  kind: normal
+  relevant_documents:
+  - bolshoy_kush
+  - kulinariya
+  - tryufel
+  reference_answer: Эти эпизоды связаны с кулинарией и деликатесами.
+  required_facts:
+  - кулинар
+  - ед
+  - деликатес
+- id: q10
+  text: Какие серии показывают необычные устройства, механизмы и железную заботу о героях?
+  kind: normal
+  relevant_documents:
+  - dvigatel_progressa
+  - schastemet
+  - zheleznaya_nyanya
+  reference_answer: Эти эпизоды связаны с техникой, изобретениями и механической опекой.
+  required_facts:
+  - счастье
+  - нян
+  - техник
+- id: t1
+  text: Какой пароль от сейфа вводится в серии про тайное общество?
+  kind: trap
+  reference_answer: В документах нет этой информации.
+- id: t2
+  text: Какая точная дата выхода первой серии в эфир указана в списке?
+  kind: trap
+  reference_answer: В документах нет этой информации.
+- id: t3
+  text: Какой номер банковской карты или телефон указан в эпизоде про анонима?
+  kind: trap
+  reference_answer: В документах нет этой информации.
+- id: t4
+  text: Какая марка и модель автомобиля упоминаются в эпизодах про спорт и гольф?
+  kind: trap
+  reference_answer: В документах нет этой информации.
+- id: t5
+  text: Сколько точно граммов сахара входит в рецепт из эпизода про кулинарию?
+  kind: trap
+  reference_answer: В документах нет этой информации.

@@ -1,0 +1,120 @@
+Промпт для внешней модели: контрольный набор по 54 документам, которых нет
+в 30-документном корпусе. Модель не видит ни корпуса, ни выдачи, ни кода.
+
+=====================================================================
+
+Ты — методист, составляющий тестовый набор для поисковой системы по корпусу
+из 54 документов. Ты НЕ знаешь, как устроена эта система, и не должен ничего
+предполагать о её алгоритмах.
+
+Документов в открытом виде у тебя нет — только публичные названия эпизодов
+мультсериала «Смешарики». Опирайся на темы, которые понятны из названий, и не
+выдумывай детали сюжета, которых не следует из названия.
+
+КОРПУС (id — название):
+ballast — Балласт
+bibi_i_ego_papa — Биби и его папа
+biografiya_zontika — Биография зонтика
+bolshie_gonki — Большие гонки
+boykot — Бойкот
+dar — Дар
+den_rozhdeniya_nyushi — День рождения Нюши
+den_spravedlivosti — День справедливости
+ee_zvali_nyusha — Её звали Нюша
+ezhidze — Ежидзе
+fanernoe_solntse — Фанерное солнце
+geroy_plutona — Герой Плутона
+kak_stat_zvezdoy — Как стать звездой
+kanikuly_bibi — Каникулы Биби
+kollektsiya — Коллекция
+komnata_grusti — Комната грусти
+krasota — Красота
+kray_zemli — Край земли
+kto_pervyy — Кто первый?
+kuda_privodyat_zhelaniya — Куда приводят желания
+labirint — Лабиринт
+lichnaya_zhizn — Личная жизнь
+lili — Лили
+linii_sudby — Линии судьбы
+lya — Ля
+magnetizm — Магнетизм
+maskarad — Маскарад
+maslenitsa — Масленица
+miss_vselennaya — Мисс Вселенная
+moya_prelest — Моя прелесть
+nekulturnyy — Некультурный
+nevospitannyy_klon — Невоспитанный клон
+osnovnoy_instinkt — Основной инстинкт
+pedagogicheskaya_poema — Педагогическая поэма
+podarok_sudby — Подарок судьбы
+polosa_nevezeniya — Полоса невезения
+poslednyaya_raduga — Последняя радуга
+prints_dlya_nyushi — Принц для Нюши
+proshchay_barash — Прощай, Бараш!
+put_v_prilichnoe_obshchestvo — Путь в приличное общество
+realist — Реалист
+retsept_khoroshego_otdykha — Рецепт хорошего отдыха
+roman_v_pismakh — Роман в письмах
+skameyka — Скамейка
+skvernaya_primeta — Скверная примета
+smysl_zhizni — Смысл жизни
+sobytie_veka — Событие века
+telegraf — Телеграф
+uli_kopatycha — Ульи Копатыча
+v_nachale_bylo_slovo — В начале было слово
+vestibulyarnyy_apparat — Вестибулярный аппарат
+vodnye_protsedury — Водные процедуры
+vzaperti — Взаперти
+zabytaya_istoriya — Забытая история
+
+ЗАДАЧА
+
+1) Сгруппируй все 54 названия в 18 троек по общей теме и составь по одному
+   вопросу на тройку. Каждый id должен войти ровно в одну тройку.
+   - Вопрос пиши как живой пользователь, который ищет эти эпизоды: 8–20 слов,
+     естественный русский язык, без канцелярита.
+   - Используй обычные тематические слова, но не перечисляй в вопросе ответы.
+   - Не выдумывай фактов, которых нет в названии (числа, имена, события).
+
+2) Придумай 5 вопросов-ловушек: ответа на которые в этих эпизодах заведомо
+   нет (точные числа, марки, пароли, даты, личные данные).
+
+3) Для каждого обычного вопроса укажи:
+   - relevant_documents: три id из его тройки;
+   - reference_answer: 1–2 предложения общего вида, что показывают эпизоды;
+   - required_facts: 2–3 коротких слова в начальной форме (например: дружба,
+     подарок, победа).
+   Для ловушки: reference_answer строго «В документах нет этой информации.»
+
+ФОРМАТ ОТВЕТА — только YAML, без пояснений:
+
+questions:
+- id: q1
+  text: <вопрос>
+  kind: normal
+  relevant_documents:
+  - <id>
+  - <id>
+  - <id>
+  reference_answer: <ответ>
+  required_facts:
+  - <слово>
+- id: t1
+  text: <вопрос-ловушка>
+  kind: trap
+  reference_answer: В документах нет этой информации.
+
+ПРОВЕРЬ ПЕРЕД ОТВЕТОМ
+- ровно 18 normal и 5 trap;
+- у normal ровно 3 relevant_documents и 2–3 required_facts;
+- у trap нет relevant_documents и required_facts;
+- каждый из 54 id использован ровно один раз;
+- id вопросов: строчные латинские буквы, цифры, «_».
+
+=====================================================================
+
+Куда положить результат: data/lore-control-heldout/questions.yaml
+Запуск (один раз, после фиксации файла):
+uv run --project backend --locked python -m smeshariki_ai.rag lore-benchmark \
+  data/lore-golden/lore --questions data/lore-control-heldout/questions.yaml \
+  --context --format text
