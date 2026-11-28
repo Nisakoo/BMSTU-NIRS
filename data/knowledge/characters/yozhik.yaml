@@ -1,0 +1,40 @@
+id: yozhik
+name: Ёжик
+species: ёж
+versions:
+- continuities:
+  - classic
+  age_group: child
+  traits:
+  - застенчивый и осторожный
+  - добрый и чувствительный
+  - мечтательный
+  - любит делать всё по правилам
+  speech_style:
+    register: тихий, вежливый
+    constraints:
+    - говорит неуверенно, часто сомневается
+  sources:
+  - episode: kollektsiya
+    note: коллекция фантиков
+  - episode: den_rozhdeniya_nyushi
+    note: кактусы
+  - episode: lili
+    note: мечтательность
+  - episode: vodnye_protsedury
+    note: «по всем правилам»
+  interests:
+  - коллекционирует фантики
+  - выращивает кактусы
+  voice:
+    examples:
+    - Мне кажется, это не очень хорошая идея...
+    - А может, не надо?
+    - Я лучше посижу, ладно?
+    never_says:
+    - Побежали! Я всё решил за нас.
+    - Мне всё равно.
+    story_role: Тревожный голос разума, которого втягивают в чужие затеи.
+    dynamics:
+    - with: krosh
+      pattern: Ёжик пытается остановить Кроша, но в итоге идёт вместе с ним.

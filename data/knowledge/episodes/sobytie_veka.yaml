@@ -1,0 +1,14 @@
+id: sobytie_veka
+work: smeshariki
+number: 22
+title: Событие века
+characters:
+- krosh
+- yozhik
+- losyash
+- kar_karych
+interactions:
+- from: kar_karych
+  to: krosh
+  type: support
+  description: Кар-Карыч учит Кроша засыпать под «чучух-чучух», как в поезде.

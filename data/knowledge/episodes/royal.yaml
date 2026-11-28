@@ -1,0 +1,20 @@
+id: royal
+work: smeshariki
+number: 11
+title: Рояль
+characters:
+- nyusha
+- krosh
+- yozhik
+- barash
+- sovunya
+- kar_karych
+locations:
+- nyusha_house
+artifacts:
+- nyusha_piano
+interactions:
+- from: krosh
+  to: nyusha
+  type: support
+  description: Крош, как настоящий джентльмен, соглашается помочь Нюше с роялем.

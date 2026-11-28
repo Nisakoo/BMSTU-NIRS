@@ -1,0 +1,19 @@
+id: kak_sobrat_druzey_po_bystromu
+work: smeshariki
+number: 12
+title: Как собрать друзей по-быстрому
+characters:
+- nyusha
+- krosh
+- yozhik
+- kopatych
+- barash
+- sovunya
+- losyash
+locations:
+- nyusha_house
+interactions:
+- from: krosh
+  to: nyusha
+  type: support
+  description: Крош и Ёжик везут Нюшу на кровати к Совунье, думая, что она заболела.

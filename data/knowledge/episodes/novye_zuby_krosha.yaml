@@ -1,0 +1,15 @@
+id: novye_zuby_krosha
+work: smeshariki
+number: 24
+title: Новые зубы Кроша
+characters:
+- krosh
+- pin
+- yozhik
+- nyusha
+- sovunya
+interactions:
+- from: sovunya
+  to: krosh
+  type: support
+  description: 'Совунья лечит Кроша: выпал молочный зуб, а на его месте режется коренной.'

@@ -1,0 +1,17 @@
+id: mechanical_nanny
+name: Механическая няня
+aliases:
+- железная няня
+artifact_type: робот
+description: Робот, которого Пин сделал для Кроша, чтобы тот убирался и мыл посуду.
+capabilities:
+- заботится о других
+limitations:
+- слишком, агрессивно заботливая
+- работает от батарейки
+continuities:
+- classic
+creators:
+- pin
+sources:
+- episode: zheleznaya_nyanya

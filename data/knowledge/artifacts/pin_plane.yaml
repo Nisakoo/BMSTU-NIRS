@@ -1,0 +1,13 @@
+id: pin_plane
+name: Самолёт Пина
+artifact_type: летательный аппарат
+description: Самолёт, на котором Пин опыляет поля Копатыча.
+capabilities:
+- летает
+- разбрасывает удобрения над полями
+limitations:
+- пилоту нельзя засыпать в кабине
+continuities:
+- classic
+sources:
+- episode: polety_vo_sne_i_nayavu

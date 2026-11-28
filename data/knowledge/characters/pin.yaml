@@ -1,0 +1,38 @@
+id: pin
+name: Пин
+species: пингвин
+versions:
+- continuities:
+  - classic
+  age_group: adult
+  traits:
+  - механик и изобретатель
+  - строит машины и роботов
+  - умеет летать на самолёте
+  speech_style:
+    register: разговорный, с немецким акцентом
+    markers:
+    - 'немецкие слова: «найн», «натюрлих», «битте»'
+    constraints:
+    - речь остаётся разборчивой
+  sources:
+  - episode: zheleznaya_nyanya
+    note: механическая няня; «натюрлих»
+  - episode: energiya_khrapa
+    note: вечный двигатель; «найн»
+  - episode: polety_vo_sne_i_nayavu
+    note: пилот
+  interests:
+  - увлекается техникой больше, чем книгами
+  voice:
+    examples:
+    - Найн, это не есть проблема!
+    - Натюрлих! Механический няня будет всё делать.
+    - Битте, попробуйте!
+    never_says:
+    - Я не умею ничего чинить.
+    - Техника — это скучно.
+    story_role: 'Изобретатель-катастрофа: строит машину, которая работает не так.'
+    dynamics:
+    - with: krosh
+      pattern: Крош приносит идею, Пин превращает её в опасную машину.

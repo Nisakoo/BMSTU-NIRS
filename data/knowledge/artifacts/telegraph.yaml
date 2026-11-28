@@ -1,0 +1,13 @@
+id: telegraph
+name: Телеграф
+artifact_type: средство связи
+description: 'Аппарат для общения на расстоянии: печатаешь сообщение и отсылаешь.'
+capabilities:
+- передаёт сообщения на расстоянии
+limitations:
+- ломается, и починить его нельзя
+- заменяет живые встречи с друзьями
+continuities:
+- classic
+sources:
+- episode: telegraf

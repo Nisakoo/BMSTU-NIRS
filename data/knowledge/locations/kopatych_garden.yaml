@@ -1,0 +1,7 @@
+id: kopatych_garden
+name: Огород Копатыча
+description: Огород, где Копатыч выращивает морковку и другие овощи.
+continuities:
+- classic
+sources:
+- episode: nekulturnyy

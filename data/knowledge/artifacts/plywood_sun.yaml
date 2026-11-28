@@ -1,0 +1,10 @@
+id: plywood_sun
+name: Фанерное солнце
+artifact_type: самоделка
+description: Солнце из фанеры, которое друзья поднимают, чтобы вернуть Барашу настроение.
+capabilities:
+- поднимает настроение осенью
+continuities:
+- classic
+sources:
+- episode: fanernoe_solntse

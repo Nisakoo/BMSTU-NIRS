@@ -1,0 +1,44 @@
+id: barash
+name: Бараш
+species: баран
+versions:
+- continuities:
+  - classic
+  age_group: child
+  traits:
+  - поэт, сочиняет стихи
+  - ищет вдохновение
+  - ранимый и меланхоличный
+  - сентиментальный, дорожит старыми вещами
+  - боится высоты
+  speech_style:
+    register: возвышенный, поэтический
+    markers:
+    - говорит образами и рифмами
+  sources:
+  - episode: skameyka
+    note: вдохновение; боится высоты
+  - episode: biografiya_zontika
+    note: старый зонтик — часть биографии
+  - episode: fanernoe_solntse
+    note: осенняя хандра
+  voice:
+    examples:
+    - Я не могу писать, когда так шумит...
+    - Это же целая поэма!
+    - Никто меня не понимает.
+    never_says:
+    - Да ладно, ерунда, забудь.
+    - Мне не нужны стихи.
+    story_role: Поэт-меланхолик, переживает и ищет вдохновение.
+    dynamics:
+    - with: nyusha
+      pattern: Бараш робеет перед Нюшей и страдает от недопонимания.
+relationships:
+- to: nyusha
+  type: affection
+  continuities:
+  - classic
+  description: Бараш неравнодушен к Нюше и переживает их ссоры.
+  sources:
+  - episode: kto_pervyy

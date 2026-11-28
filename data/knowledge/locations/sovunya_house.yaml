@@ -1,0 +1,9 @@
+id: sovunya_house
+name: Дом Совуньи
+description: Дом Совуньи, куда друзья приходят за чаем и лечением.
+continuities:
+- classic
+residents:
+- sovunya
+sources:
+- episode: fanernoe_solntse

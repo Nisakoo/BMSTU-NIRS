@@ -1,0 +1,14 @@
+id: wind_generator
+name: Ветрогенератор Пина
+artifact_type: изобретение
+description: Установка Пина, превращающая энергию ветра в электричество.
+capabilities:
+- зажигает лампочку, когда дует ветер
+limitations:
+- без ветра не работает
+continuities:
+- classic
+creators:
+- pin
+sources:
+- episode: energiya_khrapa

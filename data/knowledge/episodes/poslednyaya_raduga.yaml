@@ -1,0 +1,18 @@
+id: poslednyaya_raduga
+work: smeshariki
+number: 29
+title: Последняя радуга
+characters:
+- kar_karych
+- losyash
+- nyusha
+- yozhik
+- kopatych
+- krosh
+artifacts:
+- newspaper
+interactions:
+- from: nyusha
+  to: kar_karych
+  type: conflict
+  description: Нюша требует опровергнуть выдуманную газетой «катастрофу на качелях».

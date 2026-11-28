@@ -1,0 +1,16 @@
+id: put_v_prilichnoe_obshchestvo
+work: smeshariki
+number: 18
+title: Путь в приличное общество
+characters:
+- nyusha
+- kopatych
+- losyash
+- barash
+- krosh
+- yozhik
+interactions:
+- from: losyash
+  to: nyusha
+  type: support
+  description: Лосяш объясняет Нюше, как получается свист.

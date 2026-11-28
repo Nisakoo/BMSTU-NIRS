@@ -1,0 +1,9 @@
+id: kar_karych_house
+name: Дом Кар-Карыча
+description: Дом Кар-Карыча с тёплым камином и старыми журналами.
+continuities:
+- classic
+residents:
+- kar_karych
+sources:
+- episode: kak_stat_zvezdoy

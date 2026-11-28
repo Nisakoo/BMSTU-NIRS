@@ -1,0 +1,12 @@
+id: barash_umbrella
+name: Старый зонтик Бараша
+artifact_type: зонтик
+description: Потрёпанный зонтик Бараша, с которым связано множество историй.
+capabilities:
+- создаёт уют в дождь и без дождя
+limitations:
+- весь в царапинах и заплатках
+continuities:
+- classic
+sources:
+- episode: biografiya_zontika

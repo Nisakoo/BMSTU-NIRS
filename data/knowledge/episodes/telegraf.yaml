@@ -1,0 +1,17 @@
+id: telegraf
+work: smeshariki
+number: 13
+title: Телеграф
+characters:
+- krosh
+- yozhik
+- pin
+- barash
+- kar_karych
+artifacts:
+- telegraph
+interactions:
+- from: pin
+  to: yozhik
+  type: support
+  description: Пин советует общаться, как раньше, с помощью слов и жестов.

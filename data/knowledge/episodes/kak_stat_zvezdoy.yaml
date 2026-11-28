@@ -1,0 +1,17 @@
+id: kak_stat_zvezdoy
+work: smeshariki
+number: 23
+title: Как стать звездой
+characters:
+- nyusha
+- kar_karych
+- yozhik
+- krosh
+- kopatych
+locations:
+- kar_karych_house
+interactions:
+- from: kar_karych
+  to: nyusha
+  type: support
+  description: Кар-Карыч объясняет Нюше, что звезду делают манеры и талант, и хвалит её найденный талант.

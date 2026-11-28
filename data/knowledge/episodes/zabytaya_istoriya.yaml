@@ -1,0 +1,17 @@
+id: zabytaya_istoriya
+work: smeshariki
+number: 10
+title: Забытая история
+characters:
+- kopatych
+- kar_karych
+- sovunya
+- losyash
+- krosh
+- yozhik
+interactions:
+- from: losyash
+  to: kar_karych
+  type: support
+  description: Лосяш пытается помочь Кар-Карычу вспомнить забытую историю гипнозом и машиной для чтения
+    памяти.

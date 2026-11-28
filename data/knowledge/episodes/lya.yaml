@@ -1,0 +1,15 @@
+id: lya
+work: smeshariki
+number: 17
+title: Ля
+characters:
+- kar_karych
+- barash
+- yozhik
+- krosh
+- losyash
+interactions:
+- from: kar_karych
+  to: barash
+  type: support
+  description: Кар-Карыч занимается с Барашем пением и подбадривает его взять верхнюю «ля».

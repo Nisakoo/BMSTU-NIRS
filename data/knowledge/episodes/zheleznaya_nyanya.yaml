@@ -1,0 +1,22 @@
+id: zheleznaya_nyanya
+work: smeshariki
+number: 6
+title: Железная няня
+characters:
+- krosh
+- yozhik
+- pin
+- kopatych
+locations:
+- pin_house
+artifacts:
+- mechanical_nanny
+interactions:
+- from: pin
+  to: krosh
+  type: support
+  description: Пин строит для Кроша механическую няню, чтобы та убиралась и мыла посуду.
+- from: krosh
+  to: yozhik
+  type: support
+  description: Крош спасает Ёжика от слишком заботливой няни.

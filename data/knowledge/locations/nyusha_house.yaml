@@ -1,0 +1,9 @@
+id: nyusha_house
+name: Домик Нюши
+description: Двухэтажный домик Нюши, куда друзья заносят рояль.
+continuities:
+- classic
+residents:
+- nyusha
+sources:
+- episode: royal

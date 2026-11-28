@@ -1,0 +1,13 @@
+id: taynoe_obshchestvo
+work: smeshariki
+number: 32
+title: Тайное общество
+characters:
+- yozhik
+- krosh
+- barash
+interactions:
+- from: krosh
+  to: barash
+  type: support
+  description: Крош и Ёжик принимают Бараша в тайное общество секретиков.

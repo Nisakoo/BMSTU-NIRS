@@ -1,0 +1,19 @@
+id: ballast
+work: smeshariki
+number: 25
+title: Балласт
+characters:
+- krosh
+- yozhik
+- sovunya
+- pin
+- nyusha
+locations:
+- sea_shore
+artifacts:
+- submarine
+interactions:
+- from: krosh
+  to: sovunya
+  type: conflict
+  description: 'Крош не хочет брать Совунью в подлодку: мест нет.'

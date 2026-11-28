@@ -1,0 +1,13 @@
+id: newspaper
+name: Газета Кар-Карыча и Лосяша
+artifact_type: газета
+description: Газета с кроссвордами и колонкой юмора, которую выпускают Кар-Карыч и Лосяш.
+limitations:
+- кричащие заголовки пугают друзей
+continuities:
+- classic
+creators:
+- kar_karych
+- losyash
+sources:
+- episode: poslednyaya_raduga

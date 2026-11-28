@@ -1,0 +1,16 @@
+id: lili
+work: smeshariki
+number: 15
+title: Лили
+characters:
+- yozhik
+- krosh
+locations:
+- sea_shore
+artifacts:
+- lili_portrait
+interactions:
+- from: krosh
+  to: yozhik
+  type: support
+  description: Крош не пускает Ёжика в шторм спасать Лили и выясняет, кто она на самом деле.

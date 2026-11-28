@@ -1,0 +1,9 @@
+id: krosh_house
+name: Дом Кроша
+description: Дом Кроша, где друзья встречают Новый год.
+continuities:
+- classic
+residents:
+- krosh
+sources:
+- episode: kuda_ukhodit_staryy_god

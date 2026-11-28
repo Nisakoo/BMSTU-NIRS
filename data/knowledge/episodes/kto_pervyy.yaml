@@ -1,0 +1,24 @@
+id: kto_pervyy
+work: smeshariki
+number: 8
+title: Кто первый?
+characters:
+- nyusha
+- barash
+- krosh
+- kar_karych
+locations:
+- nyusha_house
+interactions:
+- from: nyusha
+  to: barash
+  type: conflict
+  description: 'Нюша и Бараш ссорятся: Нюша забыла перевести часы и пришла на час раньше.'
+- from: krosh
+  to: barash
+  type: support
+  description: Крош советует Барашу помириться первым и испечь Нюше замок из песочного теста.
+- from: kar_karych
+  to: nyusha
+  type: support
+  description: Кар-Карыч советует Нюше не ждать, а мириться самой.

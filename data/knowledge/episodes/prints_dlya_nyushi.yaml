@@ -1,0 +1,22 @@
+id: prints_dlya_nyushi
+work: smeshariki
+number: 2
+title: Принц для Нюши
+characters:
+- nyusha
+- krosh
+- yozhik
+- barash
+- sovunya
+- kar_karych
+locations:
+- sea_shore
+interactions:
+- from: kar_karych
+  to: nyusha
+  type: support
+  description: Кар-Карыч утешает одинокую Нюшу историей о кораблекрушении и принце.
+- from: krosh
+  to: nyusha
+  type: support
+  description: Друзья изображают принца и дракона, чтобы совершить для Нюши подвиг.

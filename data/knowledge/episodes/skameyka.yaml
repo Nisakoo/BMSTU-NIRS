@@ -1,0 +1,19 @@
+id: skameyka
+work: smeshariki
+number: 1
+title: Скамейка
+characters:
+- krosh
+- yozhik
+- barash
+artifacts:
+- krosh_bench
+interactions:
+- from: krosh
+  to: barash
+  type: conflict
+  description: Крош закрашивает листки со стихами Бараша.
+- from: krosh
+  to: barash
+  type: support
+  description: Крош и Ёжик жертвуют свежевыкрашенной скамейкой, чтобы снять Бараша с дерева.

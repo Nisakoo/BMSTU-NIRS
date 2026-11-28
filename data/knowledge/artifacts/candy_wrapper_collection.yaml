@@ -1,0 +1,12 @@
+id: candy_wrapper_collection
+name: Коллекция фантиков
+artifact_type: коллекция
+description: Коллекция фантиков Ёжика, в которой есть редкие фантики с цветными полосками.
+limitations:
+- её может унести ветром
+continuities:
+- classic
+creators:
+- yozhik
+sources:
+- episode: kollektsiya

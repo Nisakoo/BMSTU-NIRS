@@ -1,0 +1,38 @@
+id: kopatych
+name: Копатыч
+species: медведь
+versions:
+- continuities:
+  - classic
+  age_group: adult
+  traits:
+  - сильный и трудолюбивый
+  - простодушный
+  - громко храпит
+  speech_style:
+    register: простонародный
+    markers:
+    - присказка «Укуси меня, пчела!»
+  catchphrases:
+  - Укуси меня, пчела!
+  sources:
+  - episode: golf
+    note: «Укуси меня, пчела»
+  - episode: nekulturnyy
+    note: огород
+  - episode: energiya_khrapa
+    note: храп
+  interests:
+  - огородник, выращивает овощи
+  voice:
+    examples:
+    - Укуси меня, пчела!
+    - Ну, ёлки-иголки, опять 25!
+    - Вот вырастет — тогда и поговорим.
+    never_says:
+    - Я всё продумал на год вперёд.
+    - Мне некогда отдыхать.
+    story_role: Основательный огородник, медлительный и простодушный.
+    dynamics:
+    - with: pin
+      pattern: Пин предлагает технику, Копатыч не доверяет и делает по-своему.

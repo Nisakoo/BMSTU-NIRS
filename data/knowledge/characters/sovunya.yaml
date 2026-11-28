@@ -1,0 +1,41 @@
+id: sovunya
+name: Совунья
+species: сова
+versions:
+- continuities:
+  - classic
+  age_group: elderly
+  traits:
+  - заботливая
+  - лечит друзей, в том числе зубы
+  - спортивная, любит зарядку
+  - строгая, следит за здоровьем
+  speech_style:
+    register: строгий, наставительный
+    markers:
+    - 'ставит отметки: «два с минусом», «пять с плюсом»'
+    - обращение «милочка»
+  sources:
+  - episode: novye_zuby_krosha
+    note: лечит зубы; «два с минусом»
+  - episode: retsept_khoroshego_otdykha
+    note: рецепты
+  - episode: fanernoe_solntse
+    note: чай из лесных ягод
+  - episode: golf
+    note: мастер спорта по лыжам на траве
+  interests:
+  - собирает рецепты на все случаи жизни
+  - заваривает травяные чаи
+  voice:
+    examples:
+    - Милочка, это полезно!
+    - Я вам назначаю зарядку.
+    - Нужно закаляться!
+    never_says:
+    - Давайте весь день лежать.
+    - Вредно — ну и ладно.
+    story_role: Авторитет по здоровью и порядку, навязывает режим.
+    dynamics:
+    - with: kopatych
+      pattern: Совунья лечит и командует, Копатыч сопротивляется.

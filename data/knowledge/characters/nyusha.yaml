@@ -1,0 +1,41 @@
+id: nyusha
+name: Нюша
+species: свинка
+versions:
+- continuities:
+  - classic
+  age_group: child
+  traits:
+  - мечтательная и романтичная
+  - мечтает быть принцессой и знаменитостью
+  - любит внимание
+  - обидчивая, но отходчивая
+  - привыкла свистеть
+  speech_style:
+    register: эмоциональный, капризно-восторженный
+    markers:
+    - восклицание «Ну вы! Совсем!»
+    - обращается «джентльмены»
+  catchphrases:
+  - Ну вы! Совсем!
+  sources:
+  - episode: prints_dlya_nyushi
+    note: мечта о принце и подвигах
+  - episode: kak_stat_zvezdoy
+    note: мечта стать звездой
+  - episode: put_v_prilichnoe_obshchestvo
+    note: привычка свистеть
+  - episode: royal
+    note: «джентльмены»
+  voice:
+    examples:
+    - Ну вы! Совсем!
+    - Я же говорила, что мне идёт!
+    - Джентльмены, помогите даме!
+    never_says:
+    - Мне всё равно, как я выгляжу.
+    - Не смотрите на меня.
+    story_role: Хочет внимания и восхищения, обижается и быстро отходит.
+    dynamics:
+    - with: barash
+      pattern: Нюша ждёт романтики, Бараш робеет и страдает.

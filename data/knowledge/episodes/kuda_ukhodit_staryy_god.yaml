@@ -1,0 +1,17 @@
+id: kuda_ukhodit_staryy_god
+work: smeshariki
+number: 3
+title: Куда уходит Старый год?
+characters:
+- krosh
+- yozhik
+- nyusha
+- kar_karych
+- losyash
+locations:
+- krosh_house
+interactions:
+- from: kar_karych
+  to: krosh
+  type: support
+  description: Кар-Карыч организует всех стеречь Старый год, чтобы Крош успел доделать дела.

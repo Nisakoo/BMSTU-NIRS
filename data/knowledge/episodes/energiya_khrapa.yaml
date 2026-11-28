@@ -1,0 +1,20 @@
+id: energiya_khrapa
+work: smeshariki
+number: 5
+title: Энергия храпа
+characters:
+- krosh
+- pin
+- sovunya
+- kopatych
+locations:
+- pin_house
+- kopatych_den
+artifacts:
+- perpetual_motion
+- wind_generator
+interactions:
+- from: sovunya
+  to: krosh
+  type: conflict
+  description: 'Совунья запрещает копать дыру сквозь Землю: будет вредный сквозняк.'

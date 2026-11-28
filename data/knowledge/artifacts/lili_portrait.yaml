@@ -1,0 +1,8 @@
+id: lili_portrait
+name: Портрет Лили
+artifact_type: картинка
+description: Изображение «Лили», приплывшее с моря; оказалось этикеткой лимонада «Лили».
+continuities:
+- classic
+sources:
+- episode: lili

@@ -1,0 +1,571 @@
+questions:
+- id: char_barash
+  query: Бараш
+  kind: exact
+  expected: barash
+- id: char_kar_karych
+  query: Кар-Карыч
+  kind: exact
+  expected: kar_karych
+- id: alias_kar_karych_0
+  query: Карыч
+  kind: alias
+  expected: kar_karych
+- id: char_kopatych
+  query: Копатыч
+  kind: exact
+  expected: kopatych
+- id: char_krosh
+  query: Крош
+  kind: exact
+  expected: krosh
+- id: char_losyash
+  query: Лосяш
+  kind: exact
+  expected: losyash
+- id: char_nyusha
+  query: Нюша
+  kind: exact
+  expected: nyusha
+- id: char_pin
+  query: Пин
+  kind: exact
+  expected: pin
+- id: char_sovunya
+  query: Совунья
+  kind: exact
+  expected: sovunya
+- id: char_yozhik
+  query: Ёжик
+  kind: exact
+  expected: yozhik
+- id: loc_kar_karych_house
+  query: Дом Кар-Карыча
+  kind: exact
+  expected: kar_karych_house
+- id: loc_kopatych_den
+  query: Берлога Копатыча
+  kind: exact
+  expected: kopatych_den
+- id: loc_kopatych_garden
+  query: Огород Копатыча
+  kind: exact
+  expected: kopatych_garden
+- id: loc_krosh_house
+  query: Дом Кроша
+  kind: exact
+  expected: krosh_house
+- id: loc_losyash_house
+  query: Дом Лосяша
+  kind: exact
+  expected: losyash_house
+- id: loc_nyusha_house
+  query: Домик Нюши
+  kind: exact
+  expected: nyusha_house
+- id: loc_pin_house
+  query: Дом Пина
+  kind: exact
+  expected: pin_house
+- id: loc_sea_shore
+  query: Морской берег
+  kind: exact
+  expected: sea_shore
+- id: loc_sovunya_house
+  query: Дом Совуньи
+  kind: exact
+  expected: sovunya_house
+- id: loc_yozhik_house
+  query: Дом Ёжика
+  kind: exact
+  expected: yozhik_house
+- id: art_barash_umbrella
+  query: Старый зонтик Бараша
+  kind: exact
+  expected: barash_umbrella
+- id: art_candy_wrapper_collection
+  query: Коллекция фантиков
+  kind: exact
+  expected: candy_wrapper_collection
+- id: art_krosh_bench
+  query: Скамейка Кроша
+  kind: exact
+  expected: krosh_bench
+- id: art_lili_portrait
+  query: Портрет Лили
+  kind: exact
+  expected: lili_portrait
+- id: art_magnet
+  query: Магнит
+  kind: exact
+  expected: magnet
+- id: art_mechanical_nanny
+  query: Механическая няня
+  kind: exact
+  expected: mechanical_nanny
+- id: art_newspaper
+  query: Газета Кар-Карыча и Лосяша
+  kind: exact
+  expected: newspaper
+- id: art_nyusha_piano
+  query: Рояль Нюши
+  kind: exact
+  expected: nyusha_piano
+- id: art_perpetual_motion
+  query: Вечный двигатель
+  kind: exact
+  expected: perpetual_motion
+- id: art_pin_plane
+  query: Самолёт Пина
+  kind: exact
+  expected: pin_plane
+- id: art_plywood_sun
+  query: Фанерное солнце
+  kind: exact
+  expected: plywood_sun
+- id: art_sovunya_recipes
+  query: Рецепты Совуньи
+  kind: exact
+  expected: sovunya_recipes
+- id: art_submarine
+  query: Подводная лодка
+  kind: exact
+  expected: submarine
+- id: art_telegraph
+  query: Телеграф
+  kind: exact
+  expected: telegraph
+- id: art_wind_generator
+  query: Ветрогенератор Пина
+  kind: exact
+  expected: wind_generator
+- id: ep_41_s
+  query: -41°С
+  kind: episode
+  expected: 41_s
+- id: ep_anonim
+  query: Аноним
+  kind: episode
+  expected: anonim
+- id: ep_ballast
+  query: Балласт
+  kind: episode
+  expected: ballast
+- id: ep_bibi_i_ego_papa
+  query: Биби и его папа
+  kind: episode
+  expected: bibi_i_ego_papa
+- id: ep_biografiya_zontika
+  query: Биография зонтика
+  kind: episode
+  expected: biografiya_zontika
+- id: ep_bolshie_gonki
+  query: Большие гонки
+  kind: episode
+  expected: bolshie_gonki
+- id: ep_bolshoy_kush
+  query: Большой куш
+  kind: episode
+  expected: bolshoy_kush
+- id: ep_boykot
+  query: Бойкот
+  kind: episode
+  expected: boykot
+- id: ep_dar
+  query: Дар
+  kind: episode
+  expected: dar
+- id: ep_den_rozhdeniya_nyushi
+  query: День рождения Нюши
+  kind: episode
+  expected: den_rozhdeniya_nyushi
+- id: ep_den_spravedlivosti
+  query: День справедливости
+  kind: episode
+  expected: den_spravedlivosti
+- id: ep_dvigatel_progressa
+  query: Двигатель прогресса
+  kind: episode
+  expected: dvigatel_progressa
+- id: ep_ee_zvali_nyusha
+  query: Её звали Нюша
+  kind: episode
+  expected: ee_zvali_nyusha
+- id: ep_energiya_khrapa
+  query: Энергия храпа
+  kind: episode
+  expected: energiya_khrapa
+- id: ep_ezhidze
+  query: Ежидзе
+  kind: episode
+  expected: ezhidze
+- id: ep_ezhik_i_zdorove
+  query: Ёжик и здоровье
+  kind: episode
+  expected: ezhik_i_zdorove
+- id: ep_ezhik_v_tumannosti
+  query: Ежик в Туманности
+  kind: episode
+  expected: ezhik_v_tumannosti
+- id: ep_fanernoe_solntse
+  query: Фанерное солнце
+  kind: episode
+  expected: fanernoe_solntse
+- id: ep_futbol_1_y_taym
+  query: Футбол 1-й тайм
+  kind: episode
+  expected: futbol_1_y_taym
+- id: ep_futbol_2_oy_taym
+  query: Футбол 2-ой тайм
+  kind: episode
+  expected: futbol_2_oy_taym
+- id: ep_geroy_plutona
+  query: Герой Плутона
+  kind: episode
+  expected: geroy_plutona
+- id: ep_golf
+  query: Гольф
+  kind: episode
+  expected: golf
+- id: ep_kak_sobrat_druzey_po_bystromu
+  query: Как собрать друзей по-быстрому
+  kind: episode
+  expected: kak_sobrat_druzey_po_bystromu
+- id: ep_kak_stat_zvezdoy
+  query: Как стать звездой
+  kind: episode
+  expected: kak_stat_zvezdoy
+- id: ep_kak_zdorovo_sochinyat_stikhi
+  query: Как здорово сочинять стихи
+  kind: episode
+  expected: kak_zdorovo_sochinyat_stikhi
+- id: ep_kanikuly_bibi
+  query: Каникулы Биби
+  kind: episode
+  expected: kanikuly_bibi
+- id: ep_kollektsiya
+  query: Коллекция
+  kind: episode
+  expected: kollektsiya
+- id: ep_komnata_grusti
+  query: Комната грусти
+  kind: episode
+  expected: komnata_grusti
+- id: ep_kordebalet
+  query: Кордебалет
+  kind: episode
+  expected: kordebalet
+- id: ep_kosmicheskaya_odisseya_chast_1
+  query: Космическая одиссея. Часть 1
+  kind: episode
+  expected: kosmicheskaya_odisseya_chast_1
+- id: ep_kosmicheskaya_odisseya_chast_2
+  query: Космическая одиссея. Часть 2
+  kind: episode
+  expected: kosmicheskaya_odisseya_chast_2
+- id: ep_krasota
+  query: Красота
+  kind: episode
+  expected: krasota
+- id: ep_kray_zemli
+  query: Край земли
+  kind: episode
+  expected: kray_zemli
+- id: ep_kto_pervyy
+  query: Кто первый?
+  kind: episode
+  expected: kto_pervyy
+- id: ep_kuda_privodyat_zhelaniya
+  query: Куда приводят желания
+  kind: episode
+  expected: kuda_privodyat_zhelaniya
+- id: ep_kuda_ukhodit_staryy_god
+  query: Куда уходит Старый год?
+  kind: episode
+  expected: kuda_ukhodit_staryy_god
+- id: ep_kulinariya
+  query: Кулинария
+  kind: episode
+  expected: kulinariya
+- id: ep_labirint
+  query: Лабиринт
+  kind: episode
+  expected: labirint
+- id: ep_lichnaya_zhizn
+  query: Личная жизнь
+  kind: episode
+  expected: lichnaya_zhizn
+- id: ep_lili
+  query: Лили
+  kind: episode
+  expected: lili
+- id: ep_linii_sudby
+  query: Линии судьбы
+  kind: episode
+  expected: linii_sudby
+- id: ep_lya
+  query: Ля
+  kind: episode
+  expected: lya
+- id: ep_magnetizm
+  query: Магнетизм
+  kind: episode
+  expected: magnetizm
+- id: ep_maskarad
+  query: Маскарад
+  kind: episode
+  expected: maskarad
+- id: ep_maslenitsa
+  query: Масленица
+  kind: episode
+  expected: maslenitsa
+- id: ep_miss_vselennaya
+  query: Мисс Вселенная
+  kind: episode
+  expected: miss_vselennaya
+- id: ep_moya_prelest
+  query: Моя прелесть
+  kind: episode
+  expected: moya_prelest
+- id: ep_nastoyashchie_tsennosti
+  query: Настоящие ценности
+  kind: episode
+  expected: nastoyashchie_tsennosti
+- id: ep_nekulturnyy
+  query: Некультурный
+  kind: episode
+  expected: nekulturnyy
+- id: ep_nevospitannyy_klon
+  query: Невоспитанный клон
+  kind: episode
+  expected: nevospitannyy_klon
+- id: ep_novye_zuby_krosha
+  query: Новые зубы Кроша
+  kind: episode
+  expected: novye_zuby_krosha
+- id: ep_orz
+  query: ОРЗ
+  kind: episode
+  expected: orz
+- id: ep_osnovnoy_instinkt
+  query: Основной инстинкт
+  kind: episode
+  expected: osnovnoy_instinkt
+- id: ep_pedagogicheskaya_poema
+  query: Педагогическая поэма
+  kind: episode
+  expected: pedagogicheskaya_poema
+- id: ep_plyus_sneg_minus_elka
+  query: Плюс снег, минус елка
+  kind: episode
+  expected: plyus_sneg_minus_elka
+- id: ep_podarok_sudby
+  query: Подарок судьбы
+  kind: episode
+  expected: podarok_sudby
+- id: ep_polety_vo_sne_i_nayavu
+  query: Полёты во сне и наяву
+  kind: episode
+  expected: polety_vo_sne_i_nayavu
+- id: ep_polosa_nevezeniya
+  query: Полоса невезения
+  kind: episode
+  expected: polosa_nevezeniya
+- id: ep_poslednyaya_raduga
+  query: Последняя радуга
+  kind: episode
+  expected: poslednyaya_raduga
+- id: ep_prints_dlya_nyushi
+  query: Принц для Нюши
+  kind: episode
+  expected: prints_dlya_nyushi
+- id: ep_proshchay_barash
+  query: Прощай, Бараш!
+  kind: episode
+  expected: proshchay_barash
+- id: ep_put_v_prilichnoe_obshchestvo
+  query: Путь в приличное общество
+  kind: episode
+  expected: put_v_prilichnoe_obshchestvo
+- id: ep_realist
+  query: Реалист
+  kind: episode
+  expected: realist
+- id: ep_retsept_khoroshego_otdykha
+  query: Рецепт хорошего отдыха
+  kind: episode
+  expected: retsept_khoroshego_otdykha
+- id: ep_roman_v_pismakh
+  query: Роман в письмах
+  kind: episode
+  expected: roman_v_pismakh
+- id: ep_royal
+  query: Рояль
+  kind: episode
+  expected: royal
+- id: ep_schastemet
+  query: Счастьемет
+  kind: episode
+  expected: schastemet
+- id: ep_sekret_gudini
+  query: Секрет Гудини
+  kind: episode
+  expected: sekret_gudini
+- id: ep_skameyka
+  query: Скамейка
+  kind: episode
+  expected: skameyka
+- id: ep_skvernaya_primeta
+  query: Скверная примета
+  kind: episode
+  expected: skvernaya_primeta
+- id: ep_smysl_zhizni
+  query: Смысл жизни
+  kind: episode
+  expected: smysl_zhizni
+- id: ep_snotvorets
+  query: Снотворец
+  kind: episode
+  expected: snotvorets
+- id: ep_sobytie_veka
+  query: Событие века
+  kind: episode
+  expected: sobytie_veka
+- id: ep_taynoe_obshchestvo
+  query: Тайное общество
+  kind: episode
+  expected: taynoe_obshchestvo
+- id: ep_telegraf
+  query: Телеграф
+  kind: episode
+  expected: telegraf
+- id: ep_tryufel
+  query: Трюфель
+  kind: episode
+  expected: tryufel
+- id: ep_uli_kopatycha
+  query: Ульи Копатыча
+  kind: episode
+  expected: uli_kopatycha
+- id: ep_v_nachale_bylo_slovo
+  query: В начале было слово
+  kind: episode
+  expected: v_nachale_bylo_slovo
+- id: ep_vestibulyarnyy_apparat
+  query: Вестибулярный аппарат
+  kind: episode
+  expected: vestibulyarnyy_apparat
+- id: ep_vodnye_protsedury
+  query: Водные процедуры
+  kind: episode
+  expected: vodnye_protsedury
+- id: ep_vzapreti
+  query: Взаперти
+  kind: episode
+  expected: vzapreti
+- id: ep_zabytaya_istoriya
+  query: Забытая история
+  kind: episode
+  expected: zabytaya_istoriya
+- id: ep_zachem_nuzhny_druzya
+  query: Зачем нужны друзья
+  kind: episode
+  expected: zachem_nuzhny_druzya
+- id: ep_zheleznaya_nyanya
+  query: Железная няня
+  kind: episode
+  expected: zheleznaya_nyanya
+- id: typo_barash
+  query: Бааш
+  kind: typo
+  expected: barash
+- id: typo_kar_karych
+  query: Кар-арыч
+  kind: typo
+  expected: kar_karych
+- id: typo_kopatych
+  query: Коптыч
+  kind: typo
+  expected: kopatych
+- id: typo_krosh
+  query: Крш
+  kind: typo
+  expected: krosh
+- id: typo_losyash
+  query: Лояш
+  kind: typo
+  expected: losyash
+- id: typo_nyusha
+  query: Нюа
+  kind: typo
+  expected: nyusha
+- id: typo_pin
+  query: Пи
+  kind: typo
+  expected: pin
+- id: typo_sovunya
+  query: Совнья
+  kind: typo
+  expected: sovunya
+- id: typoep_41_s
+  query: -4°С
+  kind: typo
+  expected: 41_s
+- id: typoep_anonim
+  query: Аноим
+  kind: typo
+  expected: anonim
+- id: typoep_ballast
+  query: Баласт
+  kind: typo
+  expected: ballast
+- id: typoep_bibi_i_ego_papa
+  query: Биби и го папа
+  kind: typo
+  expected: bibi_i_ego_papa
+- id: typoep_biografiya_zontika
+  query: Биографи зонтика
+  kind: typo
+  expected: biografiya_zontika
+- id: typoep_bolshie_gonki
+  query: Больши гонки
+  kind: typo
+  expected: bolshie_gonki
+- id: typoep_bolshoy_kush
+  query: Большй куш
+  kind: typo
+  expected: bolshoy_kush
+- id: typoep_boykot
+  query: Бойот
+  kind: typo
+  expected: boykot
+- id: neg_00
+  query: Пин-код
+  kind: negative
+- id: neg_01
+  query: Космолёт Незнайки
+  kind: negative
+- id: neg_02
+  query: Дядя Стёпа
+  kind: negative
+- id: neg_03
+  query: Чебурашка
+  kind: negative
+- id: neg_04
+  query: Маша и Медведь
+  kind: negative
+- id: neg_05
+  query: Кот Матроскин
+  kind: negative
+- id: neg_06
+  query: Снежная королева
+  kind: negative
+- id: neg_07
+  query: Буратино
+  kind: negative
+- id: neg_08
+  query: Карлсон
+  kind: negative
+- id: neg_09
+  query: Винни-Пух
+  kind: negative

@@ -1,0 +1,10 @@
+id: sea_shore
+name: Морской берег
+aliases:
+- берег моря
+description: Берег с песчаной косой и дюнами; к нему море выносит разные вещи.
+continuities:
+- classic
+sources:
+- episode: prints_dlya_nyushi
+- episode: lili

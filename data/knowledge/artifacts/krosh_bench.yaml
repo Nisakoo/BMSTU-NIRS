@@ -1,0 +1,14 @@
+id: krosh_bench
+name: Скамейка Кроша
+artifact_type: мебель
+description: Скамейка, которую Крош сделал и покрасил, чтобы сидеть на ней с друзьями по вечерам.
+capabilities:
+- на ней можно сидеть с друзьями
+limitations:
+- краска на ней сохнет очень долго
+continuities:
+- classic
+creators:
+- krosh
+sources:
+- episode: skameyka

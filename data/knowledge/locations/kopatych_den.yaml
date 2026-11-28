@@ -1,0 +1,9 @@
+id: kopatych_den
+name: Берлога Копатыча
+description: Берлога, где Копатыч спит и громко храпит.
+continuities:
+- classic
+residents:
+- kopatych
+sources:
+- episode: energiya_khrapa

@@ -1,0 +1,12 @@
+id: nyusha_piano
+name: Рояль Нюши
+artifact_type: музыкальный инструмент
+description: Рояль, который друзья по просьбе Нюши много раз переносят по дому.
+capabilities:
+- на нём можно музицировать
+limitations:
+- очень тяжёлый
+continuities:
+- classic
+sources:
+- episode: royal

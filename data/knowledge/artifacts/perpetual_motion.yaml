@@ -1,0 +1,14 @@
+id: perpetual_motion
+name: Вечный двигатель
+artifact_type: изобретение
+description: Изобретение Пина, которое потребляет дрова.
+capabilities:
+- потребляет дрова
+limitations:
+- не даёт энергии, только берёт
+continuities:
+- classic
+creators:
+- pin
+sources:
+- episode: energiya_khrapa

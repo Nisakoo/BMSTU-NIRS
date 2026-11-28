@@ -1,0 +1,10 @@
+id: yozhik_house
+name: Дом Ёжика
+description: Дом Ёжика, где хранится коллекция фантиков; крыша иногда протекает.
+continuities:
+- classic
+residents:
+- yozhik
+sources:
+- episode: kollektsiya
+- episode: kto_pervyy

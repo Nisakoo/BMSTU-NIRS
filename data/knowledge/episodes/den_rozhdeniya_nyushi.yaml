@@ -1,0 +1,17 @@
+id: den_rozhdeniya_nyushi
+work: smeshariki
+number: 19
+title: День рождения Нюши
+characters:
+- krosh
+- yozhik
+- nyusha
+interactions:
+- from: krosh
+  to: yozhik
+  type: conflict
+  description: Крош ворчит, что из-за долгого выбора кактуса они заблудились.
+- from: krosh
+  to: yozhik
+  type: support
+  description: Крош вытаскивает Ёжика, когда тот проваливается в песок.

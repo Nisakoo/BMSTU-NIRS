@@ -1,0 +1,287 @@
+questions:
+- id: space
+  text: Что происходит с Пином и Ёжиком в космосе?
+  kind: normal
+  relevant_documents:
+  - kosmicheskaya_odisseya_chast_1
+  - kosmicheskaya_odisseya_chast_2
+  - ezhik_v_tumannosti
+  reference_answer: Пин ищет Биби на Луне, а Ёжик путешествует по метеориту.
+  required_facts:
+  - Пин
+  - Биби
+  - Луне
+  - Ёжик
+- id: sport
+  text: Как герои играют в футбол и гольф?
+  kind: normal
+  relevant_documents:
+  - futbol_1_y_taym
+  - futbol_2_oy_taym
+  - golf
+  reference_answer: Герои играют в футбол двумя таймами и в гольф, загоняя мяч в лунку.
+  required_facts:
+  - футбол
+  - гольф
+  - мяч
+- id: food
+  text: Какие блюда и деликатесы готовят герои?
+  kind: normal
+  relevant_documents:
+  - kulinariya
+  - tryufel
+  - bolshoy_kush
+  reference_answer: Кулинария обсуждает блюда из морковки, Трюфель — деликатес, а
+    Большой куш — урожай морковки.
+  required_facts:
+  - морков
+  - трюфель
+  - деликатес
+- id: winter
+  text: Как герои встречают Новый год и мороз?
+  kind: normal
+  relevant_documents:
+  - 41_s
+  - plyus_sneg_minus_elka
+  - kuda_ukhodit_staryy_god
+  reference_answer: Герои встречают Новый год, ищут ёлку со снегом и переживают мороз.
+  required_facts:
+  - Новый год
+  - ёлку
+  - мороз
+- id: health
+  text: Что делать при простуде и болезни зубов?
+  kind: normal
+  relevant_documents:
+  - orz
+  - ezhik_i_zdorove
+  - novye_zuby_krosha
+  reference_answer: При ОРЗ герои лечатся, у Кроша шатается зуб, Пин советует.
+  required_facts:
+  - ОРЗ
+  - зуб
+  - Пин
+- id: art
+  text: Как герои играют музыку, танцуют и сочиняют стихи?
+  kind: normal
+  relevant_documents:
+  - royal
+  - kak_zdorovo_sochinyat_stikhi
+  - kordebalet
+  reference_answer: Нюша играет на рояле, герои учат танец и сочиняют стихи.
+  required_facts:
+  - рояле
+  - танец
+  - стихи
+- id: invention
+  text: Какие изобретения строит Пин?
+  kind: normal
+  relevant_documents:
+  - schastemet
+  - zheleznaya_nyanya
+  - dvigatel_progressa
+  reference_answer: Пин строит счастьемет, железную няню и вечный двигатель.
+  required_facts:
+  - счастьемет
+  - няню
+  - двигатель
+- id: friendship
+  text: Зачем нужны друзья и как проявить внимание?
+  kind: normal
+  relevant_documents:
+  - nastoyashchie_tsennosti
+  - zachem_nuzhny_druzya
+  - kak_sobrat_druzey_po_bystromu
+  reference_answer: Друзья нужны для внимания и поддержки, настоящие ценности важнее
+    вещей.
+  required_facts:
+  - друзья
+  - внимания
+  - ценности
+- id: sleep
+  text: Что снится героям и кто громко храпит?
+  kind: normal
+  relevant_documents:
+  - snotvorets
+  - polety_vo_sne_i_nayavu
+  - energiya_khrapa
+  reference_answer: Героям снятся сны, у них бессонница, Копатыч громко храпит.
+  required_facts:
+  - сны
+  - бессонница
+  - храпит
+- id: mystery
+  text: Какие тайны и секреты скрывают герои?
+  kind: normal
+  relevant_documents:
+  - anonim
+  - sekret_gudini
+  - taynoe_obshchestvo
+  reference_answer: В историях есть анонимные послания, тайное общество и фокусы.
+  required_facts:
+  - анонимные
+  - тайное общество
+  - фокусы
+- id: travel
+  text: Куда отправляются герои в путешествия?
+  kind: normal
+  relevant_documents:
+  - proshchay_barash
+  - kray_zemli
+  - kosmicheskaya_odisseya_chast_2
+  reference_answer: Бараш собирается в кругосветное путешествие, герои летят в космос
+    и к краю земли.
+  required_facts:
+  - кругосветное
+  - космос
+  - краю земли
+- id: beauty
+  text: Что герои думают о красоте и конкурсах?
+  kind: normal
+  relevant_documents:
+  - krasota
+  - miss_vselennaya
+  - prints_dlya_nyushi
+  reference_answer: Красота важна, Совунья участвует в конкурсе, Нюша мечтает о принце.
+  required_facts:
+  - красота
+  - конкурс
+  - принце
+- id: holidays
+  text: Как герои готовятся к праздникам и дням рождения?
+  kind: normal
+  relevant_documents:
+  - maslenitsa
+  - den_rozhdeniya_nyushi
+  - dar
+  reference_answer: Герои пекут блины на Масленицу, готовят день рождения Нюши и делают
+    подарки.
+  required_facts:
+  - Маслениц
+  - день рождения
+  - подар
+- id: garden
+  text: Что герои делают в огороде и с урожаем?
+  kind: normal
+  relevant_documents:
+  - uli_kopatycha
+  - bolshoy_kush
+  - kulinariya
+  reference_answer: Копатыч чинит ульи, герои собирают морковку и готовят из неё блюда.
+  required_facts:
+  - ульи
+  - морков
+  - блюда
+- id: fear
+  text: Кто боится высоты и как герои преодолевают страх?
+  kind: normal
+  relevant_documents:
+  - prints_dlya_nyushi
+  - vzaperti
+  - labirint
+  reference_answer: Бараш боится высоты, герои оказываются взаперти и проходят лабиринт.
+  required_facts:
+  - высоты
+  - взаперти
+  - лабиринт
+- id: deception
+  text: Что бывает из-за обмана и ревности?
+  kind: normal
+  relevant_documents:
+  - lili
+  - skvernaya_primeta
+  - moya_prelest
+  reference_answer: Обман и ревность приводят к ссорам и неприятностям.
+  required_facts:
+  - обман
+  - ревность
+  - ссор
+- id: weather
+  text: Какая погода бывает в историях?
+  kind: normal
+  relevant_documents:
+  - 41_s
+  - plyus_sneg_minus_elka
+  - kray_zemli
+  reference_answer: Бывает сильный мороз, снег и путешествие к краю земли.
+  required_facts:
+  - мороз
+  - снег
+  - краю земли
+- id: technique
+  text: Какие технические устройства появляются в историях?
+  kind: normal
+  relevant_documents:
+  - telegraf
+  - magnetizm
+  - zheleznaya_nyanya
+  reference_answer: Герои используют телеграф, изучают магнетизм и строят механическую
+    няню.
+  required_facts:
+  - телеграф
+  - магнетизм
+  - няню
+- id: games
+  text: В какие игры играют герои?
+  kind: normal
+  relevant_documents:
+  - golf
+  - futbol_1_y_taym
+  - kto_pervyy
+  reference_answer: Герои играют в гольф, футбол и спорят, кто первый.
+  required_facts:
+  - гольф
+  - футбол
+  - первый
+- id: family
+  text: Какие истории рассказывают о семье и Биби?
+  kind: normal
+  relevant_documents:
+  - bibi_i_ego_papa
+  - kanikuly_bibi
+  - proshchay_barash
+  reference_answer: Биби и его папа, каникулы Биби и прощание с Барашем.
+  required_facts:
+  - Биби
+  - папа
+  - Бараш
+- id: trap_phone
+  text: Какой номер телефона у Бараша?
+  kind: trap
+  reference_answer: В документах нет этой информации.
+- id: trap_age
+  text: Сколько лет Лосяшу?
+  kind: trap
+  reference_answer: В документах нет этой информации.
+- id: trap_car
+  text: Какая марка машины у Пина?
+  kind: trap
+  reference_answer: В документах нет этой информации.
+- id: trap_champion
+  text: Кто выиграл чемпионат мира по футболу в 2018 году?
+  kind: trap
+  reference_answer: В документах нет этой информации.
+- id: trap_wifi
+  text: Какой пароль от Wi-Fi в доме Кроша?
+  kind: trap
+  reference_answer: В документах нет этой информации.
+- id: trap_city
+  text: В каком городе живут Смешарики?
+  kind: trap
+  reference_answer: В документах нет этой информации.
+- id: trap_money
+  text: Сколько денег заработал Копатыч на мёде?
+  kind: trap
+  reference_answer: В документах нет этой информации.
+- id: trap_school
+  text: В какую школу ходит Нюша?
+  kind: trap
+  reference_answer: В документах нет этой информации.
+- id: trap_email
+  text: Какой email у Пина?
+  kind: trap
+  reference_answer: В документах нет этой информации.
+- id: trap_birthday
+  text: Когда день рождения Совуньи?
+  kind: trap
+  reference_answer: В документах нет этой информации.

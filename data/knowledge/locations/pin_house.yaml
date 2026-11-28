@@ -1,0 +1,10 @@
+id: pin_house
+name: Дом Пина
+description: Дом и мастерская Пина, полные машин и изобретений.
+continuities:
+- classic
+residents:
+- pin
+sources:
+- episode: zheleznaya_nyanya
+- episode: energiya_khrapa

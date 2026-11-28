@@ -6,7 +6,6 @@ docker/.env
 
 # Local RAG data (knowledge packages, scenarios); never commit.
 # Only encrypted/data.enc goes to the repository.
-/data/
 # Temporary folders and files of data_crypt.py (may hold decrypted data)
 /.data-decrypt-*/
 /encrypted/tmp*

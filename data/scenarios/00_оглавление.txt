@@ -1,0 +1,93 @@
+# Сценарии роликов
+
+Текст распознан GigaAM-v3, исправлены имена (`names.json`) и принятые правки (`fixes.json`).
+
+## Плейлист 1 — 32 роликов
+
+- [KikOriki](https://youtu.be/-W2tJmIJltg) — 530 слов — `KikOriki.txt`
+- [Принц для Нюши](https://youtu.be/rL8u4Y6holg) — 558 слов — `Принц_для_Нюши.txt`
+- [Куда уходит Старый год?](https://youtu.be/U13KJMaJKk8) — 409 слов — `Куда_уходит_Старый_год.txt`
+- [Фанерное солнце](https://youtu.be/oC27Mz_0r2A) — 290 слов — `Фанерное_солнце.txt`
+- [Энергия храпа](https://youtu.be/2s2pM5aAfBc) — 337 слов — `Энергия_храпа.txt`
+- [Железная няня](https://youtu.be/odbwz_86Xvg) — 300 слов — `Железная_няня.txt`
+- [Подарок судьбы](https://youtu.be/Rc84ZglMJVY) — 326 слов — `Подарок_судьбы.txt`
+- [Кто первый?](https://youtu.be/IZ2BQ0lQQv0) — 496 слов — `Кто_первый.txt`
+- [Некультурный](https://youtu.be/DYgaq4lJd00) — 377 слов — `Некультурный.txt`
+- [Забытая история](https://youtu.be/-DzwOFVaMmQ) — 475 слов — `Забытая_история.txt`
+- [Рояль](https://youtu.be/JMCnGTNwXX0) — 403 слов — `Рояль.txt`
+- [Как собрать друзей по-быстрому](https://youtu.be/wVH6vZiWrl8) — 379 слов — `Как_собрать_друзей_по-быстрому.txt`
+- [Телеграф](https://youtu.be/B6qZlPXe_a4) — 284 слов — `Телеграф.txt`
+- [Коллекция](https://youtu.be/wC-mrwnfQZ0) — 390 слов — `Коллекция.txt`
+- [Лили](https://youtu.be/oGelCZ_cG1g) — 363 слов — `Лили.txt`
+- [Биография зонтика](https://youtu.be/rqAMbxbXr4c) — 329 слов — `Биография_зонтика.txt`
+- [Ля](https://youtu.be/qpw-7O72DP8) — 215 слов — `Ля.txt`
+- [Путь в приличное общество](https://youtu.be/Iu9y-2nEAG0) — 453 слов — `Путь_в_приличное_общество.txt`
+- [День рождения Нюши](https://youtu.be/wvU2Y946C58) — 377 слов — `День_рождения_Нюши.txt`
+- [Гольф](https://youtu.be/D25OYJ4hdys) — 374 слов — `Гольф.txt`
+- [Полёты во сне и наяву](https://youtu.be/38a0f-fXZCc) — 367 слов — `Полёты_во_сне_и_наяву.txt`
+- [Событие века](https://youtu.be/pCdly8Bm5YY) — 335 слов — `Событие_века.txt`
+- [Как стать звездой](https://youtu.be/UsYe59gDCOI) — 422 слов — `Как_стать_звездой.txt`
+- [Новые зубы Кроша](https://youtu.be/7F6eE0w4SWE) — 506 слов — `Новые_зубы_Кроша.txt`
+- [Балласт](https://youtu.be/8I1JS1cC8Mw) — 210 слов — `Балласт.txt`
+- [Рецепт хорошего отдыха](https://youtu.be/ociddcCFe2Y) — 427 слов — `Рецепт_хорошего_отдыха.txt`
+- [Водные процедуры](https://youtu.be/okjt6KBVvaw) — 366 слов — `Водные_процедуры.txt`
+- [Красота](https://youtu.be/1z8nmmFj8EQ) — 317 слов — `Красота.txt`
+- [Последняя радуга](https://youtu.be/jWwvuKaFsJc) — 449 слов — `Последняя_радуга.txt`
+- [Большие гонки](https://youtu.be/pUuSRISUpEQ) — 369 слов — `Большие_гонки.txt`
+- [Магнетизм](https://youtu.be/WXjUaWMOOQw) — 351 слов — `Магнетизм.txt`
+- [Тайное общество](https://youtu.be/rhRexgFZ00A) — 339 слов — `Тайное_общество.txt`
+
+## Плейлист 2 — 52 роликов
+
+- [Педагогическая поэма](https://youtu.be/PZRBcDn1BOM) — 351 слов — `Педагогическая_поэма.txt`
+- [Прощай, Бараш!](https://youtu.be/ngGOhNnkVd8) — 427 слов — `Прощай_Бараш.txt`
+- [Мисс Вселенная](https://youtu.be/-DzuecgGawo) — 375 слов — `Мисс_Вселенная.txt`
+- [-41°С](https://youtu.be/9IsFUwqf188) — 413 слов — `41С.txt`
+- [Футбол 1-й тайм](https://youtu.be/9HkNyA55I70) — 318 слов — `Футбол_1-й_тайм.txt`
+- [Футбол 2-ой тайм](https://youtu.be/XwOtseL3btw) — 244 слов — `Футбол_2-ой_тайм.txt`
+- [ОРЗ](https://youtu.be/MfdSBO1IPYo) — 315 слов — `ОРЗ.txt`
+- [Снотворец](https://youtu.be/ifkQmUwx_QI) — 409 слов — `Снотворец.txt`
+- [В начале было слово](https://youtu.be/2tkSZRrMRQE) — 590 слов — `В_начале_было_слово.txt`
+- [Ульи Копатыча](https://youtu.be/yOfYwFdqOVU) — 344 слов — `Ульи_Копатыча.txt`
+- [День справедливости](https://youtu.be/TFYm7jOwhnM) — 448 слов — `День_справедливости.txt`
+- [Кордебалет](https://youtu.be/I5mNfhsimfA) — 469 слов — `Кордебалет.txt`
+- [Дар](https://youtu.be/ywkGQskUbFk) — 280 слов — `Дар.txt`
+- [Большой куш](https://youtu.be/PYz64y9Ue-k) — 358 слов — `Большой_куш.txt`
+- [Невоспитанный клон](https://youtu.be/ey-7n-dNUIs) — 416 слов — `Невоспитанный_клон.txt`
+- [Основной инстинкт](https://youtu.be/KSkaA0406Kw) — 443 слов — `Основной_инстинкт.txt`
+- [Масленица](https://youtu.be/MTlwV2Yj1RI) — 432 слов — `Масленица.txt`
+- [Ежидзе](https://youtu.be/m4VFGJXr27g) — 404 слов — `Ежидзе.txt`
+- [Как здорово сочинять стихи](https://youtu.be/BX_WEjnr0_4) — 447 слов — `Как_здорово_сочинять_стихи.txt`
+- [Ёжик и здоровье](https://youtu.be/iFU3cuX31F8) — 577 слов — `Ёжик_и_здоровье.txt`
+- [Биби и его папа](https://youtu.be/uJxO8TMj-uI) — 231 слов — `Биби_и_его_папа.txt`
+- [Моя прелесть](https://youtu.be/bKsPf-TZmOQ) — 461 слов — `Моя_прелесть.txt`
+- [Двигатель прогресса](https://youtu.be/mNmG6dmToEc) — 476 слов — `Двигатель_прогресса.txt`
+- [Маскарад](https://youtu.be/cXlM3ofUqKw) — 358 слов — `Маскарад.txt`
+- [Бойкот](https://youtu.be/nAhLGJHHdlQ) — 482 слов — `Бойкот.txt`
+- [Космическая одиссея. Часть 1](https://youtu.be/li2r8KszZno) — 191 слов — `Космическая_одиссея._Часть_1.txt`
+- [Каникулы Биби](https://youtu.be/yfPjfVryjMc) — 356 слов — `Каникулы_Биби.txt`
+- [Космическая одиссея. Часть 2](https://youtu.be/opp3DPHlYZ4) — 281 слов — `Космическая_одиссея._Часть_2.txt`
+- [Скверная примета](https://youtu.be/HVTilP58rCg) — 301 слов — `Скверная_примета.txt`
+- [Личная жизнь](https://youtu.be/2kXxiuPzsg4) — 507 слов — `Личная_жизнь.txt`
+- [Роман в письмах](https://youtu.be/laQnmjBrd2o) — 474 слов — `Роман_в_письмах.txt`
+- [Плюс снег, минус елка](https://youtu.be/9GYbnREDGTo) — 361 слов — `Плюс_снег_минус_елка.txt`
+- [Её звали Нюша](https://youtu.be/i-9FtF6ToPg) — 399 слов — `Её_звали_Нюша.txt`
+- [Ежик в Туманности](https://youtu.be/dVYKNtI4UOA) — 275 слов — `Ежик_в_Туманности.txt`
+- [Взаперти](https://youtu.be/KI7ytiGgeLs) — 305 слов — `Взаперти.txt`
+- [Линии судьбы](https://youtu.be/4ubFiAp3vLw) — 538 слов — `Линии_судьбы.txt`
+- [Трюфель](https://youtu.be/0yMer_OQi4c) — 339 слов — `Трюфель.txt`
+- [Реалист](https://youtu.be/5KtKMLCsA-k) — 399 слов — `Реалист.txt`
+- [Аноним](https://youtu.be/XZiIAsNInPg) — 472 слов — `Аноним.txt`
+- [Куда приводят желания](https://youtu.be/lK3xzYGej8w) — 285 слов — `Куда_приводят_желания.txt`
+- [Край земли](https://youtu.be/ptOc6UfJY4c) — 489 слов — `Край_земли.txt`
+- [Полоса невезения](https://youtu.be/zzfubODk_8E) — 359 слов — `Полоса_невезения.txt`
+- [Кулинария](https://youtu.be/SNGSx1Xp5Ro) — 395 слов — `Кулинария.txt`
+- [Секрет Гудини](https://youtu.be/9hMZwwa9Xek) — 437 слов — `Секрет_Гудини.txt`
+- [Комната грусти](https://youtu.be/nOTaxfOEfrE) — 377 слов — `Комната_грусти.txt`
+- [Вестибулярный аппарат](https://youtu.be/fXck-6OLaNM) — 478 слов — `Вестибулярный_аппарат.txt`
+- [Настоящие ценности](https://youtu.be/WGfcUzlozlU) — 451 слов — `Настоящие_ценности.txt`
+- [Зачем нужны друзья](https://youtu.be/2YUZu4YxhC4) — 425 слов — `Зачем_нужны_друзья.txt`
+- [Герой Плутона](https://youtu.be/sZusnhp0Guc) — 374 слов — `Герой_Плутона.txt`
+- [Смысл жизни](https://youtu.be/Pjxr08Cw59w) — 446 слов — `Смысл_жизни.txt`
+- [Счастьемет](https://youtu.be/HFvKdvAz-JA) — 277 слов — `Счастьемет.txt`
+- [Лабиринт](https://youtu.be/xW4NqHkAk9g) — 402 слов — `Лабиринт.txt`

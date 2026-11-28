@@ -1,0 +1,22 @@
+id: fanernoe_solntse
+work: smeshariki
+number: 4
+title: Фанерное солнце
+characters:
+- barash
+- krosh
+- yozhik
+- sovunya
+locations:
+- sovunya_house
+artifacts:
+- plywood_sun
+interactions:
+- from: krosh
+  to: barash
+  type: support
+  description: Друзья поднимают фанерное солнце, чтобы вернуть Барашу настроение.
+- from: sovunya
+  to: barash
+  type: support
+  description: Совунья поит Бараша чаем из лесных ягод, впитавших летнее солнце.

@@ -1,0 +1,50 @@
+id: kar_karych
+name: Кар-Карыч
+aliases:
+- Карыч
+species: ворон
+versions:
+- continuities:
+  - classic
+  age_group: elderly
+  traits:
+  - много путешествовал и плавал по морям
+  - любит рассказывать истории из прошлого
+  - артистичный
+  - любит руководить и командовать
+  - мудрый советчик
+  speech_style:
+    register: театральный, старомодный
+    markers:
+    - 'морские словечки: «Карамба!», «Полундра!»'
+  catchphrases:
+  - Вот помню, был случай…
+  sources:
+  - episode: prints_dlya_nyushi
+    note: кораблекрушение
+  - episode: kto_pervyy
+    note: «Вот помню, был случай»
+  - episode: zabytaya_istoriya
+    note: «Карамба!»
+  - episode: kuda_ukhodit_staryy_god
+    note: художественное руководство
+  voice:
+    examples:
+    - Вот помню, был случай...
+    - Карамба! Полундра!
+    - Молодой человек, в моё время...
+    never_says:
+    - Я не люблю рассказывать истории.
+    - Молчите, я ничего не скажу.
+    story_role: Артист-рассказчик, любит руководить и вспоминать прошлое.
+    dynamics:
+    - with: barash
+      pattern: Кар-Карыч наставляет Бараша в пении и сценическом мастерстве.
+relationships:
+- to: barash
+  type: mentor
+  continuities:
+  - classic
+  description: Занимается с Барашем пением.
+  sources:
+  - episode: lya

@@ -1,0 +1,14 @@
+id: submarine
+name: Подводная лодка
+aliases:
+- подлодка
+artifact_type: транспорт
+description: Подлодка, на которой Пин, Крош и Ёжик ищут пиратские сокровища.
+capabilities:
+- плавает под водой
+limitations:
+- мест в ней мало
+continuities:
+- classic
+sources:
+- episode: ballast

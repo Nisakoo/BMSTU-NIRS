@@ -1,0 +1,9 @@
+id: losyash_house
+name: Дом Лосяша
+description: Дом Лосяша, где ничего невозможно найти.
+continuities:
+- classic
+residents:
+- losyash
+sources:
+- episode: krasota

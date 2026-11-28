@@ -1,0 +1,24 @@
+id: kollektsiya
+work: smeshariki
+number: 14
+title: Коллекция
+characters:
+- yozhik
+- krosh
+locations:
+- yozhik_house
+artifacts:
+- candy_wrapper_collection
+interactions:
+- from: krosh
+  to: yozhik
+  type: conflict
+  description: Крош смеётся над коллекцией фантиков, и друзья ссорятся.
+- from: krosh
+  to: yozhik
+  type: support
+  description: Крош приносит Ёжику фантик и гонится за унесённой бурей коллекцией.
+- from: yozhik
+  to: krosh
+  type: empathy
+  description: Ёжик понимает, что Крош для него дороже любого редкого фантика.

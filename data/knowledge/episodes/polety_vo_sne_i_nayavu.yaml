@@ -1,0 +1,13 @@
+id: polety_vo_sne_i_nayavu
+work: smeshariki
+number: 21
+title: Полёты во сне и наяву
+characters:
+- pin
+- kopatych
+- losyash
+- krosh
+locations:
+- kopatych_garden
+artifacts:
+- pin_plane

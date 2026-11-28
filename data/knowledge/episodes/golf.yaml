@@ -1,0 +1,16 @@
+id: golf
+work: smeshariki
+number: 20
+title: Гольф
+characters:
+- yozhik
+- kar_karych
+- kopatych
+- sovunya
+- nyusha
+- losyash
+interactions:
+- from: kar_karych
+  to: yozhik
+  type: support
+  description: Кар-Карыч подбадривает Ёжика не опускать руки и подсказывает, как бить.

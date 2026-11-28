@@ -1,0 +1,13 @@
+id: magnet
+name: Магнит
+artifact_type: предмет
+description: Магнит, найденный при поисках бидона с морковным соком.
+capabilities:
+- притягивает железные вещи
+limitations:
+- притягивает только железо
+- если перевернуть, отталкивает
+continuities:
+- classic
+sources:
+- episode: magnetizm

@@ -1,0 +1,17 @@
+id: magnetizm
+work: smeshariki
+number: 31
+title: Магнетизм
+characters:
+- yozhik
+- krosh
+- nyusha
+- losyash
+- barash
+artifacts:
+- magnet
+interactions:
+- from: krosh
+  to: yozhik
+  type: conflict
+  description: Крош и Ёжик ссорятся, пока ищут закопанный бидон с морковным соком.

@@ -1,0 +1,10 @@
+id: sovunya_recipes
+name: Рецепты Совуньи
+artifact_type: записи
+description: 'Собранные Совуньей за всю жизнь рецепты на любой случай: от пирога до домашнего уюта.'
+continuities:
+- classic
+creators:
+- sovunya
+sources:
+- episode: retsept_khoroshego_otdykha

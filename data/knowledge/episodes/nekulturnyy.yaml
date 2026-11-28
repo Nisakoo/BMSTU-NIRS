@@ -1,0 +1,16 @@
+id: nekulturnyy
+work: smeshariki
+number: 9
+title: Некультурный
+characters:
+- sovunya
+- kopatych
+- losyash
+- yozhik
+locations:
+- kopatych_garden
+interactions:
+- from: kopatych
+  to: losyash
+  type: conflict
+  description: Копатыч случайно обрызгивает Лосяша раствором от сорняков.

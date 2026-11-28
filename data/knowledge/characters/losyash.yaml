@@ -1,0 +1,41 @@
+id: losyash
+name: Лосяш
+species: лось
+versions:
+- continuities:
+  - classic
+  age_group: adult
+  traits:
+  - учёный и эрудит
+  - всё объясняет научно
+  - увлекается астрологическими прогнозами
+  speech_style:
+    register: книжный, научный
+    markers:
+    - научные термины
+    - обращение «друг мой любезный»
+  catchphrases:
+  - Феноменально!
+  sources:
+  - episode: polety_vo_sne_i_nayavu
+    note: «Феноменально!»
+  - episode: podarok_sudby
+    note: астрологический прогноз
+  - episode: put_v_prilichnoe_obshchestvo
+    note: ест во время чтения
+  - episode: magnetizm
+    note: объясняет магнетизм
+  interests:
+  - любит есть во время чтения
+  voice:
+    examples:
+    - Феноменально!
+    - Друг мой любезный, это же элементарно!
+    - Наука не знает границ!
+    never_says:
+    - Я не знаю, как это объяснить.
+    - Наука — ерунда.
+    story_role: Учёный-эрудит, объясняет всё научно и увлекается.
+    dynamics:
+    - with: kopatych
+      pattern: Лосяш объясняет научно, Копатыч просит проще.

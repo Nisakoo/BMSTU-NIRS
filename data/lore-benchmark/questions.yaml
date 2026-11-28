@@ -1,0 +1,149 @@
+questions:
+- id: space
+  text: Что случилось с героями, которые отправились в космос искать Биби?
+  kind: normal
+  relevant_documents:
+  - kosmicheskaya_odisseya_chast_1
+  - kosmicheskaya_odisseya_chast_2
+  - ezhik_v_tumannosti
+  reference_answer: 'Пин и его друзья покидают планету: один ищет пропавшего малыша,
+    другой путешествует на камне из космоса.'
+  required_facts:
+  - Пин
+  - Биби
+  - Ёжик
+- id: sport
+  text: Во что играли герои — футбол и гольф — и как это проходило?
+  kind: normal
+  relevant_documents:
+  - futbol_1_y_taym
+  - futbol_2_oy_taym
+  - golf
+  reference_answer: Сначала устраивают командную игру двумя половинами, а потом
+    метят мяч в лунку специальной клюшкой.
+  required_facts:
+  - футбол
+  - гольф
+  - мяч
+- id: food
+  text: Какие блюда из морковки готовили герои и что у них считалось деликатесом?
+  kind: normal
+  relevant_documents:
+  - kulinariya
+  - tryufel
+  - bolshoy_kush
+  reference_answer: Обсуждают блюда из оранжевого овоща, находят редкое лакомство
+    и собирают большой урожай.
+  required_facts:
+  - морков
+  - трюфель
+  - деликатес
+- id: winter
+  text: Как герои встречали Новый год и переживали сильный мороз?
+  kind: normal
+  relevant_documents:
+  - 41_s
+  - plyus_sneg_minus_elka
+  - kuda_ukhodit_staryy_god
+  reference_answer: Они отмечают праздник, ищут ёлку под снегом и мёрзнут на
+    сильном холоде.
+  required_facts:
+  - Новый год
+  - снег
+  - мороз
+- id: health
+  text: Что делать при ОРЗ, простуде и если у героя шатается зуб?
+  kind: normal
+  relevant_documents:
+  - orz
+  - ezhik_i_zdorove
+  - novye_zuby_krosha
+  reference_answer: При недомогании герои лечатся, а Пин даёт советы по уходу за
+    зубом.
+  required_facts:
+  - ОРЗ
+  - зуб
+  - Пин
+- id: art
+  text: Кто из героев играл на рояле, танцевал и сочинял стихи?
+  kind: normal
+  relevant_documents:
+  - royal
+  - kak_zdorovo_sochinyat_stikhi
+  - kordebalet
+  reference_answer: Одна героиня играет на рояле, остальные разучивают танец и
+    рифмуют стихи.
+  required_facts:
+  - роял
+  - танец
+  - стихи
+- id: invention
+  text: Какие механизмы, двигатель и роботов построил Пин?
+  kind: normal
+  relevant_documents:
+  - schastemet
+  - zheleznaya_nyanya
+  - dvigatel_progressa
+  reference_answer: Пин строит счастьемет, железную няню и вечный двигатель.
+  required_facts:
+  - счастьемет
+  - няню
+  - двигатель
+- id: friendship
+  text: Зачем героям нужны друзья и как быстро собрать их вместе?
+  kind: normal
+  relevant_documents:
+  - nastoyashchie_tsennosti
+  - zachem_nuzhny_druzya
+  - kak_sobrat_druzey_po_bystromu
+  reference_answer: Друзья нужны для внимания и поддержки, а настоящие ценности
+    важнее вещей.
+  required_facts:
+  - ценности
+  - внимание
+  - друзья
+- id: sleep
+  text: Что снится героям, у кого бессонница и кто громко храпит?
+  kind: normal
+  relevant_documents:
+  - snotvorets
+  - polety_vo_sne_i_nayavu
+  - energiya_khrapa
+  reference_answer: Героям снятся сны, у одного бывает бессонница, а Копатыч громко
+    храпит.
+  required_facts:
+  - бессонница
+  - сон
+  - храп
+- id: mystery
+  text: Кто такой аноним и какие фокусы показывало тайное общество?
+  kind: normal
+  relevant_documents:
+  - anonim
+  - sekret_gudini
+  - taynoe_obshchestvo
+  reference_answer: В историях есть анонимные послания, тайное общество и фокусы.
+  required_facts:
+  - аноним
+  - тайное общество
+  - фокус
+- id: trap_phone
+  text: Какой номер телефона у Бараша?
+  kind: trap
+  reference_answer: В документах нет этой информации.
+- id: trap_age
+  text: Сколько лет Лосяшу?
+  kind: trap
+  reference_answer: В документах нет этой информации.
+- id: trap_car
+  text: Какая марка машины у Пина?
+  kind: trap
+  reference_answer: В документах нет этой информации.
+- id: trap_champion
+  text: Кто выиграл чемпионат мира по футболу в 2018 году?
+  kind: trap
+  reference_answer: В документах нет этой информации.
+- id: trap_wifi
+  text: Какой пароль от Wi-Fi в доме Кроша?
+  kind: trap
+  reference_answer: В документах этой информации нет.

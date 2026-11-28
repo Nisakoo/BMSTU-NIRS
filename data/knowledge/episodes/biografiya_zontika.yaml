@@ -1,0 +1,20 @@
+id: biografiya_zontika
+work: smeshariki
+number: 16
+title: Биография зонтика
+characters:
+- barash
+- krosh
+- yozhik
+- pin
+artifacts:
+- barash_umbrella
+interactions:
+- from: krosh
+  to: barash
+  type: support
+  description: Друзья дарят Барашу новый зонтик.
+- from: barash
+  to: pin
+  type: support
+  description: Бараш отпускает старый зонтик, чтобы не бросить друга во время бури.

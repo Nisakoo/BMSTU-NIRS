@@ -1,0 +1,65 @@
+id: krosh
+name: Крош
+species: кролик
+versions:
+- continuities:
+  - classic
+  age_group: child
+  traits:
+  - энергичный
+  - нетерпеливый, не любит ждать
+  - выдумщик, всё время что-то затевает
+  - верный друг
+  speech_style:
+    register: разговорный, быстрый, восклицательный
+    markers:
+    - вставляет «понимаешь»
+    - восклицание «Ёлки-иголки!»
+  catchphrases:
+  - Ёлки-иголки!
+  sources:
+  - episode: skameyka
+    note: не любит ждать, пока высохнет краска
+  - episode: novye_zuby_krosha
+    note: «Ёлки-иголки, я придумал!»
+  - episode: magnetizm
+    note: закопал бидон с морковным соком
+  interests:
+  - любит морковку
+  voice:
+    examples:
+    - Ёлки-иголки! Я придумал!
+    - Понимаешь, Ёжик, тут главное — начать!
+    - Ну чего ты копаешься? Побежали!
+    never_says:
+    - Давай сначала всё спокойно обсудим.
+    - Я подожду.
+    story_role: 'Зачинщик: придумывает дело и тащит друзей, не умеет ждать.'
+    dynamics:
+    - with: yozhik
+      pattern: Крош тащит Ёжика в приключение, Ёжик упирается, но идёт.
+    - with: barash
+      pattern: Крош подбадривает Бараша и вытаскивает его из хандры.
+relationships:
+- to: yozhik
+  type: friendship
+  continuities:
+  - classic
+  description: Лучшие друзья, почти всё делают вместе.
+  sources:
+  - episode: kollektsiya
+  - episode: magnetizm
+- to: yozhik
+  type: neighborhood
+  continuities:
+  - classic
+  description: Ёжик живёт рядом с Крошем и часто заходит в гости.
+  sources:
+  - episode: skameyka
+- to: barash
+  type: friendship
+  continuities:
+  - classic
+  description: Крош дорожит Барашем и очень ценит их дружбу.
+  sources:
+  - episode: skameyka

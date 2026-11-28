@@ -1,0 +1,16 @@
+id: retsept_khoroshego_otdykha
+work: smeshariki
+number: 26
+title: Рецепт хорошего отдыха
+characters:
+- sovunya
+- nyusha
+- krosh
+- yozhik
+artifacts:
+- sovunya_recipes
+interactions:
+- from: nyusha
+  to: sovunya
+  type: support
+  description: Нюша ищет для уставшей Совуньи рецепт лечебного отдыха.
